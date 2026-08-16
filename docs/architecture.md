@@ -24,7 +24,8 @@ robot state + cameras
 2. 新 action chunk 能按时间对齐并原子替换旧 chunk；
 3. stale/invalid response 永远不会发给真机；
 4. 不改核心 runtime 即可替换 robot driver 或 policy adapter；
-5. 一次 episode 可以在本地查看、评分和 replay。
+5. Smooth 或本地 MPC 能把异步 chunk 变成连续受约束的 command；
+6. 一次 episode 可以在本地查看、评分和 replay。
 
 ## 2. V1 部署结构
 
@@ -74,7 +75,7 @@ Latest State Buffers ──► Observation Builder ──► policy request queu
      │                                        policy response queue
      │                                                │
      ▼                                                ▼
-Safety/Watchdog ◄── Controller ◄── Action Timeline ◄── Validator/Adapter
+Safety/Watchdog ◄── Smooth/MPC Executor ◄── Action Timeline ◄── Validator/Adapter
      │
      ▼
 RobotDriver.send_command()
@@ -197,10 +198,20 @@ policy:
   timeout_s: 1.0
 
 execution:
+  executor: smooth             # smooth | mpc
   refill_threshold_s: 0.4
   commit_lead_s: 0.02
   max_plan_age_s: 1.0
   underrun_hold_s: 0.5
+  smooth:
+    cutoff_hz: 8.0
+    max_velocity: [...]
+    max_acceleration: [...]
+  mpc:
+    horizon_steps: 15
+    control_dt_s: 0.01
+    max_velocity: [...]
+    max_acceleration: [...]
 
 viewer:
   enabled: true
@@ -246,20 +257,44 @@ t3  在 now + commit_lead 后原子替换未来 timeline
 t4  controller 在每个 tick 采样 timeline
 ```
 
-### 5.3 Timeline V1 能力
+### 5.3 Timeline 与 Executor V1 能力
 
-只实现：
+Timeline 只实现：
 
 - 一个 active plan；
 - 按 monotonic time 采样；
 - stale prefix trimming；
 - 双臂 group 原子 commit；
-- 线性/cubic interpolation 二选一；
-- position/velocity limit；
 - 短 blend window；
 - buffer underrun 时 hold，超过 TTL 后 fault。
 
-V1 不实现 MPC、time-parameterization optimizer、多 plan arbitration 或自动 fallback policy。
+Timeline 输出 reference horizon，再交给每个 run 静态选择的 executor：
+
+```python
+class Executor(Protocol):
+    def reset(self, state: RobotState) -> None: ...
+    def step(
+        self, now_ns: int, state: RobotState, reference: ActionHorizon
+    ) -> RobotCommand: ...
+```
+
+#### SmoothExecutor
+
+- 对 reference 做固定频率 resample/interpolation；
+- 使用 causal low-pass/EMA 或等价简单滤波；
+- 执行 position、velocity、acceleration limit；
+- 输出当前 tick 的 `optimized_action`。
+
+#### MPCExecutor
+
+- 使用当前 measured state 和 timeline future reference 做有限时域跟踪；
+- V1 只做 joint-position space local MPC；relative EE policy 需由 PolicyAdapter/IK 转成 joint reference；
+- 约束 position、velocity、acceleration，并保持双臂 command 同 tick 输出；
+- solver 超时或失败时记录有界 reason 并 hold/fault，不静默切换 executor。
+
+V1 不实现 learned speed selection、whole-body nonlinear MPC、多 plan arbitration 或运行时 executor 自动切换。
+
+MPC solver 作为可选依赖并 lazy import；选择 `executor: smooth` 时不安装、不初始化 MPC 依赖。配置只校验当前选中的 executor block。
 
 ### 5.4 接受新 chunk 的条件
 
@@ -323,6 +358,7 @@ data/
 - robot state 和 timestamp；
 - raw model action 和 request metadata；
 - scheduled/timeline action；
+- optimized action，以及 `executor_kind = smooth | mpc`；
 - command sent；
 - 每路 camera frame timestamp；
 - step、chunk index 和 inference latency。
@@ -336,13 +372,13 @@ data/
 - safety clamp/fault；
 - recorder/video error。
 
-V1 action lineage 只有四个必需阶段：
+V1 action lineage 只有五个必需阶段：
 
 ```text
-raw_model_action -> scheduled_action -> command_sent -> measured_state
+raw_model_action -> scheduled_action -> optimized_action -> command_sent -> measured_state
 ```
 
-如果以后增加 smoothing/MPC，再追加 `pre_mpc`、`post_mpc` 等 named arrays，不改变基础四阶段。
+`scheduled_action` 对应 executor 输入，`optimized_action` 对应 Smooth/MPC 输出。若以后需要 solver 内部诊断，再追加 named arrays，不改变基础五阶段。
 
 ### 7.3 结果与查询
 
@@ -370,6 +406,10 @@ src/manimux/
     edge.py
     timeline.py
     safety.py
+    executors/
+      base.py
+      smooth.py
+      mpc.py
   robots/
     base.py
     mock.py
@@ -402,6 +442,7 @@ docs/
 - mock dual-arm robot/sensors；
 - fake policy worker；
 - timeline + fake clock；
+- SmoothExecutor 与 MPCExecutor contract/fake tests；
 - local Zarr/JSONL recorder；
 - Universal Viewer bridge。
 
@@ -413,6 +454,7 @@ docs/
 - RealSense SensorDriver；
 - 一个真实 PolicyAdapter；
 - watchdog、limits、partial episode recovery；
+- Smooth 和 joint-space local MPC 真机低速验证；
 - 手工 success/failure 标注。
 
 验收：分别终止 policy-worker、Viewer 和 recorder writer，机器人行为可预测且 controller 不被阻塞。
@@ -432,12 +474,14 @@ docs/
 2. 注入 50–500 ms inference jitter，controller 不阻塞；
 3. response 乱序、重复、超时、维度错误或含 NaN 时，整个 chunk 被拒绝；
 4. 左右臂 plan 始终同版本原子替换；
-5. worker crash 后先消费仍有效 timeline，再 hold，TTL 后 fault；
-6. Viewer crash 后进入预期 pause/hold，不影响 controller tick；
-7. recorder 写失败不影响控制，并留下 incomplete episode/event；
-8. episode 可本地 replay，raw/scheduled/command/measured 时间轴可对齐；
-9. 第二个 PolicyAdapter 不修改 timeline/controller；
-10. 所有测试除 hardware suite 外均不依赖真机、GPU、网络或云服务。
+5. Smooth 模式满足 continuity/velocity/acceleration limits；
+6. MPC 模式跟踪同一 timeline，solver failure 触发明确 hold/fault；
+7. worker crash 后先消费仍有效 timeline，再 hold，TTL 后 fault；
+8. Viewer crash 后进入预期 pause/hold，不影响 controller tick；
+9. recorder 写失败不影响控制，并留下 incomplete episode/event；
+10. episode 可本地 replay，raw/scheduled/optimized/command/measured 时间轴可对齐；
+11. 第二个 PolicyAdapter 不修改 timeline/executor/controller；
+12. 所有测试除 hardware suite 外均不依赖真机、GPU、网络或云服务。
 
 ## 11. 明确延期
 
@@ -448,7 +492,7 @@ docs/
 - SQLite/PostgreSQL、MCAP、对象存储和上传；
 - protobuf/gRPC 通用协议；
 - Prometheus、OpenTelemetry 和 fleet dashboard；
-- MPC、复杂 time parameterization 和 collision prediction；
+- learned speed selection、whole-body nonlinear MPC、复杂 time parameterization 和 collision prediction；
 - model artifact promotion、shadow/canary；
 - Universal Viewer v2；
 - LeRobot/RLDS 等批量 exporter。

@@ -32,7 +32,7 @@ V1 必须支持：
 - Kubernetes、Kafka、NATS、Prometheus 或分布式 tracing；
 - 数据库；本地目录和 manifest 是事实源；
 - 模型训练、ONNX export、GGUF runtime 或 CUDA kernel；
-- MPC、复杂 trajectory optimizer 和自动策略切换；
+- 自动执行器切换、学习式速度选择和复杂 whole-body trajectory optimizer；
 - shadow/canary、promotion/rollback 和 fleet 管理；
 - Universal Viewer v2 协议。
 
@@ -85,13 +85,13 @@ Recorder 可以是 edge-agent 的独立子进程，但对用户不是第四个�
 
 ### 4.4 本地记录
 
-V1 至少记录四条 action/state 数据链：
+V1 至少记录五条 action/state 数据链：
 
 ```text
-raw_model_action -> scheduled_action -> command_sent -> measured_state
+raw_model_action -> scheduled_action -> optimized_action -> command_sent -> measured_state
 ```
 
-若以后增加 smoothing/MPC，再以可选 named stage 追加，不要求 V1 预先实现七阶段 pipeline。
+`optimized_action` 是所选 `SmoothExecutor` 或 `MPCExecutor` 的输出。每个 run 静态选择一种 executor，不允许运行中自动切换，也不要求预先实现七阶段 pipeline。
 
 - numeric arrays 和 timestamps 写入 `data.zarr`；
 - 相机写入本地 MP4，逐帧 timestamp 保存在 Zarr；
@@ -123,6 +123,10 @@ src/manimux/
     edge.py
     timeline.py
     safety.py
+    executors/
+      base.py
+      smooth.py
+      mpc.py
   robots/
     base.py
     mock.py
@@ -152,9 +156,11 @@ docs/
 - Python 3.11+，公共类型使用 dataclass/Pydantic 或明确的 typed structure；禁止在核心 contract 中传无约束 `dict[str, Any]`。
 - 配置使用一个经严格校验的 YAML；未知字段报错，resolved config 保存到 run 目录。
 - 队列必须有固定上限；禁止无限 queue、无限 retry 和静默 fallback。
+- `SmoothExecutor` 与 `MPCExecutor` 使用同一个显式 contract；MPC solver 失败必须产生 event 并 hold/fault，不能静默换算法。
 - 捕获异常后必须记录分类 reason 并触发定义好的状态变化；禁止 `except Exception: pass`。
 - joint order、坐标系、四元数顺序、单位、normalization 和 gripper 语义必须在配置或 adapter 中显式写明。
 - 新依赖必须服务于 V1 已实现功能，不能只为未来扩展引入。
+- MPC solver 依赖必须是可选 extra/lazy import；未启用 `executor: mpc` 时，Smooth 路径不能要求安装 solver。
 
 根目录在代码落地后提供：
 
@@ -174,6 +180,7 @@ make mock-run
 - timeline 和状态机使用 fake clock，不用真实 `sleep` 验证时序；
 - adapter 有 shape、unit、joint order 和 NaN/Inf contract tests；
 - integration 至少覆盖 response 超时、乱序、重复、stale、双臂原子替换和 buffer underrun；
+- Smooth 与 MPC 模式都要在 fake robot/fake clock 下验证 continuity、limits 和 solver failure；
 - recorder 测试 partial episode、磁盘写失败和进程重启后的可发现性；
 - Viewer 退出不能影响 controller deadline；
 - 新 robot 先通过 mock/replay，再通过 dry-run，最后才进行低速真机测试；
