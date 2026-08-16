@@ -1,0 +1,50 @@
+[project]
+name = "manimux"
+version = "0.1.0"
+description = "Local asynchronous policy runtime for dual-arm robot evaluation"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26,<2.5",
+  "pydantic>=2.8",
+  "pyyaml>=6.0",
+  "zarr>=2.18,<3",
+]
+
+[dependency-groups]
+dev = [
+  "mypy>=1.11",
+  "pytest>=8.3",
+  "ruff>=0.6",
+  "types-pyyaml>=6.0",
+]
+
+[project.scripts]
+manimux = "manimux.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/manimux"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["manimux"]
+
+[[tool.mypy.overrides]]
+module = ["zarr", "zarr.*", "universal_policy_viewer", "universal_policy_viewer.*"]
+ignore_missing_imports = true

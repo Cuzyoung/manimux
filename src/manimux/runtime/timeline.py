@@ -1,0 +1,148 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+
+from manimux.types import (
+    ActionChunk,
+    ActionHorizon,
+    GroupTrajectory,
+    GroupVector,
+    copy_group_vector,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class CommitResult:
+    accepted: bool
+    reason: str
+    trimmed_steps: int = 0
+
+
+@dataclass(slots=True)
+class _ActivePlan:
+    plan_id: str
+    request_seq: int
+    start_time_ns: int
+    dt_ns: int
+    groups: GroupTrajectory
+
+    @property
+    def horizon_steps(self) -> int:
+        return int(next(iter(self.groups.values())).shape[0])
+
+    @property
+    def end_time_ns(self) -> int:
+        return self.start_time_ns + (self.horizon_steps - 1) * self.dt_ns
+
+
+class ActionTimeline:
+    """Single-plan, time-indexed, atomically replaced action reference."""
+
+    def __init__(self, group_dims: dict[str, int]) -> None:
+        self._group_dims = dict(group_dims)
+        self._active: _ActivePlan | None = None
+        self._accepted_request_seq = -1
+
+    @property
+    def active_plan_id(self) -> str | None:
+        return None if self._active is None else self._active.plan_id
+
+    @property
+    def accepted_request_seq(self) -> int:
+        return self._accepted_request_seq
+
+    def remaining_ns(self, now_ns: int) -> int:
+        if self._active is None:
+            return 0
+        return max(0, self._active.end_time_ns - now_ns)
+
+    def commit(
+        self,
+        chunk: ActionChunk,
+        *,
+        now_ns: int,
+        commit_lead_ns: int,
+        max_plan_age_ns: int,
+        current_command: GroupVector,
+        blend_steps: int,
+    ) -> CommitResult:
+        if chunk.request_seq <= self._accepted_request_seq:
+            return CommitResult(False, "stale_request_seq")
+        if now_ns - chunk.observation_time_ns > max_plan_age_ns:
+            return CommitResult(False, "plan_too_old")
+        if set(chunk.groups) != set(self._group_dims):
+            return CommitResult(False, "group_mismatch")
+        if set(current_command) != set(self._group_dims):
+            return CommitResult(False, "current_command_group_mismatch")
+        for name, dim in self._group_dims.items():
+            if chunk.groups[name].shape[1] != dim or current_command[name].shape != (dim,):
+                return CommitResult(False, f"dimension_mismatch:{name}")
+
+        start_time_ns = now_ns + commit_lead_ns
+        age_at_commit_ns = max(0, start_time_ns - chunk.observation_time_ns)
+        trimmed_steps = int(age_at_commit_ns // chunk.dt_ns)
+        if trimmed_steps >= chunk.horizon_steps:
+            return CommitResult(False, "no_future_horizon")
+
+        groups = {name: values[trimmed_steps:].copy() for name, values in chunk.groups.items()}
+        actual_blend_steps = min(blend_steps, next(iter(groups.values())).shape[0])
+        if actual_blend_steps:
+            current = copy_group_vector(current_command)
+            for name, values in groups.items():
+                for index in range(actual_blend_steps):
+                    alpha = (index + 1) / actual_blend_steps
+                    values[index] = (1.0 - alpha) * current[name] + alpha * values[index]
+
+        new_plan = _ActivePlan(
+            plan_id=chunk.plan_id,
+            request_seq=chunk.request_seq,
+            start_time_ns=start_time_ns,
+            dt_ns=chunk.dt_ns,
+            groups=groups,
+        )
+        self._active = new_plan
+        self._accepted_request_seq = chunk.request_seq
+        return CommitResult(True, "accepted", trimmed_steps)
+
+    def sample(self, time_ns: int) -> GroupVector | None:
+        active = self._active
+        if active is None or time_ns < active.start_time_ns or time_ns > active.end_time_ns:
+            return None
+        position = (time_ns - active.start_time_ns) / active.dt_ns
+        lower = int(np.floor(position))
+        upper = min(lower + 1, active.horizon_steps - 1)
+        alpha = position - lower
+        return {
+            name: (1.0 - alpha) * values[lower] + alpha * values[upper]
+            for name, values in active.groups.items()
+        }
+
+    def reference_horizon(
+        self,
+        *,
+        now_ns: int,
+        dt_ns: int,
+        horizon_steps: int,
+    ) -> ActionHorizon | None:
+        active = self._active
+        if active is None:
+            return None
+        samples: dict[str, list[np.ndarray]] = {name: [] for name in self._group_dims}
+        last: GroupVector | None = None
+        for step in range(horizon_steps):
+            sample = self.sample(now_ns + step * dt_ns)
+            if sample is None:
+                if last is None:
+                    return None
+                sample = last
+            last = sample
+            for name, value in sample.items():
+                samples[name].append(value)
+        return ActionHorizon(
+            start_time_ns=now_ns,
+            dt_ns=dt_ns,
+            plan_id=active.plan_id,
+            groups={name: np.stack(values) for name, values in samples.items()},
+        )
