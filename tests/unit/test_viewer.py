@@ -1,0 +1,171 @@
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+import pytest
+
+from manimux.viewer.client import ViewerClient
+from manimux.viewer.dashboard import _trajectory_colors
+from manimux.viewer.protocol import PolicyPlan, RobotSnapshot, RuntimeEvent
+from manimux.viewer.robots import available_robot_adapters, load_robot_adapter
+from manimux.viewer.robots.yam import DEFAULT_I2RT_ROOT, YamAdapter
+
+
+def test_protocol_is_not_tied_to_yam_dimensions() -> None:
+    actions = np.zeros((25, 6))
+    plan = PolicyPlan("example", "task", actions, 1 / 30, 500, 2, robot="custom")
+    wire = plan.to_wire()
+    assert wire["actions"] == actions.tolist()
+    assert wire["robot"] == "custom"
+    assert wire["protocol_version"] == 1
+
+
+def test_protocol_rejects_malformed_actions() -> None:
+    with pytest.raises(ValueError, match="shape"):
+        PolicyPlan("example", "task", np.zeros(6), 1 / 30, 1, 0)
+    with pytest.raises(ValueError, match="finite"):
+        PolicyPlan("example", "task", np.array([[np.nan]]), 1 / 30, 1, 0)
+
+
+def test_snapshot_encodes_generic_robot_state() -> None:
+    state = RobotSnapshot(
+        np.zeros(4),
+        {},
+        step=3,
+        max_steps=10,
+        chunk_index=2,
+        robot="custom",
+        active_chunk_id=7,
+    )
+    wire = state.to_wire()
+    assert wire["joint_positions"] == [0.0] * 4
+    assert wire["robot"] == "custom"
+    assert wire["active_chunk_id"] == 7
+    assert wire["chunk_index"] == 2
+
+
+def test_plan_can_start_inside_an_activated_async_chunk() -> None:
+    plan = PolicyPlan(
+        "example",
+        "task",
+        np.zeros((10, 6)),
+        1 / 30,
+        250,
+        4,
+        start_index=3,
+    )
+    assert plan.to_wire()["start_index"] == 3
+    with pytest.raises(ValueError, match="start_index"):
+        PolicyPlan(
+            "example",
+            "task",
+            np.zeros((10, 6)),
+            1 / 30,
+            250,
+            4,
+            start_index=11,
+        )
+
+
+def test_runtime_event_is_policy_independent() -> None:
+    event = RuntimeEvent(
+        "inference_submitted",
+        robot="custom",
+        policy="example",
+        step=12,
+        chunk_id=3,
+        metadata={"planned_switch_step": 19},
+    ).to_wire()
+    assert event["kind"] == "event"
+    assert event["event"] == "inference_submitted"
+    assert event["metadata"]["planned_switch_step"] == 19
+
+
+class _RecordingPublisher:
+    def __init__(self) -> None:
+        self.messages: list[dict[str, Any]] = []
+        self.closed = False
+
+    def publish(self, message: Any) -> None:
+        self.messages.append(message.to_wire())
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_viewer_client_observes_without_owning_policy_execution() -> None:
+    publisher = _RecordingPublisher()
+    client = ViewerClient(
+        robot="custom",
+        policy="example",
+        camera_hz=0,
+        publisher=publisher,  # type: ignore[arg-type]
+    )
+    client.episode_started(instruction="task", max_steps=100)
+    client.inference_submitted(step=5, chunk_id=2, planned_switch_step=12)
+    client.plan_activated(
+        actions=np.zeros((10, 6)),
+        action_index=3,
+        chunk_id=2,
+        step=12,
+        action_dt=1 / 30,
+        inference_ms=400,
+        instruction="task",
+    )
+    client.step_executed(
+        joint_positions=np.zeros(6),
+        cameras={},
+        step=13,
+        max_steps=100,
+        action_index=4,
+        chunk_id=2,
+    )
+    client.close()
+
+    assert [message["kind"] for message in publisher.messages] == [
+        "event",
+        "event",
+        "plan",
+        "state",
+    ]
+    assert publisher.messages[2]["start_index"] == 3
+    assert publisher.messages[3]["active_chunk_id"] == 2
+    assert publisher.closed
+
+
+def test_yam_is_a_discovered_adapter() -> None:
+    assert "yam" in available_robot_adapters()
+    assert isinstance(load_robot_adapter("yam"), YamAdapter)
+
+
+def test_yam_adapter_splits_single_and_dual_arm_vectors() -> None:
+    adapter = YamAdapter()
+    assert set(adapter.split_actions(np.zeros((2, 7)), "joint_position")) == {"left"}
+    assert set(adapter.split_actions(np.zeros((2, 14)), "joint_position")) == {
+        "left",
+        "right",
+    }
+    with pytest.raises(ValueError, match="action_space"):
+        adapter.split_actions(np.zeros((2, 7)), "cartesian_delta")
+    with pytest.raises(ValueError, match="7 or 14"):
+        adapter.split_joint_positions(np.zeros(8))
+
+
+def test_yam_fk_and_assets_are_self_contained() -> None:
+    assert (DEFAULT_I2RT_ROOT / "i2rt/robot_models/arm/yam/yam.urdf").is_file()
+    assert (DEFAULT_I2RT_ROOT / "i2rt/robot_models/gripper/linear_4310/linear_4310.xml").is_file()
+    adapter = YamAdapter()
+    joints = np.array([0.0, 0.8, 1.2, -0.3, 0.0, 0.0, 0.5])
+    poses = adapter.positions("left", np.stack([joints, joints]))
+    assert poses.shape == (2, 3)
+    assert np.isfinite(poses).all()
+
+
+def test_trajectory_gradient_uses_deep_to_light_purple() -> None:
+    colors = _trajectory_colors(9)
+    assert colors.shape == (9, 3)
+    assert colors.dtype == np.uint8
+    assert colors[0].tolist() == [67, 20, 133]
+    assert colors[-1].tolist() == [210, 150, 255]
+    assert len(np.unique(colors, axis=0)) == 9

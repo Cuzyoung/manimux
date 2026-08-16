@@ -39,12 +39,12 @@ manimux run --config configs/my_run.yaml
 │   ├── Observation Builder
 │   ├── Action Timeline + Controller + Safety
 │   ├── local Recorder
-│   └── Universal Viewer bridge client
+│   └── built-in Viewer publisher/control client
 │
 ├── policy-worker
 │   └── one local model + one PolicyAdapter
 │
-└── universal_viewer
+└── manimux-viewer
 ```
 
 三个单元都运行在同一工作站。Recorder 可在 edge-agent 内使用独立子进程隔离磁盘 I/O，但不是一个需要部署或管理的服务。
@@ -105,15 +105,17 @@ close() -> None
 
 这就是 V1 所需的全部“admission”：一个有界 latest-wins queue。它不需要 auth、配额、路由或 Gateway。
 
-### 2.4 Universal Viewer
+### 2.4 Built-in Universal Viewer
 
-V1 直接兼容当前 `SII-LiuLab/universal_viewer`：
+Viewer 直接位于 `src/manimux/viewer/`，不再依赖另一个 checkout：
 
-- edge 发布现有 `PolicyPlan` 和 `RobotSnapshot`；
-- edge 使用现有 `ControlClient` 读取 pause/resume/home/step/finish；
+- policy/runtime 发布通用 `PolicyPlan`、`RobotSnapshot` 和 `RuntimeEvent`；
+- robot adapter 负责关节拆分、FK、模型和场景，不把 Viewer 写死为 YAM；
+- YAM 是首个内置 adapter，模型资源随 `manimux` 一起发布；
+- edge 可读取 pause/resume/home/step/finish，MolmoAct 集成当前采用 observe 模式；
 - Viewer 缺席或断开时默认 pause；
 - Viewer 命令只是 intent，edge safety state 决定是否接受；
-- 不设计 Viewer Protocol v2。
+- Viewer/Recorder 都是 best-effort 旁路，不得阻塞 control loop。
 
 ## 3. V1 必要接口
 
@@ -423,7 +425,16 @@ src/manimux/
   recording/
     episode.py
   viewer/
-    bridge.py
+    bridge.py                # ManiMux runtime bridge
+    client.py                # policy-side observer API
+    protocol.py              # robot/policy-independent wire messages
+    transport.py             # ZMQ transport
+    dashboard.py             # Viser UI
+    robots/                  # robot adapter contract + YAM
+  integrations/
+    molmoact_yam/            # async launcher, policy/camera servers, recording
+  assets/
+    i2rt/robot_models/       # bundled YAM viewer geometry
 configs/
 tests/
   unit/
