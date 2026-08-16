@@ -1,0 +1,48 @@
+# MolmoAct2 + YAM integration
+
+This package contains the robot-side launcher, asynchronous action-chunk loop,
+camera service, MolmoAct client/server, rollout recorder, RTC helper, and YAM
+runtime needed by ManiMux. It imports only modules inside `manimux` plus normal
+Python dependencies; it does not load Python files from another checkout.
+
+Model checkpoints are intentionally not stored in Git. Server mode downloads
+`allenai/MolmoAct2-BimanualYAM` through Hugging Face, or accepts a local model
+directory through `--repo-id`. The real YAM motor layer still uses the `i2rt`
+Python package installed in the environment.
+
+Install the integration dependencies:
+
+```bash
+uv sync --dev --extra molmoact-yam
+```
+
+The checked-in hardware configuration is under `configs/`. Review the camera
+serials, CAN channels, start joints, storage directory, and server endpoint
+before connecting hardware.
+
+Start the four processes from the ManiMux repository root:
+
+```bash
+# Terminal 1: MolmoAct inference server.
+uv run --extra molmoact-yam manimux-molmoact-server --port 8202
+
+# Terminal 2: long-lived RealSense owner.
+uv run --extra molmoact-yam manimux-molmoact-camera \
+  --config src/manimux/integrations/molmoact_yam/configs/molmoact_yam_left.yaml
+
+# Terminal 3: Viser dashboard.
+uv run manimux-viewer --robot yam --port 8086
+
+# Terminal 4: robot rollout with viewer telemetry.
+uv run --extra molmoact-yam manimux-molmoact-yam \
+  --left-config-path src/manimux/integrations/molmoact_yam/configs/molmoact_yam_left.yaml \
+  --right-config-path src/manimux/integrations/molmoact_yam/configs/molmoact_yam_right.yaml
+```
+
+The viewer is observational for this integration: MolmoAct/YAM remains the
+owner of inference, action stitching, robot commands, recording, and parking.
+Ctrl-C saves the incomplete rollout, waits for zero-home, and exits; it does
+not start another rollout in the same process.
+
+LeRobot conversion is optional. Raw rollouts remain available if the separate
+`lerobot` package is absent or conversion fails.

@@ -17,7 +17,7 @@ class ViewerControl:
 
 
 class ViewerBridge:
-    """Lazy compatibility bridge to SII-LiuLab/universal_viewer protocol v1."""
+    """Best-effort bridge to the viewer bundled with ManiMux."""
 
     def __init__(self, enabled: bool, robot_adapter: str, group_order: list[str]) -> None:
         self._enabled = enabled
@@ -29,13 +29,9 @@ class ViewerBridge:
         self._snapshot_type: Any | None = None
         if not enabled:
             return
-        try:
-            from universal_policy_viewer import PolicyPlan, RobotSnapshot
-            from universal_policy_viewer.bridge import ControlClient, ViewerPublisher
-        except ImportError as exc:
-            raise RuntimeError(
-                "viewer.enabled=true requires SII-LiuLab/universal_viewer on PYTHONPATH"
-            ) from exc
+        from manimux.viewer.protocol import PolicyPlan, RobotSnapshot
+        from manimux.viewer.transport import ControlClient, ViewerPublisher
+
         self._publisher = ViewerPublisher()
         self._controls = ControlClient()
         self._policy_plan_type = PolicyPlan
