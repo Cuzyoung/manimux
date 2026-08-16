@@ -1,5 +1,12 @@
 import numpy as np
-from i2rt.robots.utils import GripperType
+
+try:
+    from i2rt.robots.utils import GripperType
+except ImportError as exc:
+    raise ImportError(
+        "MolmoAct YAM hardware control requires i2rt commit 5d47b358; "
+        "install it with the command documented in README.md."
+    ) from exc
 
 from .robot import Robot
 

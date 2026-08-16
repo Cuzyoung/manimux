@@ -7,13 +7,15 @@ Python dependencies; it does not load Python files from another checkout.
 
 Model checkpoints are intentionally not stored in Git. Server mode downloads
 `allenai/MolmoAct2-BimanualYAM` through Hugging Face, or accepts a local model
-directory through `--repo-id`. The real YAM motor layer still uses the `i2rt`
-Python package installed in the environment.
+directory through `--repo-id`. The real YAM motor layer uses a separately
+pinned `i2rt` hardware driver.
 
 Install the integration dependencies:
 
 ```bash
 uv sync --dev --extra molmoact-yam
+uv pip install \
+  "git+https://github.com/i2rt-robotics/i2rt.git@5d47b358bafb30c65e397f2ece506550a0db4594"
 ```
 
 The checked-in hardware configuration is under `configs/`. Review the camera
