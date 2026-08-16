@@ -71,6 +71,8 @@ setup from this repository:
 
 ```bash
 uv sync --dev --extra molmoact-yam
+uv pip install \
+  "git+https://github.com/i2rt-robotics/i2rt.git@5d47b358bafb30c65e397f2ece506550a0db4594"
 
 # Terminal 1
 uv run --extra molmoact-yam manimux-molmoact-server --port 8202
@@ -89,9 +91,9 @@ uv run --extra molmoact-yam manimux-molmoact-yam \
 ```
 
 Before a hardware run, review camera serials, CAN channel names, start joints,
-and storage paths in the two checked-in YAML files. `i2rt` is a hardware driver
-dependency and must be installed in the environment; model weights and rollout
-data are intentionally not committed.
+and storage paths in the two checked-in YAML files. `i2rt` is pinned separately
+because it is the hardware driver rather than ManiMux application code. Model
+weights and rollout data are intentionally not committed.
 
 Episodes are written under `data/<run-id>/`. Run all local checks with:
 
