@@ -95,7 +95,11 @@ class RealSenseCamera(CameraDriver):
                     self._last_capture_error = exc
                 if consecutive_failures >= self._max_read_attempts:
                     self._frame_ready.set()
+                if self._stop_event.is_set():
+                    break
                 time.sleep(0.05)
+                if self._stop_event.is_set():
+                    break
                 self._start_pipeline()
 
     def _start_pipeline(self):
@@ -110,12 +114,24 @@ class RealSenseCamera(CameraDriver):
             self._config = rs.config()
             if self._device_id is not None:
                 self._config.enable_device(self._device_id)
-            self._config.enable_stream(rs.stream.depth, 640, 360, rs.format.z16, 15)
-            self._config.enable_stream(rs.stream.color, 640, 360, rs.format.bgr8, 15)
+            self._config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 15)
+            self._config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 15)
             self._pipeline.start(self._config)
 
             for _ in range(self._warmup_frames):
                 self._pipeline.wait_for_frames()
+
+    def close(self) -> None:
+        """Stop capture and release the RealSense pipeline."""
+        self._stop_event.set()
+        capture_thread = self._capture_thread
+        if capture_thread is not None and capture_thread is not threading.current_thread():
+            capture_thread.join(timeout=2.0)
+        with self._lock:
+            if self._pipeline is not None:
+                with contextlib.suppress(Exception):
+                    self._pipeline.stop()
+                self._pipeline = None
 
     def read(
         self,

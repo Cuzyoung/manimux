@@ -209,7 +209,7 @@ class CameraServer:
                     sock.close(linger=0)
         for cam in self.cameras.values():
             with contextlib.suppress(Exception):
-                cam._stop_event.set()
+                cam.close()
         logger.info("Camera server stopped.")
 
 
@@ -225,10 +225,15 @@ def _build_cameras_from_config(cfg_path: Path) -> dict[str, RealSenseCamera]:
     ids = get_device_ids()
     logger.info("Found %d RealSense devices: %s", len(ids), ids)
     cameras: dict[str, RealSenseCamera] = {}
-    for name, spec in camera_cfg.items():
-        device_id = spec["device_id"]
-        logger.info("Opening camera %s (device_id=%s)", name, device_id)
-        cameras[name] = RealSenseCamera(device_id)
+    try:
+        for name, spec in camera_cfg.items():
+            device_id = spec["device_id"]
+            logger.info("Opening camera %s (device_id=%s)", name, device_id)
+            cameras[name] = RealSenseCamera(device_id)
+    except Exception:
+        for camera in cameras.values():
+            camera.close()
+        raise
     return cameras
 
 

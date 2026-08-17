@@ -34,8 +34,8 @@ def test_usb2_camera_change_is_only_explicit_15_fps_streams() -> None:
     source = (INTEGRATION_ROOT / "gello_min/realsense_camera.py").read_text()
     assert "_CAPTURE_FALLBACK" not in source
     assert "_center_crop" not in source
-    assert "rs.stream.depth, 640, 360, rs.format.z16, 15" in source
-    assert "rs.stream.color, 640, 360, rs.format.bgr8, 15" in source
+    assert "rs.stream.depth, 640, 480, rs.format.z16, 15" in source
+    assert "rs.stream.color, 640, 480, rs.format.bgr8, 15" in source
 
 
 def test_keyboard_interrupt_path_breaks_after_home_instead_of_reusing_state() -> None:
