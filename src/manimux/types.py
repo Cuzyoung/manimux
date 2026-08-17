@@ -90,6 +90,14 @@ class InferenceRequest:
     observation_time_ns: int
     deadline_ns: int
     observation: ObservationSnapshot
+    instruction: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ActionContext:
+    request_seq: int
+    observation_time_ns: int
+    created_time_ns: int
 
 
 @dataclass(slots=True)
@@ -118,8 +126,9 @@ class InferenceResponse:
     request_seq: int
     finished_time_ns: int
     inference_ms: float
-    raw_action: ActionChunk | None
+    raw_action: object | None
     error: str | None = None
+    observation_time_ns: int = 0
 
 
 @dataclass(slots=True)

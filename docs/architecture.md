@@ -59,7 +59,8 @@ Launcher 只做：
 - 等待 ready，处理 Ctrl-C，按反序关闭；
 - 将 resolved config、代码版本和启动信息写入 `run.json`。
 
-它不做 registry、lease、调度、promotion 或后台 daemon。
+它不做服务 registry、lease、调度、promotion 或后台 daemon。配置中的插件名称只由
+进程内 factory、Python entry point 或显式 `module:factory` 解析。
 
 ### 2.2 Edge Agent
 
@@ -170,7 +171,8 @@ class PolicyAdapter(Protocol):
 
 ## 4. 一个配置文件
 
-V1 使用一个严格校验的 YAML，不使用 registry：
+V1 使用一个严格校验的 YAML，不使用服务注册中心或 artifact manifest。`driver`、
+`worker` 和 `adapter` 是轻量插件选择字段：
 
 ```yaml
 run:

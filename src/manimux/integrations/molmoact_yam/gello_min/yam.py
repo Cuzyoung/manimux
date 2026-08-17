@@ -1,3 +1,5 @@
+import threading
+
 import numpy as np
 
 try:
@@ -90,6 +92,35 @@ class YAMRobot(Robot):
             # Pad with zeros if we have fewer than 7 joints
             target_pos = np.pad(target_pos, (0, 7 - len(target_pos)), "constant")
         self.robot.command_joint_pos(np.array(target_pos))
+
+    def close(self) -> None:
+        """Join both i2rt threads before closing their CAN file descriptor."""
+
+        native = self.robot
+        stop_event = getattr(native, "_stop_event", None)
+        server_thread = getattr(native, "_server_thread", None)
+        motor_chain = getattr(native, "motor_chain", None)
+        if stop_event is None or server_thread is None or motor_chain is None:
+            raise RuntimeError("unsupported i2rt backend: safe close hooks are unavailable")
+
+        stop_event.set()
+        server_thread.join(timeout=2.0)
+        if server_thread.is_alive():
+            raise RuntimeError("i2rt robot server thread did not stop; CAN left open")
+
+        motor_chain.running = False
+        control_threads = []
+        for thread in threading.enumerate():
+            target = getattr(thread, "_target", None)
+            if getattr(target, "__self__", None) is motor_chain:
+                control_threads.append(thread)
+        for thread in control_threads:
+            thread.join(timeout=2.0)
+        if any(thread.is_alive() for thread in control_threads):
+            raise RuntimeError("i2rt motor control thread did not stop; CAN left open")
+
+        motor_chain.close()
+        print("Robot closed with all torques set to zero.")
 
 
 def main():

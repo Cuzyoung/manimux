@@ -74,8 +74,7 @@ class PolicyViewer:
         self.server.gui.set_panel_label("UNIVERSAL · POLICY VIEWER")
         self.lock = threading.RLock()
         self.running = True
-        # Physical execution always requires an explicit Start / Resume click.
-        self.paused = True
+        self.paused = False
         self.step_once = False
         self.finish_requested = False
         self.home_requested = False
@@ -145,7 +144,7 @@ class PolicyViewer:
                 )
 
     def _build_gui(self) -> None:
-        self.status = self.server.gui.add_markdown("🟠 **Waiting for policy executor · PAUSED**")
+        self.status = self.server.gui.add_markdown("🟠 **Waiting for policy executor**")
         with self.server.gui.add_folder("Policy control", expand_by_default=True):
             self.start_btn = self.server.gui.add_button("Start / Resume", color="blue")
             self.pause_btn = self.server.gui.add_button("Pause", color="gray")
@@ -452,6 +451,7 @@ class PolicyViewer:
             self._reset_plan_overlay()
             self._clear_achieved_tails()
             self.observe_only = metadata.get("control_mode", "observe") == "observe"
+            self.paused = self.observe_only
             for button in (
                 self.start_btn,
                 self.pause_btn,
@@ -465,7 +465,7 @@ class PolicyViewer:
             self.status.content = (
                 "🔵 **Connected · OBSERVE ONLY**"
                 if self.observe_only
-                else "🟡 **Connected · READY**"
+                else "🟢 **Connected · RUNNING**"
             )
         elif event == "inference_submitted":
             planned = metadata.get("planned_switch_step")

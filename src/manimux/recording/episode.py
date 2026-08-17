@@ -172,3 +172,14 @@ class EpisodeRecorder:
             return
         self.event("episode_aborted", terminal_reason=reason)
         self._events.close()
+        self._write_zarr()
+        self._write_json(
+            self._partial_dir / "result.json",
+            {
+                "success": False,
+                "terminal_reason": reason,
+                "steps": len(self._ticks),
+                "incomplete": True,
+                "evaluator_version": "manual-v1",
+            },
+        )

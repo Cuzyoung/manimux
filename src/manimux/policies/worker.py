@@ -8,7 +8,7 @@ from multiprocessing.queues import Queue
 from typing import Any
 
 from manimux.config import PolicyConfig
-from manimux.policies.fake import FakePolicyModel
+from manimux.policies import build_policy_model
 from manimux.types import InferenceRequest, InferenceResponse
 
 
@@ -26,18 +26,19 @@ def _put_latest(target: Queue[Any], item: object) -> None:
 def _worker_main(
     request_queue: Queue[Any],
     response_queue: Queue[Any],
+    startup_queue: Queue[Any],
     session_id: str,
     config_data: dict[str, object],
 ) -> None:
-    config = PolicyConfig.model_validate(config_data)
-    if config.worker != "fake":
-        raise ValueError(f"unsupported policy worker {config.worker!r}")
-    model = FakePolicyModel(
-        action_dt_ns=int(config.action_dt_s * 1_000_000_000),
-        horizon_steps=config.horizon_steps,
-        delay_s=config.inference_delay_s,
-    )
-    model.reset(session_id)
+    model = None
+    try:
+        config = PolicyConfig.model_validate(config_data)
+        model = build_policy_model(config)
+        model.reset(session_id)
+    except Exception as exc:
+        _put_latest(startup_queue, ("error", f"{type(exc).__name__}:{exc}"))
+        return
+    _put_latest(startup_queue, ("ready", None))
     try:
         while True:
             request = request_queue.get()
@@ -53,6 +54,7 @@ def _worker_main(
                     finished_time_ns=started_ns,
                     inference_ms=0.0,
                     raw_action=None,
+                    observation_time_ns=request.observation_time_ns,
                     error="deadline_exceeded_before_start",
                 )
                 _put_latest(response_queue, response)
@@ -66,6 +68,7 @@ def _worker_main(
                     finished_time_ns=finished_ns,
                     inference_ms=(finished_ns - started_ns) / 1_000_000,
                     raw_action=action,
+                    observation_time_ns=request.observation_time_ns,
                 )
             except Exception as exc:  # worker boundary must report model failures
                 finished_ns = time.monotonic_ns()
@@ -75,11 +78,13 @@ def _worker_main(
                     finished_time_ns=finished_ns,
                     inference_ms=(finished_ns - started_ns) / 1_000_000,
                     raw_action=None,
+                    observation_time_ns=request.observation_time_ns,
                     error=f"model_error:{type(exc).__name__}:{exc}",
                 )
             _put_latest(response_queue, response)
     finally:
-        model.close()
+        if model is not None:
+            model.close()
 
 
 class PolicyWorkerClient:
@@ -89,11 +94,14 @@ class PolicyWorkerClient:
         context = mp.get_context("spawn")
         self._request_queue: Queue[Any] = context.Queue(maxsize=1)
         self._response_queue: Queue[Any] = context.Queue(maxsize=1)
+        self._startup_queue: Queue[Any] = context.Queue(maxsize=1)
+        self._startup_timeout_s = config.startup_timeout_s
         self._process = context.Process(
             target=_worker_main,
             args=(
                 self._request_queue,
                 self._response_queue,
+                self._startup_queue,
                 session_id,
                 config.model_dump(mode="python"),
             ),
@@ -107,6 +115,16 @@ class PolicyWorkerClient:
             return
         self._process.start()
         self._started = True
+        try:
+            status, detail = self._startup_queue.get(timeout=self._startup_timeout_s)
+        except queue.Empty as exc:
+            self.close()
+            raise RuntimeError(
+                f"policy worker did not become ready within {self._startup_timeout_s:.1f}s"
+            ) from exc
+        if status != "ready":
+            self.close()
+            raise RuntimeError(f"policy worker failed during startup: {detail}")
 
     def submit_latest(self, request: InferenceRequest) -> None:
         if not self._started or not self._process.is_alive():
@@ -139,4 +157,5 @@ class PolicyWorkerClient:
             self._process.join(timeout=1.0)
         self._request_queue.close()
         self._response_queue.close()
+        self._startup_queue.close()
         self._started = False

@@ -97,6 +97,8 @@ weights and rollout data are intentionally not committed.
 
 For the concise four-terminal startup sequence, see
 [docs/molmoact-yam-runbook.md](docs/molmoact-yam-runbook.md).
+The config-driven PolicyModel, PolicyAdapter, RobotDriver, and SensorDriver
+extension points are described in [docs/plugin-runtime.md](docs/plugin-runtime.md).
 
 Episodes are written under `data/<run-id>/`. Run all local checks with:
 

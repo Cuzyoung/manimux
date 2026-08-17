@@ -6,14 +6,17 @@ import uuid
 import numpy as np
 
 from manimux.config import PolicyConfig, RobotConfig
-from manimux.types import ActionChunk, InferenceRequest, ObservationSnapshot
+from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
 
 
 class FakePolicyAdapter:
     def build_observation(self, snapshot: ObservationSnapshot) -> ObservationSnapshot:
         return snapshot
 
-    def decode_action(self, raw: ActionChunk) -> ActionChunk:
+    def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
+        del context
+        if not isinstance(raw, ActionChunk):
+            raise TypeError("identity adapter requires an ActionChunk")
         return raw
 
     def validate(self, robot: RobotConfig, policy: PolicyConfig) -> None:
