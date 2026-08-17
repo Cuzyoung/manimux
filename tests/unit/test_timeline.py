@@ -62,6 +62,15 @@ def test_commit_trims_obsolete_prefix_and_interpolates() -> None:
     np.testing.assert_allclose(sample["left_arm"], [5.0, 6.0])
     np.testing.assert_allclose(sample["right_arm"], [-5.0, -6.0])
 
+    committed = timeline.active_horizon()
+    assert committed is not None
+    assert committed.start_time_ns == 20
+    assert committed.groups["left_arm"].shape == (3, 2)
+    np.testing.assert_array_equal(committed.groups["left_arm"][0], [4.0, 5.0])
+    assert timeline.cursor(20) == 0
+    assert timeline.cursor(31) == 1
+    assert timeline.cursor(100) == 3
+
 
 def test_dimension_mismatch_rejects_entire_chunk() -> None:
     timeline = ActionTimeline({"left_arm": 2, "right_arm": 2})

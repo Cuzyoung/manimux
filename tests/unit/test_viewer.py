@@ -5,6 +5,8 @@ from typing import Any
 import numpy as np
 import pytest
 
+from manimux.types import ActionChunk, ActionHorizon, RobotState, SensorFrame
+from manimux.viewer.bridge import ViewerBridge
 from manimux.viewer.client import ViewerClient
 from manimux.viewer.dashboard import _trajectory_colors
 from manimux.viewer.protocol import PolicyPlan, RobotSnapshot, RuntimeEvent
@@ -132,6 +134,90 @@ def test_viewer_client_observes_without_owning_policy_execution() -> None:
     assert publisher.messages[2]["start_index"] == 3
     assert publisher.messages[3]["active_chunk_id"] == 2
     assert publisher.closed
+
+
+def test_runtime_bridge_publishes_the_exact_committed_plan() -> None:
+    publisher = _RecordingPublisher()
+    bridge = ViewerBridge(
+        enabled=False,
+        robot_adapter="custom",
+        group_order=["left", "right"],
+        policy="molmoact_http",
+        instruction="task",
+    )
+    bridge._enabled = True
+    bridge._publisher = publisher
+    bridge._policy_plan_type = PolicyPlan
+    raw = ActionChunk(
+        plan_id="plan-1",
+        request_seq=1,
+        observation_time_ns=0,
+        created_time_ns=1,
+        action_space="joint_position",
+        dt_ns=10,
+        groups={"left": np.full((4, 1), 9.0), "right": np.full((4, 1), -9.0)},
+    )
+    committed = ActionHorizon(
+        start_time_ns=20,
+        dt_ns=10,
+        plan_id="plan-1",
+        groups={"left": np.array([[1.0], [2.0]]), "right": np.array([[-1.0], [-2.0]])},
+    )
+
+    bridge.publish_plan(raw, 250.0, committed=committed)
+
+    assert len(publisher.messages) == 1
+    message = publisher.messages[0]
+    assert message["policy"] == "molmoact_http"
+    assert message["instruction"] == "task"
+    assert message["actions"] == [[1.0, -1.0], [2.0, -2.0]]
+    assert message["metadata"]["committed_start_time_ns"] == 20
+
+
+def test_runtime_bridge_publishes_managed_lifecycle_event() -> None:
+    publisher = _RecordingPublisher()
+    bridge = ViewerBridge(
+        enabled=False,
+        robot_adapter="custom",
+        group_order=["arm"],
+        policy="policy",
+    )
+    bridge._enabled = True
+    bridge._publisher = publisher
+    bridge._runtime_event_type = RuntimeEvent
+
+    bridge.publish_event(
+        "episode_started",
+        metadata={"control_mode": "managed", "instruction": "task"},
+    )
+
+    assert publisher.messages[0]["metadata"]["control_mode"] == "managed"
+
+
+def test_runtime_bridge_throttles_camera_encoding_off_the_control_rate() -> None:
+    publisher = _RecordingPublisher()
+    bridge = ViewerBridge(
+        enabled=False,
+        robot_adapter="custom",
+        group_order=["arm"],
+        camera_hz=1.0,
+    )
+    bridge._enabled = True
+    bridge._publisher = publisher
+    bridge._snapshot_type = RobotSnapshot
+    state = RobotState(groups={"arm": np.zeros(2)}, monotonic_ns=1, sequence=1)
+    frame = SensorFrame(
+        name="camera",
+        data=np.zeros((4, 4, 3), dtype=np.uint8),
+        capture_monotonic_ns=1,
+        sequence=1,
+    )
+
+    bridge.publish_state(state, {"camera": frame}, step=0, max_steps=2)
+    bridge.publish_state(state, {"camera": frame}, step=1, max_steps=2)
+
+    assert set(publisher.messages[0]["cameras_jpeg"]) == {"camera"}
+    assert publisher.messages[1]["cameras_jpeg"] == {}
 
 
 def test_yam_is_a_discovered_adapter() -> None:

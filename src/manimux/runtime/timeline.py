@@ -58,6 +58,26 @@ class ActionTimeline:
             return 0
         return max(0, self._active.end_time_ns - now_ns)
 
+    def cursor(self, now_ns: int) -> int:
+        """Return the current index in the committed plan for observers."""
+        active = self._active
+        if active is None or now_ns <= active.start_time_ns:
+            return 0
+        position = (now_ns - active.start_time_ns) // active.dt_ns
+        return min(max(0, int(position)), active.horizon_steps)
+
+    def active_horizon(self) -> ActionHorizon | None:
+        """Copy the exact trimmed/blended horizon committed for execution."""
+        active = self._active
+        if active is None:
+            return None
+        return ActionHorizon(
+            start_time_ns=active.start_time_ns,
+            dt_ns=active.dt_ns,
+            plan_id=active.plan_id,
+            groups={name: values.copy() for name, values in active.groups.items()},
+        )
+
     def commit(
         self,
         chunk: ActionChunk,

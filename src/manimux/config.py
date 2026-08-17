@@ -22,6 +22,7 @@ class RobotConfig(StrictModel):
     config: Path | None = None
     control_hz: float = Field(default=100.0, gt=0)
     group_dims: dict[str, int]
+    options: dict[str, object] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_group_dims(self) -> RobotConfig:
@@ -36,6 +37,7 @@ class SensorConfig(StrictModel):
     width: int = Field(default=64, gt=0)
     height: int = Field(default=48, gt=0)
     fps: float = Field(default=30.0, gt=0)
+    options: dict[str, object] = Field(default_factory=dict)
 
 
 class PolicyConfig(StrictModel):
@@ -43,9 +45,20 @@ class PolicyConfig(StrictModel):
     adapter: str
     device: str = "cpu"
     action_dt_s: float = Field(default=0.05, gt=0)
+    trajectory_duration_s: float | None = Field(default=None, gt=0)
     timeout_s: float = Field(default=1.0, gt=0)
     horizon_steps: int = Field(default=20, gt=1)
     inference_delay_s: float = Field(default=0.04, ge=0)
+    startup_timeout_s: float = Field(default=30.0, gt=0)
+    options: dict[str, object] = Field(default_factory=dict)
+
+    @property
+    def effective_action_dt_s(self) -> float:
+        """Spacing between policy points, optionally derived from a total duration."""
+
+        if self.trajectory_duration_s is None:
+            return self.action_dt_s
+        return self.trajectory_duration_s / (self.horizon_steps - 1)
 
 
 class ExecutorLimitsConfig(StrictModel):
@@ -67,6 +80,7 @@ class MPCConfig(ExecutorLimitsConfig):
 
 class ExecutionConfig(StrictModel):
     executor: Literal["smooth", "mpc"] = "smooth"
+    inference_schedule: Literal["deadline", "single_inflight"] = "deadline"
     refill_threshold_s: float = Field(default=0.4, gt=0)
     commit_lead_s: float = Field(default=0.02, ge=0)
     max_plan_age_s: float = Field(default=1.0, gt=0)
@@ -79,6 +93,8 @@ class ExecutionConfig(StrictModel):
 class ViewerConfig(StrictModel):
     enabled: bool = False
     robot_adapter: str = ""
+    policy_label: str = ""
+    camera_hz: float = Field(default=5.0, ge=0)
 
 
 class RecordingConfig(StrictModel):

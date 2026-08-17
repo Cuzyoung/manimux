@@ -47,12 +47,18 @@ def _run(config_path: Path, executor: str | None = None) -> int:
             sort_keys=True,
         )
         handle.write("\n")
-    result = EdgeRuntime(config, run_dir).run()
+    try:
+        result = EdgeRuntime(config, run_dir).run()
+    except KeyboardInterrupt:
+        print("interrupted; robot shutdown and partial episode save completed")
+        return 130
+    status = "completed" if result.success else "FAULT"
     print(
-        f"completed {result.steps} steps; accepted={result.accepted_plans} "
-        f"rejected={result.rejected_plans}; episode={result.episode_dir}"
+        f"{status} {result.steps} steps; reason={result.terminal_reason}; "
+        f"accepted={result.accepted_plans} rejected={result.rejected_plans}; "
+        f"episode={result.episode_dir}"
     )
-    return 0
+    return 0 if result.success else 2
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -24,8 +24,9 @@ class SafetyGuard:
         if set(state.groups) != set(self._group_dims):
             raise ValueError("state groups do not match robot configuration")
         for name, dim in self._group_dims.items():
-            if state.groups[name].shape != (dim,):
-                raise ValueError(f"state group {name!r} has the wrong dimension")
+            values = state.groups[name]
+            if values.shape != (dim,) or not np.isfinite(values).all():
+                raise ValueError(f"state group {name!r} is invalid")
 
     def validate_command(self, command: RobotCommand) -> None:
         if set(command.groups) != set(self._group_dims):
