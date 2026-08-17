@@ -95,6 +95,9 @@ and storage paths in the two checked-in YAML files. `i2rt` is pinned separately
 because it is the hardware driver rather than ManiMux application code. Model
 weights and rollout data are intentionally not committed.
 
+For the concise four-terminal startup sequence, see
+[docs/molmoact-yam-runbook.md](docs/molmoact-yam-runbook.md).
+
 Episodes are written under `data/<run-id>/`. Run all local checks with:
 
 ```bash
