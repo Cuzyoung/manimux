@@ -1,4 +1,5 @@
-# XPolicyLab Xiaomi-Robotics-1 server for ManiMux's YAM XR-1 adapter.
+# Official Xiaomi-Robotics-1-5B post-training start point served through
+# XPolicyLab for ManiMux's YAM XR-1 adapter. This is not a YAM-trained policy.
 policy_name: Xiaomi_Robotics_1
 protocol: ws
 host: 127.0.0.1
@@ -10,7 +11,11 @@ env_cfg_type: yam_dual
 action_type: ee
 eval_batch: false
 
+# https://huggingface.co/XiaomiRobotics/Xiaomi-Robotics-1-5B
 checkpoint_path: /home/ubuntu/manimux/checkpoints/pretrained/xiaomi/model_states.pt
+# YAM-unit statistics make the codec numerically well-defined, but do not turn
+# the released checkpoint into a YAM policy. Fine-tuning must produce matched
+# weights and statistics.
 norm_stats_path: /home/ubuntu/manimux/src/manimux/integrations/xr1_yam/norm_stats/yam.json
 vlm_processor_path: /home/ubuntu/manimux/checkpoints/pretrained/xiaomi/qwen3_vl_4b_processor
 output_format: packed_ee_delta

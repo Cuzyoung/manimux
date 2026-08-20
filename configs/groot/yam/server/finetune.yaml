@@ -16,4 +16,5 @@ observation_profile: yam_bimanual
 modality_config_source: checkpoint
 cosmos_model_path: nvidia/Cosmos-Reason2-2B
 device: cuda:0
+native_frequency_hz: 30.0
 default_prompt: Pick the red block up.

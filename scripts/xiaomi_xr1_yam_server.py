@@ -41,8 +41,14 @@ def _validate(config: dict[str, Any]) -> dict[str, Any]:
         raise FileNotFoundError(f"XPolicyLab submodule is missing under {XPOLICY_ROOT}")
     if config.get("policy_name") != "Xiaomi_Robotics_1":
         raise ValueError("policy_name must be Xiaomi_Robotics_1")
+    if config.get("protocol") != "ws":
+        raise ValueError("protocol must be ws")
+    if config.get("action_type") != "ee":
+        raise ValueError("action_type must be ee; XR-1 does not emit arm joint targets")
     if config.get("output_format") != "packed_ee_delta":
         raise ValueError("output_format must be packed_ee_delta for ManiMux XR-1")
+    if int(config.get("action_length", 0)) != 30:
+        raise ValueError("action_length must be 30 for the released XR-1 checkpoint")
 
     checkpoint = Path(str(config["checkpoint_path"])).expanduser().resolve()
     if not checkpoint.is_file() or not zipfile.is_zipfile(checkpoint):
@@ -80,7 +86,9 @@ def _validate(config: dict[str, Any]) -> dict[str, Any]:
         "model_action_shape": [30, 60],
         "manimux_action_space": "absolute_joint_position",
         "manimux_action_shape": [30, 14],
-        "rtc": "pi_guided_v1",
+        "denoise_steps": 5,
+        "checkpoint_role": "post_training_start_point_not_yam_policy",
+        "rtc_capability": "manimux_pi_guided_v1_extension",
     }
 
 

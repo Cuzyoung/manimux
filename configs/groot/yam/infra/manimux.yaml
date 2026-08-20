@@ -13,8 +13,8 @@ robot:
   options:
     right_config: configs/robots/yam_right.yaml
     move_to_start_on_connect: true
-    start_duration_s: 8.0
-    home_duration_s: 8.0
+    start_duration_s: 3.5
+    home_duration_s: 3.5
     home_on_close: true
 
 sensors:
@@ -29,6 +29,7 @@ sensors:
 policy:
   worker: xpolicylab_ws
   adapter: xpolicylab
+  # The YAM training data is 30 Hz; preserve the checkpoint's temporal meaning.
   action_dt_s: 0.03333333333333333
   timeout_s: 5.0
   horizon_steps: 16
@@ -53,19 +54,19 @@ execution:
   inference_schedule: single_inflight
   refill_threshold_s: 0.2
   commit_lead_s: 0.0
-  max_plan_age_s: 5.0
+  max_plan_age_s: 2.0
   underrun_hold_s: 0.5
   blend_steps: 4
   smooth:
-    cutoff_hz: 6.0
-    max_velocity: 0.20
-    max_acceleration: 0.40
+    cutoff_hz: 8.0
+    max_velocity: 0.25
+    max_acceleration: 0.5
     position_limit_abs: 3.14
 
 viewer:
   enabled: true
   robot_adapter: yam
-  policy_label: GR00T N1.7 YAM finetune
+  policy_label: GR00T N1.7 YAM finetune ManiMux 30Hz
 
 recording:
   enabled: true
