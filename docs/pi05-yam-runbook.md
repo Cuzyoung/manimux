@@ -8,7 +8,7 @@ checkpoint 的 RTC 和 Pi05 base + RTC 都是独立实验，不与默认配置�
 YAM 微调权重位于：
 
 ```text
-checkpoints/pretrained/pi05-yam/
+checkpoints/finetuned/robocurve/pi05-yam-molmoact2/  # robocurve/pi05-yam-molmoact2
   params/
   assets/yam-bimanual-merged/norm_stats.json
 ```
@@ -18,6 +18,7 @@ checkpoints/pretrained/pi05-yam/
 - 输出：`16 x 14` absolute joint positions，30Hz；
 - flow sampling：OpenPI 默认 10 steps；
 - stats：checkpoint 自带 quantile norm stats；
+- 发布来源：`robocurve/pi05-yam-molmoact2`；
 - server：`configs/pi05/yam/server/finetune.yaml`；
 - ManiMux 30Hz 默认配置：`configs/pi05/yam/infra/manimux.yaml`；
 - Pi-guided RTC 对照：`configs/pi05/yam/infra/rtc.yaml`；
@@ -198,4 +199,6 @@ infra:  configs/pi05/yam/infra/base-rtc.yaml
 ```
 
 它使用 50-step Pi-guided RTC，不代表 YAM 微调版的默认配置。不要用 base config 覆盖本文
-的 16-step checkpoint 实验。
+的 16-step checkpoint 实验。base 权重仍位于 `checkpoints/pretrained/pi05/pi05_base`；它只
+复用 Robocurve YAM checkpoint 内的 norm stats，因此配置会分别打印
+`checkpoint_source` 和 `norm_stats_source`。

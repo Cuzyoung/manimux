@@ -16,6 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 XR1_ROOT = XPOLICY_ROOT / "policy/Xiaomi_Robotics_1/xiaomi_robotics_1/xr1"
 DEFAULT_CONFIG = REPO_ROOT / "configs/xiaomi-xr1/yam/server/xpolicy.yaml"
+MODEL_PYTHON = REPO_ROOT / "envs/xr1/.venv/bin/python"
 
 
 def _load_config(path: Path) -> dict[str, Any]:
@@ -76,6 +77,14 @@ def _validate(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"XR-1 normalization shapes must be {expected}, got {shapes}")
 
     return {
+        "contract_status": "ready",
+        "runtime_status": (
+            "environment_present_gpu_forward_not_verified"
+            if MODEL_PYTHON.is_file()
+            else "blocked_missing_model_environment"
+        ),
+        "inference_status": "not_verified",
+        "model_python": str(MODEL_PYTHON),
         "xpolicylab_root": str(XPOLICY_ROOT),
         "policy_name": "Xiaomi_Robotics_1",
         "checkpoint": str(checkpoint),
@@ -88,6 +97,7 @@ def _validate(config: dict[str, Any]) -> dict[str, Any]:
         "manimux_action_shape": [30, 14],
         "denoise_steps": 5,
         "checkpoint_role": "post_training_start_point_not_yam_policy",
+        "policy_status": "blocked_for_yam_task_without_finetune",
         "rtc_capability": "manimux_pi_guided_v1_extension",
     }
 

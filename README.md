@@ -83,8 +83,14 @@ RTC-capable model adapter injects them into its native sampler.
 | `src/manimux/recording/` | Episodes, Zarr, events and action lineage |
 | `src/manimux/viewer/` | Generic viewer protocol and robot geometry adapters |
 | `XPolicyLab/` | Submodule pointing to our XPolicyLab fork; model-internal changes live here |
+| `checkpoints/pretrained/` | Unmodified foundation-model or upstream release weights |
+| `checkpoints/finetuned/<publisher>/` | Fine-tuned checkpoints, named after their published repository |
 | `configs/<model>/<embodiment>/` | One explicit configuration per model and embodiment experiment |
 | `docs/*-runbook.md` | Per-model installation, startup, checks and shutdown |
+
+For example, the Robocurve YAM releases live at
+`checkpoints/finetuned/robocurve/{pi05-yam-molmoact2,gr00t-n1.7-yam-molmoact2}`;
+the official OpenPI `pi05_base` remains under `checkpoints/pretrained/`.
 
 ## Integrations
 
@@ -96,8 +102,8 @@ Status: ✅ running · 🧪 experimental · 🚧 not deployable yet · 🔌 infr
 | ✅ | ABC + YAM | 30 × 14 joint positions | `configs/abc/yam/` | [ABC](docs/abc-yam-runbook.md) |
 | 🧪 | Native XR-1 + YAM | 30 × 60 EE deltas → 30 × 14 joint positions | `configs/xiaomi-xr1/yam/infra/native.yaml` | [Native XR-1](docs/xr1-yam-runbook.md) |
 | ✅ | OpenPI Pi05 + YAM | 16 × 14 absolute joint positions | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
-| 🚧 | GR00T N1.7 + YAM | 16 × 14 absolute joint positions | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
-| 🧪 | XPolicy XR-1 + YAM | 30 × 60 EE deltas → 30 × 14 joint positions | `configs/xiaomi-xr1/yam/{server,infra}/` | [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md) |
+| 🧪 | GR00T N1.7 + YAM | 16 × 14 absolute joint positions | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
+| 🚧 | XPolicy XR-1 + YAM | 30 × 60 EE deltas → 30 × 14 joint positions | `configs/xiaomi-xr1/yam/{server,infra}/` | [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md) |
 | 🚧 | LingBot-VLA2 + YAM | 50 × 14 absolute joints; YAM post-training bundle required | `configs/lingbot-vla2/yam/` | [LingBot-VLA2](docs/lingbot-vla2-yam-runbook.md) |
 | 🔌 | XPolicy bridge | Standard observation/action wire contract | `configs/xpolicylab/yam/infra/smoke.yaml` | [XPolicyLab](docs/xpolicylab-runbook.md) |
 
@@ -201,6 +207,7 @@ copied per model. See [Architecture](docs/architecture.md) for the complete cont
 
 ## Documentation
 
+- [Program progress](docs/program-progress.md)
 - [XPolicyLab integration](docs/xpolicylab-runbook.md)
 - [MolmoAct2](docs/molmoact-yam-runbook.md) · [ABC](docs/abc-yam-runbook.md) · [Native XR-1](docs/xr1-yam-runbook.md)
 - [Pi05](docs/pi05-yam-runbook.md) · [GR00T](docs/gr00t-yam-runbook.md) · [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md)

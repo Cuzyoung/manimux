@@ -1,5 +1,5 @@
 run:
-  task: Pick the red block up.
+  task: Pick up the box.
   output_dir: ./data
   max_steps: 1600
 

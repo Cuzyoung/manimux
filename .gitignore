@@ -9,6 +9,7 @@ __pycache__/
 data/
 dist/
 checkpoints/pretrained/
+checkpoints/finetuned/
 configs/robots/maniunicon_meshcat_dual.yaml
 recordings/
 logs/

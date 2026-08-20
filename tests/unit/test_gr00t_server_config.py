@@ -5,8 +5,9 @@ from pathlib import Path
 
 import pytest
 
+import scripts.gr00t_yam_server as gr00t_server
 from manimux.config import load_config
-from scripts.gr00t_yam_server import _validate_checkpoint
+from scripts.gr00t_yam_server import _runtime_readiness, _validate_checkpoint
 
 STATE_KEYS = ("left_arm", "left_gripper", "right_arm", "right_gripper")
 DIMS = {"left_arm": 6, "left_gripper": 1, "right_arm": 6, "right_gripper": 1}
@@ -74,3 +75,37 @@ def test_gr00t_manimux_config_preserves_native_contract() -> None:
     assert config.policy.effective_action_dt_s == pytest.approx(1.0 / 30.0)
     assert config.robot.group_dims == {"left_arm": 7, "right_arm": 7}
     assert config.execution.runtime == "manimux"
+
+
+def test_runtime_readiness_does_not_call_contract_ready_inference_ready(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    missing_python = tmp_path / "missing/.venv/bin/python"
+    monkeypatch.setattr(gr00t_server, "MODEL_PYTHON", missing_python)
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hub"))
+
+    report = _runtime_readiness({"cosmos_model_path": "nvidia/Cosmos-Reason2-2B"})
+
+    assert report["runtime_status"] == "blocked_incomplete_model_environment"
+    assert report["inference_status"] == "not_verified"
+    assert report["cosmos_cached"] is False
+
+
+def test_runtime_readiness_rejects_empty_environment_and_snapshot(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    python = tmp_path / "env/bin/python"
+    python.parent.mkdir(parents=True)
+    python.write_text("not python", encoding="utf-8")
+    python.chmod(0o755)
+    (tmp_path / "env/pyvenv.cfg").write_text("home = test\n", encoding="utf-8")
+    snapshot = tmp_path / "hub/models--nvidia--Cosmos-Reason2-2B/snapshots/empty"
+    snapshot.mkdir(parents=True)
+    monkeypatch.setattr(gr00t_server, "MODEL_PYTHON", python)
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hub"))
+
+    report = _runtime_readiness({"cosmos_model_path": "nvidia/Cosmos-Reason2-2B"})
+
+    assert report["runtime_status"] == "blocked_incomplete_model_environment"
+    assert report["cosmos_cached"] is False
+    assert report["inference_status"] == "not_verified"
