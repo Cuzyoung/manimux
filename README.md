@@ -10,7 +10,6 @@ Models are replaceable; ManiMux owns the control loop, robot, safety, recording 
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230?style=flat-square&logo=ruff&logoColor=D7FF64)](https://docs.astral.sh/ruff/)
 [![mypy](https://img.shields.io/badge/types-mypy%20strict-1F5082?style=flat-square)](https://mypy-lang.org/)
 [![Hardware](https://img.shields.io/badge/hardware-dual%20YAM-FF7300?style=flat-square)](docs/molmoact-yam-runbook.md)
-[![RTC](https://img.shields.io/badge/arXiv-2506.07339-B31B1B?style=flat-square&logo=arxiv&logoColor=white)](https://arxiv.org/abs/2506.07339)
 [![Maintained](https://img.shields.io/badge/maintained-actively-2EA043?style=flat-square)](https://github.com/SII-LiuLab/manimux/commits)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
@@ -18,6 +17,90 @@ Models are replaceable; ManiMux owns the control loop, robot, safety, recording 
 </div>
 
 ![ManiMux viewer during a MolmoAct rollout on dual YAM arms](assets/viewer-hero.png)
+
+## ManiMux in 30 Seconds
+
+**ManiMux is an asynchronous inference runtime between VLA policies and real robots.** The policy
+decides what should happen next; ManiMux decides when and how to execute it smoothly and safely,
+then records the complete run.
+
+```text
+cameras + robot state
+        ↓
+Policy / XPolicy model     predicts the next 16-50 action steps
+        ↓
+PolicyAdapter              converts them into executable robot joints
+        ↓
+ManiMux Runtime            trims stale actions, schedules, blends and checks safety
+        ↓
+Robot                      submits both arms atomically on one control tick
+
+Side outputs: Recorder episode + 3D Viewer
+```
+
+Remember three rules:
+
+1. **The model never commands the robot directly.** It only returns a future action chunk.
+2. **The adapter translates semantics.** Joint, EE-pose and delta outputs become one canonical chunk.
+3. **ManiMux executes.** Control timing, Timeline, Safety and Recorder are not copied per model.
+
+## Ten-Minute Hardware-Free Start
+
+```bash
+git clone --recursive https://github.com/SII-LiuLab/manimux.git
+cd manimux
+uv sync --dev
+uv run manimux run --config configs/mock.yaml
+```
+
+`configs/mock.yaml` uses a fake robot, camera and policy while exercising the real worker,
+Timeline, SmoothExecutor, SafetyGuard and Recorder. It runs `120` control ticks and writes one
+episode under `data/`; it never touches a camera, CAN interface or physical arm.
+
+Launch the independent YAM viewer demo:
+
+```bash
+uv run manimux-viewer --robot yam --demo --port 8086
+```
+
+Open `http://localhost:8086`. The `--demo` process is a standalone visualization demo, not a live
+view of the mock runtime above.
+
+### Try Three Safe Changes
+
+Copy the config first so the repository baseline stays unchanged:
+
+```bash
+cp configs/mock.yaml /tmp/manimux-beginner.yaml
+```
+
+Change one field at a time and rerun:
+
+| Change | Suggested value | What it demonstrates |
+|---|---:|---|
+| `run.max_steps` | `120 → 300` | Control ticks and the episode lifecycle |
+| `policy.inference_delay_s` | `0.04 → 0.20` | The control loop does not block on a slower model |
+| `execution.blend_steps` | `0 / 2 / 8` | The seam between consecutive action chunks |
+
+Read the first config as seven blocks: `run` defines the experiment, `robot` the embodiment,
+`sensors` the observation, `policy` the model and chunk, `execution` scheduling and commands,
+`viewer` live display, and `recording` the recording policy (the current runtime always records).
+See the
+[field-by-field config tour](configs/README.md#第一份配置configsmockyaml).
+
+## Where Beginners Should Look
+
+| Path | Think of it as |
+|---|---|
+| `configs/` | Experiment entry points: model, embodiment, checkpoint and runtime |
+| `docs/*-runbook.md` | Operating instructions for installing, starting, checking and stopping a model |
+| `src/manimux/` | Shared engine: runtime, robot, sensor, safety, recording and viewer |
+| `XPolicyLab/` | Model internals: adapters and samplers for Pi05, GR00T, XR-1 and LingBot |
+| `data/` | Run output: resolved config, actions, states, events and episode result |
+
+Running experiments normally requires only `configs/` and one runbook. Enter `src/manimux/` to
+change shared infrastructure, and enter `XPolicyLab/` only for model preprocessing, flow denoising
+or model-native RTC sampling.
 
 ## Purpose
 
@@ -27,20 +110,8 @@ atomic dual-arm commits, execution constraints, safety checks, recording and liv
 
 ManiMux is not tied to one model library. MolmoAct and ABC have native service adapters;
 additional foundation models enter through `XPolicyLab/`. ManiMux keeps the stable runtime and
-wire bridge. Model preprocessing, flow denoising and model-native RTC sampling remain in the
-corresponding XPolicyLab model adapter.
-
-XR-1 uses the `Xiaomi_Robotics_1` adapter maintained in our XPolicyLab fork,
-built on Xiaomi's official XR-1 source. It is not a stock adapter from the
-upstream XPolicyLab repository. ManiMux keeps only the wire codec and YAM
-FK/IK mapping; model loading and denoising run inside XPolicyLab.
-
-The XR-1 service therefore returns genuine actions inferred by the official
-`Xiaomi-Robotics-1-5B` model, not startup poses, prerecorded trajectories, or
-mock data. The downstream boundary is separate: the base checkpoint was not
-trained on YAM, the current YAM statistics define projection units only, and
-the `30 x 60` EE-delta to `30 x 14` joint-position FK/IK conversion belongs to
-the ManiMux embodiment adapter.
+wire bridge. Model preprocessing, flow denoising and model-native RTC sampling stay in the
+XPolicyLab adapter; embodiment mapping and execution safety stay in ManiMux.
 
 ## Architecture
 
@@ -152,32 +223,18 @@ while the left arm made persistently abnormal large motions. The infrastructure
 path is therefore connected, but the YAM action-semantics gate remains failed;
 this was neither startup-pose motion nor evidence of YAM zero-shot capability.
 
-## Install
+## From Mock to Real Models
 
-```bash
-git clone --recursive https://github.com/SII-LiuLab/manimux.git
-cd manimux
-uv sync --dev
-```
-
-For an existing checkout:
+Update submodules in an existing checkout:
 
 ```bash
 git submodule update --init --recursive
 ```
 
-The core runtime uses `./.venv`, real YAM runs use `envs/yam/.venv`, and model servers keep
-isolated environments. CUDA, Torch and checkpoint setup belongs in
-[the environment guide](envs/README.md) and each model runbook.
-
-## Quick Start
-
-### No Hardware
-
-```bash
-uv run manimux run --config configs/mock.yaml
-uv run manimux-viewer --robot yam --demo --port 8086
-```
+The core development environment uses `./.venv`, the YAM runtime uses `envs/yam/.venv`, and model
+servers use isolated environments. Follow [the environment guide](envs/README.md) and one model
+runbook for CUDA, Torch, checkpoints and first startup; do not assemble a hardware command from
+README snippets.
 
 ### Shared YAM Services
 
