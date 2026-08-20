@@ -275,8 +275,8 @@ envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
 `1.392 s`，随后两次稳态 denoise 为 `365 / 369 ms`、WS 往返 `392.3 / 396.1 ms`。
 50 步在 30 Hz 下覆盖 `1.667 s`，所以稳态延迟预算足以持续供给默认 ManiMux。
 三次均返回 `native_shape: [50, 14]`、`canonical_shape: [50, 14]` 且全部有限。该证据
-确认 GPU 模型、XPolicy WS、YAM 字段映射和 action decode 已连通，不代表 base 权重具有
-YAM 任务能力，也没有连接相机、CAN 或机械臂。
+确认 GPU 模型、XPolicy WS、YAM 字段映射和 action decode 已连通。随后默认 ManiMux
+真机闭环也已完成；base 权重是否能完成任务仍单独判断。
 
 ## 真机运行：Base + ManiMux
 
@@ -345,6 +345,20 @@ Viewer。Rollout 保存在 `data/run-*/episode-*`；未完整收尾的记录带 
 
 30 Hz 是 YAM 对照实验假设，不是从 foundation checkpoint 恢复出的训练频率。任务失败
 首先记录为 base policy 结果，不能据此判定 adapter 或 ManiMux 断路。
+
+### 已完成的真机记录
+
+2026-08-20 的 `run-20260820T122849Z-b474d665` 使用
+`LingBot-VLA2 YAM via XPolicyLab`、默认 `manimux` runtime、三路真实相机和双臂 YAM：
+
+- 执行 `1600` 个 control tick，持续 `61.9 s`；
+- 接受 `42` 个 `50 x 14` action chunk；
+- 记录 `42` 个 plan boundary，无 plan rejection；
+- runtime 正常结束并完成 Recorder 收尾。
+
+因此默认 LingBot GPU -> XPolicy WS -> ManiMux -> 相机/CAN -> 双臂 YAM -> Recorder
+链路记为已通过。记录里的 `manual-v1 success` 只代表 rollout 生命周期完整结束，不代表
+完成了 pick 任务，也不改变 foundation checkpoint 缺少 YAM post-training 的事实。
 
 ## Finetune bundle 就绪后的命令
 

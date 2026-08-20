@@ -155,3 +155,9 @@ MolmoAct 和 ABC 只有模型服务是各自独立的，相机和 Viewer 是同�
 
 两个模型服务也可以同时开着（约 24 GB 显存），靠 `configs/*.yaml` 里的
 `policy.options.server` 决定这次 rollout 连哪一个。
+
+## 停止
+
+正常运行时只在 ManiMux runtime 终端按一次 `Ctrl-C`，等待机械臂回 Home 和 Recorder
+收尾；然后停止 ABC 模型服务。相机和 Viewer 如果还要给其他模型复用，可以继续保留，
+否则最后再停止。异常运动时优先使用物理急停，不等待软件回零。
