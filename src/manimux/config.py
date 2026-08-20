@@ -78,7 +78,27 @@ class MPCConfig(ExecutorLimitsConfig):
     command_delta_weight: float = Field(default=1.0, ge=0)
 
 
+class RtcConfig(StrictModel):
+    """Physical Intelligence real-time chunking (arXiv:2506.07339).
+
+    ``s_min`` is the smallest number of chunk steps to execute before starting
+    the next inference; the effective execution horizon is ``max(s_min, d)``
+    where ``d`` is the delay forecast. ``beta`` clips the guidance weight, which
+    is unbounded at flow time 0; scale it with the sampler's step count using
+    ``(t^2+(1-t)^2)/(t(1-t))`` at ``t = 1/steps`` (5 steps -> ~4.25, 10 -> ~9.1).
+    """
+
+    min_execute_steps: int | None = Field(default=None, gt=0)
+    initial_delay_steps: int = Field(default=4, ge=0)
+    delay_buffer_size: int = Field(default=10, gt=0)
+    beta: float = Field(default=5.0, gt=0)
+    # RTC changes only *when* to infer and *what* to condition on. How a chunk
+    # is executed -- timeline, smoothing, limits -- stays the default runtime's,
+    # configured by ``execution.executor`` and ``execution.smooth`` as usual.
+
+
 class ExecutionConfig(StrictModel):
+    runtime: Literal["manimux", "rtc"] = "manimux"
     executor: Literal["smooth", "mpc"] = "smooth"
     inference_schedule: Literal["deadline", "single_inflight"] = "deadline"
     refill_threshold_s: float = Field(default=0.4, gt=0)
@@ -88,6 +108,7 @@ class ExecutionConfig(StrictModel):
     blend_steps: int = Field(default=2, ge=0)
     smooth: SmoothConfig = SmoothConfig()
     mpc: MPCConfig = MPCConfig()
+    rtc: RtcConfig = RtcConfig()
 
 
 class ViewerConfig(StrictModel):

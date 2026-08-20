@@ -32,7 +32,7 @@ import torch
 import tyro
 from omegaconf import OmegaConf
 
-from .camera_client import CameraClient
+from manimux.sensors.camera_server import CameraClient
 from .eval_utils import (
     EvalRolloutSaver,
     LiveCameraView,
@@ -49,8 +49,8 @@ from .gello_min.launch_utils import (
     move_to_zero_home,
 )
 from .gello_min.logging_utils import log_collect_demos
-from .gello_min.realsense_camera import RealSenseCamera, get_device_ids
-from .gello_min.robot import BimanualRobot
+from manimux.sensors.realsense import RealSenseCamera, get_device_ids
+from manimux.robots.yam import BimanualRobot
 from .molmoact_client import MolmoAct, MolmoActLocal
 
 logger = logging.getLogger(__name__)

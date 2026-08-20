@@ -29,16 +29,16 @@ Start the four processes from the ManiMux repository root:
 uv run --extra molmoact-yam manimux-molmoact-server --port 8202
 
 # Terminal 2: long-lived RealSense owner.
-uv run --extra molmoact-yam manimux-molmoact-camera \
-  --config src/manimux/integrations/molmoact_yam/configs/molmoact_yam_left.yaml
+uv run --extra molmoact-yam manimux-camera-server \
+  --config configs/robots/yam_left.yaml
 
 # Terminal 3: Viser dashboard.
 uv run manimux-viewer --robot yam --port 8086
 
 # Terminal 4: robot rollout with viewer telemetry.
 uv run --extra molmoact-yam manimux-molmoact-yam \
-  --left-config-path src/manimux/integrations/molmoact_yam/configs/molmoact_yam_left.yaml \
-  --right-config-path src/manimux/integrations/molmoact_yam/configs/molmoact_yam_right.yaml
+  --left-config-path configs/robots/yam_left.yaml \
+  --right-config-path configs/robots/yam_right.yaml
 ```
 
 The viewer is observational for this integration: MolmoAct/YAM remains the

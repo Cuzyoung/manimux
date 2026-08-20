@@ -3,8 +3,8 @@ from typing import Any
 
 import numpy as np
 
-from .camera import CameraDriver
-from .robot import Robot
+from manimux.sensors.realsense import CameraDriver
+from manimux.robots.yam.base import Robot
 
 
 class Rate:

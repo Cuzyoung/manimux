@@ -36,6 +36,32 @@ molmoact-yam = [
   "uvicorn[standard]>=0.35",
 ]
 
+# torch is deliberately absent: the ABC checkpoint is validated against the
+# CUDA-12.8 build, which lives on a different index than the pinned cu121 wheels
+# used by molmoact-yam. Install it into envs/abc first, then this group.
+abc-yam = [
+  "fastapi>=0.116",
+  "ftfy>=6.2",
+  "json-numpy>=2.1.0",
+  "regex>=2024.5.15",
+  "requests>=2.32",
+  "uvicorn[standard]>=0.35",
+]
+
+# torch is deliberately absent: XR-1 is validated against torch 2.8 / CUDA 12.6
+# plus a matching flash-attn build. Install those into envs/xr1 first.
+xr1-yam = [
+  "accelerate>=1.11",
+  "fastapi>=0.116",
+  "json-numpy>=2.1.0",
+  "liger-kernel==0.6.5",
+  "mmengine==0.10.7",
+  "requests>=2.32",
+  "safetensors>=0.6",
+  "transformers==4.57.1",
+  "uvicorn[standard]>=0.35",
+]
+
 [dependency-groups]
 dev = [
   "mypy>=1.11",
@@ -48,8 +74,10 @@ dev = [
 manimux = "manimux.cli:main"
 manimux-viewer = "manimux.viewer.dashboard:main"
 manimux-molmoact-yam = "manimux.viewer.integrations.molmoact_yam:main"
-manimux-molmoact-camera = "manimux.integrations.molmoact_yam.camera_server:main"
+manimux-camera-server = "manimux.sensors.camera_server.server:main"
 manimux-molmoact-server = "manimux.integrations.molmoact_yam.host_server_yam:main"
+manimux-abc-server = "manimux.integrations.abc_yam.host_server_abc:main"
+manimux-xr1-server = "manimux.integrations.xr1_yam.host_server_xr1:main"
 
 [project.entry-points."manimux.viewer.robots"]
 yam = "manimux.viewer.robots.yam:YamAdapter"
@@ -74,6 +102,9 @@ packages = ["src/manimux"]
 "THIRD_PARTY_NOTICES.md" = "manimux/THIRD_PARTY_NOTICES.md"
 "licenses/MolmoAct2-APACHE-2.0.txt" = "manimux/licenses/MolmoAct2-APACHE-2.0.txt"
 "licenses/i2rt-MIT.txt" = "manimux/licenses/i2rt-MIT.txt"
+"src/manimux/integrations/abc_yam/abc_minimal/third_party/clip/LICENSE" = "manimux/licenses/abc-clip-MIT.txt"
+"src/manimux/integrations/abc_yam/abc_minimal/third_party/dinov3/LICENSE.md" = "manimux/licenses/abc-dinov3.md"
+"src/manimux/integrations/xr1_yam/mibot/LICENSE" = "manimux/licenses/xiaomi-robotics-1-APACHE-2.0.txt"
 
 [tool.pytest.ini_options]
 addopts = "-q"

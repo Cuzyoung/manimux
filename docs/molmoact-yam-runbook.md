@@ -21,9 +21,7 @@ manimux-molmoact-server \
 
 ```bash
 cd /home/ubuntu/manimux
-source envs/yam/.venv/bin/activate
-cd src/manimux/integrations/molmoact_yam
-manimux-molmoact-camera --config configs/molmoact_yam_left.yaml
+envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
 ```
 
 确认三台相机均已打开，并看到 `REP bound` 和 `PUB bound`。
@@ -40,7 +38,12 @@ manimux-viewer --robot yam --host 0.0.0.0 --port 8086
 
 ## 4. ManiMux 真机 runtime
 
-先确认 `can_left` 和 `can_right` 都是 `ERROR-ACTIVE`。执行后机械臂会按配置的
+先确认 `can_left` 和 `can_right` 都是 `ERROR-ACTIVE`（检查和重开命令见
+[CAN 总线](can-bus.md)）：
+
+```bash
+for c in can_left can_right; do printf '%s: ' "$c"; ip -details link show "$c" | grep -o 'ERROR-ACTIVE\|ERROR-PASSIVE\|BUS-OFF'; done
+```执行后机械臂会按配置的
 `start_duration_s` 移动到起始姿态，然后保持 `PAUSED`；在 Viewer 确认轨迹后再点
 `Start / Resume`。
 

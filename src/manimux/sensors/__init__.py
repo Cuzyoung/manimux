@@ -16,7 +16,7 @@ def _mock_camera_factory(config: SensorConfig, clock: Clock) -> SensorDriver:
 
 
 def _camera_server_factory(config: SensorConfig, clock: Clock) -> SensorDriver:
-    from manimux.integrations.molmoact_yam.sensor_plugin import build_sensor as build_camera_sensor
+    from manimux.sensors.camera_server import build_sensor as build_camera_sensor
 
     return build_camera_sensor(config, clock)
 

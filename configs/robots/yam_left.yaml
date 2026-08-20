@@ -8,7 +8,7 @@ sensors:
       device_id: "260322274672"
 
 robot:
-  _target_: manimux.integrations.molmoact_yam.gello_min.yam.YAMRobot
+  _target_: manimux.robots.yam.arm.YAMRobot
   channel: can_left
 
 agent:
