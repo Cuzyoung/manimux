@@ -6,9 +6,12 @@
 
 Models are replaceable; ManiMux owns the control loop, robot, safety, recording and viewer.
 
-[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/)
-[![Lint: ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://docs.astral.sh/ruff/)
-[![Typing: mypy strict](https://img.shields.io/badge/typing-mypy%20strict-2a6db2.svg)](https://mypy-lang.org/)
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Ruff](https://img.shields.io/badge/lint-ruff-261230?style=flat-square&logo=ruff&logoColor=D7FF64)](https://docs.astral.sh/ruff/)
+[![mypy](https://img.shields.io/badge/types-mypy%20strict-1F5082?style=flat-square)](https://mypy-lang.org/)
+[![Hardware](https://img.shields.io/badge/hardware-dual%20YAM-FF7300?style=flat-square)](docs/molmoact-yam-runbook.md)
+[![RTC](https://img.shields.io/badge/arXiv-2506.07339-B31B1B?style=flat-square&logo=arxiv&logoColor=white)](https://arxiv.org/abs/2506.07339)
+[![Maintained](https://img.shields.io/badge/maintained-actively-2EA043?style=flat-square)](https://github.com/SII-LiuLab/manimux/commits)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
@@ -29,47 +32,59 @@ corresponding XPolicyLab model adapter.
 
 ## Architecture
 
-```text
-CameraServer -> SensorDriver -> ObservationSnapshot
-                                  |
-                                  v
-                    PolicyAdapter.build_observation()
-                                  |
-                                  v
-                    bounded latest-wins queue
-                                  |
-                                  v
-                     PolicyModel worker/client
-                       |                  |
-                       |                  +-> xpolicylab_ws
-                       |                         |
-                       v                         v
-              native model server        XPolicyLab server
-              MolmoAct / ABC / XR-1              |
-                                                 v
-                                     policy/<MODEL>/model.py
-                                       model-native sampler
-                       |                         |
-                       +-----------+-------------+
-                                   v
-                              raw action
-                                   |
-                                   v
-                    PolicyAdapter.decode_action()
-                     validate / joint map / FK-IK
-                                   |
-                                   v
-              ActionTimeline -> Smooth|MPC -> Safety -> RobotDriver
-              trim/blend/atomic commit
+Two loops at different speeds. The whole design is about the hand-off between them.
 
-EdgeRuntime side channels:
-  Recorder <- state / plan / command lineage
-  Viewer   <- measured state / committed plan
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260, "curve": "basis"}}}%%
+flowchart TB
+    OBS["<b>BUILD ONE OBSERVATION</b><br/>3 cameras + 14 joint angles<br/>which views · what size · what units<br/><br/>PolicyAdapter"]:::stage
+    QUEUE(["bounded queue<br/><b>newest wins</b>"]):::pipe
+
+    subgraph THINK["<b>THINK</b> — every ~0.5 s, in its own process, 120-600 ms — <b>swap the model here</b>"]
+        direction LR
+        MOLMO["<b>MolmoAct2</b><br/>native"]:::molmo
+        ABCM["<b>ABC</b><br/>native"]:::abc
+        XR1["<b>XR-1</b><br/>native"]:::xr1
+        PI05["<b>Pi05</b><br/>XPolicy"]:::pi
+        GROOT["<b>GR00T N1.7</b><br/>XPolicy"]:::groot
+        LING["<b>LingBot-VLA2</b><br/>XPolicy"]:::ling
+        MOLMO ~~~ ABCM ~~~ XR1 ~~~ PI05 ~~~ GROOT ~~~ LING
+    end
+
+    DEC["<b>MAKE IT EXECUTABLE<br/>ON THIS BODY</b><br/>joint order · units · gripper<br/><b>EE→joint IK</b><br/><br/>PolicyAdapter"]:::stage
+    TL["<b>PUT THE CHUNK<br/>ON THE CLOCK</b><br/>drop steps already past<br/>blend the seam<br/><b>swap BOTH arms at once</b><br/><br/>ActionTimeline"]:::handoff
+    ACT["<b>ACT</b> · every 10-50 ms<br/><b>never waits for anything</b><br/>where should the arms be now?<br/>cap speed and acceleration<br/>refuse out-of-limit commands<br/><br/>Smooth │ MPC · SafetyGuard"]:::stage
+    ROBOT(["<b>one command,<br/>both arms together</b><br/>RobotDriver"]):::robot
+    SIDE(["episode on disk<br/>live 3D viewer"]):::side
+
+    OBS --> QUEUE --> THINK
+    THINK -->|"a chunk:<br/>next 16-50 steps"| DEC
+    DEC -->|"canonical<br/>joint-space chunk"| TL
+    TL --> ACT --> ROBOT
+    ACT -.->|"best-effort"| SIDE
+
+    classDef stage fill:#F6F8FA,stroke:#8C959F,stroke-width:1px,color:#1F2328
+    classDef handoff fill:#FFF4E5,stroke:#E36209,stroke-width:2.5px,color:#1F2328
+    classDef pipe fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:4 3,color:#57606A
+    classDef side fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:4 3,color:#57606A
+    classDef robot fill:#1F2328,stroke:#1F2328,color:#FFFFFF
+    classDef molmo fill:#2F6FEB,stroke:#1B4DB1,color:#FFFFFF
+    classDef abc   fill:#1A7F55,stroke:#125C3D,color:#FFFFFF
+    classDef xr1   fill:#8957E5,stroke:#6633B8,color:#FFFFFF
+    classDef pi    fill:#E36209,stroke:#A8460A,color:#FFFFFF
+    classDef groot fill:#CF222E,stroke:#96101A,color:#FFFFFF
+    classDef ling  fill:#9A6700,stroke:#6E4A00,color:#FFFFFF
+    style THINK fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:5 4,color:#1F2328
 ```
 
-The default path is the ManiMux asynchronous runtime. RTC is an explicit alternative inference
-schedule: ManiMux derives a condition and soft mask from real execution progress, then an
-RTC-capable model adapter injects them into its native sampler.
+**The control loop never waits** — not for the model, disk, viewer, or a log line.
+**A stale or invalid chunk never reaches the robot** — wrong session, old sequence,
+past deadline, bad shape, non-finite value, or a dual-arm plan the two arms disagree
+on drops the *whole* chunk with a logged reason.
+
+RTC is an explicit alternative for the THINK stage: instead of refilling when the
+timeline runs low, ManiMux derives a condition and soft mask from real execution
+progress, and an RTC-capable adapter injects them into the model's own sampler.
 
 ## Repository Layout
 
@@ -100,7 +115,7 @@ Status: ✅ running · 🧪 experimental · 🚧 not deployable yet · 🔌 infr
 |---|---|---|---|---|
 | ✅ | MolmoAct2 + YAM | 30 × 14 joint positions | `configs/molmoact2/yam/` | [MolmoAct2](docs/molmoact-yam-runbook.md) |
 | ✅ | ABC + YAM | 30 × 14 joint positions | `configs/abc/yam/` | [ABC](docs/abc-yam-runbook.md) |
-| 🧪 | Native XR-1 + YAM | 30 × 60 EE deltas → 30 × 14 joint positions | `configs/xiaomi-xr1/yam/infra/native.yaml` | [Native XR-1](docs/xr1-yam-runbook.md) |
+| 🧪 | Native XR-1 + YAM | 30 × 60 EE deltas → 30 × 14 joint positions | `configs/xiaomi-xr1/yam/infra/native-manimux.yaml` | [Native XR-1](docs/xr1-yam-runbook.md) |
 | ✅ | OpenPI Pi05 + YAM | 16 × 14 absolute joint positions | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
 | ✅ | GR00T N1.7 + YAM | 16 × 14 absolute joint positions | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
 | 🚧 | XPolicy XR-1 + YAM | 30 × 60 EE deltas → 30 × 14 joint positions | `configs/xiaomi-xr1/yam/{server,infra}/` | [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md) |
@@ -114,7 +129,8 @@ but remained hesitant in this scene and has no established success rate; that po
 result is separate from the completed inference infrastructure. GR00T has also completed GPU,
 XPolicy WebSocket, default ManiMux, three-camera, dual-YAM and Recorder execution; its failed pick
 rollouts are policy-quality results. XPolicy XR-1 and LingBot-VLA2 must not be described as
-hardware-validated yet.
+hardware-validated yet. Their base checkpoints can be measured with `server/base.yaml` plus the
+same `infra/manimux.yaml`; YAM projection statistics are not evidence of YAM post-training.
 
 ## Install
 

@@ -6,9 +6,12 @@
 
 模型可以替换，控制环、机器人、安全、记录和 Viewer 始终由 ManiMux 管理。
 
-[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/)
-[![Lint: ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://docs.astral.sh/ruff/)
-[![Typing: mypy strict](https://img.shields.io/badge/typing-mypy%20strict-2a6db2.svg)](https://mypy-lang.org/)
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Ruff](https://img.shields.io/badge/lint-ruff-261230?style=flat-square&logo=ruff&logoColor=D7FF64)](https://docs.astral.sh/ruff/)
+[![mypy](https://img.shields.io/badge/types-mypy%20strict-1F5082?style=flat-square)](https://mypy-lang.org/)
+[![Hardware](https://img.shields.io/badge/hardware-dual%20YAM-FF7300?style=flat-square)](docs/molmoact-yam-runbook.md)
+[![RTC](https://img.shields.io/badge/arXiv-2506.07339-B31B1B?style=flat-square&logo=arxiv&logoColor=white)](https://arxiv.org/abs/2506.07339)
+[![Maintained](https://img.shields.io/badge/maintained-actively-2EA043?style=flat-square)](https://github.com/SII-LiuLab/manimux/commits)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
@@ -28,46 +31,57 @@ ManiMux 不绑定某个模型库。MolmoAct、ABC、XR-1 可以通过原生服�
 
 ## 架构
 
-```text
-CameraServer -> SensorDriver -> ObservationSnapshot
-                                  |
-                                  v
-                    PolicyAdapter.build_observation()
-                                  |
-                                  v
-                    bounded latest-wins queue
-                                  |
-                                  v
-                     PolicyModel worker/client
-                       |                  |
-                       |                  +-> xpolicylab_ws
-                       |                         |
-                       v                         v
-              native model server        XPolicyLab server
-              MolmoAct / ABC / XR-1              |
-                                                 v
-                                     policy/<MODEL>/model.py
-                                       model-native sampler
-                       |                         |
-                       +-----------+-------------+
-                                   v
-                              raw action
-                                   |
-                                   v
-                    PolicyAdapter.decode_action()
-                     validate / joint map / FK-IK
-                                   |
-                                   v
-              ActionTimeline -> Smooth|MPC -> Safety -> RobotDriver
-              trim/blend/atomic commit
+两个速度不同的循环。整个设计的重点是它们之间的交接。
 
-EdgeRuntime side channels:
-  Recorder <- state / plan / command lineage
-  Viewer   <- measured state / committed plan
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260, "curve": "basis"}}}%%
+flowchart TB
+    OBS["<b>构造一次 OBSERVATION</b><br/>三路相机 + 14 个关节角<br/>用哪几路视角 · 缩放到多大 · 归一化到什么单位<br/><br/>PolicyAdapter"]:::stage
+    QUEUE(["有界队列<br/><b>只留最新一条</b>"]):::pipe
+
+    subgraph THINK["<b>想</b> — 约每 0.5 秒一次，跑在独立进程里，120-600 ms — <b>换模型只换这一层</b>"]
+        direction LR
+        MOLMO["<b>MolmoAct2</b><br/>原生"]:::molmo
+        ABCM["<b>ABC</b><br/>原生"]:::abc
+        XR1["<b>XR-1</b><br/>原生"]:::xr1
+        PI05["<b>Pi05</b><br/>XPolicy"]:::pi
+        GROOT["<b>GR00T N1.7</b><br/>XPolicy"]:::groot
+        LING["<b>LingBot-VLA2</b><br/>XPolicy"]:::ling
+        MOLMO ~~~ ABCM ~~~ XR1 ~~~ PI05 ~~~ GROOT ~~~ LING
+    end
+
+    DEC["<b>让它能在这具身体上执行</b><br/>关节顺序 · 单位 · 夹爪约定<br/><b>末端 → 关节 IK</b><br/><br/>PolicyAdapter"]:::stage
+    TL["<b>把 CHUNK 放到时间轴上</b><br/>裁掉已经过去的那几步<br/>接缝处融合<br/><b>双臂在同一步原子切换</b><br/><br/>ActionTimeline"]:::handoff
+    ACT["<b>做</b> · 每 10-50 ms 一次<br/><b>永远不等任何东西</b><br/>此刻手应该在哪里？<br/>限制速度和加速度<br/>超出限位的一律拒绝<br/><br/>Smooth │ MPC · SafetyGuard"]:::stage
+    ROBOT(["<b>双臂同一 tick<br/>下发一条命令</b><br/>RobotDriver"]):::robot
+    SIDE(["落盘的 episode<br/>实时 3D viewer"]):::side
+
+    OBS --> QUEUE --> THINK
+    THINK -->|"一个 chunk：<br/>未来 16-50 步"| DEC
+    DEC -->|"canonical<br/>关节空间 chunk"| TL
+    TL --> ACT --> ROBOT
+    ACT -.->|"尽力而为"| SIDE
+
+    classDef stage fill:#F6F8FA,stroke:#8C959F,stroke-width:1px,color:#1F2328
+    classDef handoff fill:#FFF4E5,stroke:#E36209,stroke-width:2.5px,color:#1F2328
+    classDef pipe fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:4 3,color:#57606A
+    classDef side fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:4 3,color:#57606A
+    classDef robot fill:#1F2328,stroke:#1F2328,color:#FFFFFF
+    classDef molmo fill:#2F6FEB,stroke:#1B4DB1,color:#FFFFFF
+    classDef abc   fill:#1A7F55,stroke:#125C3D,color:#FFFFFF
+    classDef xr1   fill:#8957E5,stroke:#6633B8,color:#FFFFFF
+    classDef pi    fill:#E36209,stroke:#A8460A,color:#FFFFFF
+    classDef groot fill:#CF222E,stroke:#96101A,color:#FFFFFF
+    classDef ling  fill:#9A6700,stroke:#6E4A00,color:#FFFFFF
+    style THINK fill:#FFFFFF,stroke:#8C959F,stroke-dasharray:5 4,color:#1F2328
 ```
 
-默认使用 ManiMux 异步 runtime。RTC 是显式选择的另一种推理调度方式：ManiMux 根据真实
-执行进度生成 condition/soft mask，支持 RTC 的模型 adapter 再把它注入原生采样过程。
+**控制环永不等待** —— 不等模型、磁盘、viewer，也不等一行日志。
+**过期或非法的 chunk 绝不会到达机器人** —— session 不符、sequence 过旧、超过
+deadline、维度错误、含非有限值、左右臂 plan 不一致，都会**整块**丢弃并写明原因。
+
+RTC 是「想」这一级的另一种选择：不再等时间轴见底才补，而是由 ManiMux 从真实执行
+进度推出条件和软掩码，再由支持 RTC 的 adapter 注入模型自己的采样器。
 
 ## 代码结构
 
@@ -98,7 +112,7 @@ OpenPI 官方 `pi05_base` 仍保留在 `checkpoints/pretrained/`。
 |---|---|---|---|---|
 | ✅ | MolmoAct2 + YAM | 30 × 14 关节位置 | `configs/molmoact2/yam/` | [MolmoAct2](docs/molmoact-yam-runbook.md) |
 | ✅ | ABC + YAM | 30 × 14 关节位置 | `configs/abc/yam/` | [ABC](docs/abc-yam-runbook.md) |
-| 🧪 | XR-1 native + YAM | 30 × 60 末端增量 → 30 × 14 关节位置 | `configs/xiaomi-xr1/yam/infra/native.yaml` | [XR-1 native](docs/xr1-yam-runbook.md) |
+| 🧪 | XR-1 native + YAM | 30 × 60 末端增量 → 30 × 14 关节位置 | `configs/xiaomi-xr1/yam/infra/native-manimux.yaml` | [XR-1 native](docs/xr1-yam-runbook.md) |
 | ✅ | OpenPI Pi05 + YAM | 16 × 14 绝对关节位置 | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
 | ✅ | GR00T N1.7 + YAM | 16 × 14 绝对关节位置 | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
 | 🚧 | XPolicy XR-1 + YAM | 30 × 60 末端增量 → 30 × 14 关节位置 | `configs/xiaomi-xr1/yam/{server,infra}/` | [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md) |
@@ -111,6 +125,8 @@ OpenPI Pi05 已完成真实三相机、YAM norm stats、XPolicy 模型服务、�
 这是 policy 质量结论，不代表推理 infra 未完成。GR00T 也已经完成 GPU、XPolicy
 WebSocket、默认 ManiMux、真实三相机、双臂 YAM 和 Recorder 闭环；其 pick 失败属于
 policy 质量结果。XPolicy XR-1 和 LingBot-VLA2 当前仍不能视为真机验证完成。
+两者的 base 权重统一使用 `server/base.yaml` 加同一份 `infra/manimux.yaml` 测试；
+YAM projection stats 不能当作已经完成 YAM 后训练的证据。
 
 ## 安装
 
