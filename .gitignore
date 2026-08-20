@@ -10,3 +10,5 @@ data/
 dist/
 checkpoints/pretrained/
 configs/robots/maniunicon_meshcat_dual.yaml
+recordings/
+logs/
