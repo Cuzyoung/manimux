@@ -102,7 +102,7 @@ Status: ✅ running · 🧪 experimental · 🚧 not deployable yet · 🔌 infr
 | ✅ | ABC + YAM | 30 × 14 joint positions | `configs/abc/yam/` | [ABC](docs/abc-yam-runbook.md) |
 | 🧪 | Native XR-1 + YAM | 30 × 60 EE deltas → 30 × 14 joint positions | `configs/xiaomi-xr1/yam/infra/native.yaml` | [Native XR-1](docs/xr1-yam-runbook.md) |
 | ✅ | OpenPI Pi05 + YAM | 16 × 14 absolute joint positions | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
-| 🧪 | GR00T N1.7 + YAM | 16 × 14 absolute joint positions | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
+| ✅ | GR00T N1.7 + YAM | 16 × 14 absolute joint positions | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
 | 🚧 | XPolicy XR-1 + YAM | 30 × 60 EE deltas → 30 × 14 joint positions | `configs/xiaomi-xr1/yam/{server,infra}/` | [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md) |
 | 🚧 | LingBot-VLA2 + YAM | 50 × 14 absolute joints; YAM post-training bundle required | `configs/lingbot-vla2/yam/` | [LingBot-VLA2](docs/lingbot-vla2-yam-runbook.md) |
 | 🔌 | XPolicy bridge | Standard observation/action wire contract | `configs/xpolicylab/yam/infra/smoke.yaml` | [XPolicyLab](docs/xpolicylab-runbook.md) |
@@ -111,8 +111,10 @@ OpenPI Pi05 has completed the real three-camera, YAM normalization, XPolicy mode
 official 10-step flow sampling, default ManiMux and Pi-guided RTC paths on dual YAM. RTC ran with
 measured `d=3-5` steps and no post-start chunk gap. The checkpoint produced task-related motion,
 but remained hesitant in this scene and has no established success rate; that policy-quality
-result is separate from the completed inference infrastructure. GR00T, XPolicy XR-1 and LingBot-VLA2
-must not be described as hardware-validated yet.
+result is separate from the completed inference infrastructure. GR00T has also completed GPU,
+XPolicy WebSocket, default ManiMux, three-camera, dual-YAM and Recorder execution; its failed pick
+rollouts are policy-quality results. XPolicy XR-1 and LingBot-VLA2 must not be described as
+hardware-validated yet.
 
 ## Install
 

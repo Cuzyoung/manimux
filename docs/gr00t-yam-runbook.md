@@ -4,8 +4,9 @@
 [Isaac-GR00T N1.7](https://github.com/NVIDIA/Isaac-GR00T) 的 YAM 微调权重，不是
 `nvidia/GR00T-N1.7-3B` base 直接零样本上 YAM。
 
-当前状态：**XPolicy adapter、checkpoint 契约、ManiMux 配置已完成离线验证；模型环境、
-Cosmos、GPU forward 和 XPolicy WebSocket 已验证；ManiMux runtime、相机和真机尚未验证。**
+当前状态：**XPolicy adapter、checkpoint 契约、模型环境、Cosmos、GPU forward、
+XPolicy WebSocket、默认 ManiMux、真实三相机、双臂 YAM 和 Recorder 已完成闭环验证。当前
+checkpoint 在已跑场景未完成任务，这是 policy 质量结果，不是 infra 断路。**
 
 ## 契约
 
@@ -156,12 +157,15 @@ envs/yam/.venv/bin/manimux run --config configs/groot/yam/infra/manimux.yaml
 真机 runtime 连接后会用 `3.5 s` 移动到配置起始位；正常 `Ctrl-C` 退出时会用 `3.5 s`
 回 Home。不要在机械臂运动中关闭模型或相机服务；异常时优先物理急停。
 
+2026-08-20 的两个受控 episode 分别记录了 91/74 个接受 chunk，无 plan rejection 或
+invalid action，默认 ManiMux、三相机、双臂下发和 Recorder 因此已验收。两次都没有完成
+pick 任务，只能记为当前 checkpoint 的闭环任务失败，不能倒推为 infra 未运行。
+
 当前只提供默认 ManiMux 配置，不提供 GR00T RTC 配置。虽然 Isaac-GR00T N1.7 模型内部有
 自己的 overlap/frozen-step RTC 分支，但当前 XPolicy `GR00T_N17` adapter 没有实现统一的
 `get_action_rtc()` 契约，不能把默认推理包装成 RTC。
 
 ## 未验证项
 
-- 相机、preflight、CAN 和真机闭环；
-- 默认 ManiMux runtime 与 Recorder 输出；
-- 任务成功率与动作平滑性。
+- 该 checkpoint 的任务成功率与跨任务泛化；
+- GR00T sampler-level RTC。

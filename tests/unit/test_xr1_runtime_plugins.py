@@ -23,6 +23,7 @@ from manimux.integrations.xr1_yam.policy_plugin import (
 )
 from manimux.policies import build_policy_adapter, build_policy_model
 from manimux.robots import build_robot
+from manimux.runtime.rtc import RtcInferenceRequest
 from manimux.sensors import build_sensor
 from manimux.sensors.camera_server import CameraServerSensorDriver
 from manimux.types import (
@@ -208,3 +209,58 @@ def test_http_model_sends_cameras_and_carries_the_anchor_state(
     assert isinstance(raw, dict)
     np.testing.assert_array_equal(raw["state"], ANCHOR)
     assert np.asarray(raw["actions"]).shape == (30, ACTION_DIM)
+
+
+def test_http_model_encodes_rtc_joint_condition_in_native_action_space(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json_numpy
+
+    config = load_config("configs/xiaomi-xr1/yam/infra/native-rtc.yaml")
+    model = build_policy_model(config.policy)
+    model._session_id = "session"
+    captured: dict[str, object] = {}
+
+    def _post(url: str, **kwargs: object) -> _StubResponse:
+        del url
+        captured["payload"] = json_numpy.loads(kwargs["data"])
+        return _StubResponse(
+            json_numpy.dumps({"actions": np.zeros((30, ACTION_DIM), dtype=np.float32)})
+        )
+
+    stub = types.ModuleType("requests")
+    stub.post = _post  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "requests", stub)
+
+    frame = np.zeros((4, 5, 3), dtype=np.uint8)
+    snapshot = ObservationSnapshot(
+        state=RobotState(
+            groups={"left_arm": ANCHOR[:7], "right_arm": ANCHOR[7:]},
+            monotonic_ns=1,
+            sequence=1,
+        ),
+        frames={
+            name: SensorFrame(name=name, data=frame, capture_monotonic_ns=1, sequence=1)
+            for name in ("left_camera", "front_camera", "right_camera")
+        },
+    )
+    joint_condition = np.tile(ANCHOR, (30, 1))
+    model.infer(
+        RtcInferenceRequest(
+            session_id="session",
+            request_seq=1,
+            observation_time_ns=0,
+            deadline_ns=2**62,
+            observation=snapshot,
+            instruction="pick up the red ball",
+            action_condition=joint_condition,
+            condition_weights=np.ones(30),
+            rtc_beta=4.25,
+        )
+    )
+
+    payload = captured["payload"]
+    assert np.asarray(payload["action_condition"]).shape == (30, 60)
+    np.testing.assert_allclose(payload["action_condition"], 0.0, atol=1e-5)
+    np.testing.assert_array_equal(payload["action_condition_weights"], np.ones(30))
+    assert payload["rtc_beta"] == pytest.approx(4.25)

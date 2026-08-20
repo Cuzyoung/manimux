@@ -12,6 +12,7 @@
 
 ```text
 Native ManiMux: configs/xiaomi-xr1/yam/infra/native.yaml
+Native RTC:     configs/xiaomi-xr1/yam/infra/native-rtc.yaml
 ```
 
 XPolicy 和 RTC 路线使用同一模型目录下的 `xpolicy-*` 配置，单独见
@@ -118,6 +119,22 @@ for c in can_left can_right; do printf '%s: ' "$c"; ip -details link show "$c" |
 ```bash
 envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/native.yaml
 ```
+
+原生 HTTP 路线也有独立的 sampler-level RTC 配置：
+
+```bash
+envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/native-rtc.yaml
+```
+
+RTC runtime 给模型的是上一条 chunk 的 `30 x 14` 关节条件。HTTP adapter 先以这次观测的
+关节状态为新锚点，用 FK 把它重新编码成模型原生的 `30 x 60` 末端增量，再由服务端归一化，
+在 5 个 Euler denoise step 内执行 PiGDM soft-mask guidance。因此条件真正进入了模型 sampler，
+不是收到新 chunk 后在 ManiMux 里拼接、裁剪或插值旧动作。
+
+目前已完成配置加载、HTTP payload 和 CPU 虚拟 flow 的离线证明；还没有用真实 5B checkpoint
+完成 GPU conditioned forward，所以这条命令是待 GPU 验收的部署入口，不能据此宣称 RTC
+已经真机跑通。离线 sampler 检查命令见
+[Xiaomi XR-1 + YAM](xiaomi-xr1-yam-runbook.md)。
 
 ## 三个 policy 的对照
 

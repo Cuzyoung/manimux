@@ -26,6 +26,7 @@ incremental step-to-step offsets.
 from __future__ import annotations
 
 import logging
+import math
 import time
 import uuid
 from collections.abc import Mapping, Sequence
@@ -166,6 +167,14 @@ class XR1HttpPolicyModel:
         self._timeout_s = float(config.options.get("http_timeout_s", config.timeout_s))
         if self._timeout_s <= 0:
             raise ValueError("policy.options.http_timeout_s must be positive")
+        self._horizon_steps = config.horizon_steps
+        from manimux.kinematics import build_kinematics
+
+        kinematics_name = _string_option(config.options, "kinematics", "yam")
+        kinematics_options = config.options.get("kinematics_options", {})
+        if not isinstance(kinematics_options, dict):
+            raise ValueError("policy.options.kinematics_options must be a mapping")
+        self._kinematics = build_kinematics(kinematics_name, **kinematics_options)
         self._session_id: str | None = None
 
     def reset(self, session_id: str) -> None:
@@ -210,10 +219,40 @@ class XR1HttpPolicyModel:
         # the default runtime never sets it and the payload is unchanged.
         condition = getattr(request, "action_condition", None)
         weights = getattr(request, "condition_weights", None)
-        if condition is not None and weights is not None:
-            payload["action_condition"] = np.asarray(condition, dtype=np.float32)
-            payload["action_condition_weights"] = np.asarray(weights, dtype=np.float32)
-            payload["rtc_beta"] = float(getattr(request, "rtc_beta", 5.0))
+        if (condition is None) != (weights is None):
+            raise ValueError("RTC action_condition and condition_weights must be provided together")
+        if condition is not None:
+            condition_array = np.asarray(condition, dtype=np.float32)
+            expected_shape = (
+                self._horizon_steps,
+                sum(np.asarray(snapshot.state.groups[name]).size for name in self._group_order),
+            )
+            if condition_array.shape != expected_shape:
+                raise ValueError(
+                    f"RTC action_condition must have shape {expected_shape}, "
+                    f"got {condition_array.shape}"
+                )
+            weights_array = np.asarray(weights, dtype=np.float32)
+            if weights_array.shape != (self._horizon_steps,):
+                raise ValueError(
+                    f"RTC condition_weights must have shape {(self._horizon_steps,)}, "
+                    f"got {weights_array.shape}"
+                )
+            if not np.isfinite(weights_array).all() or np.any(
+                (weights_array < 0.0) | (weights_array > 1.0)
+            ):
+                raise ValueError("RTC condition_weights must be finite and in [0, 1]")
+            beta = float(getattr(request, "rtc_beta", 5.0))
+            if not math.isfinite(beta) or beta <= 0:
+                raise ValueError(f"rtc_beta must be finite and positive, got {beta}")
+            payload["action_condition"] = joint_condition_to_xr1_actions(
+                condition_array,
+                snapshot.state.groups,
+                group_order=self._group_order,
+                kinematics=self._kinematics,
+            )
+            payload["action_condition_weights"] = weights_array
+            payload["rtc_beta"] = beta
 
         import json_numpy
         import requests
