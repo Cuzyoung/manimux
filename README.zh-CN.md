@@ -19,6 +19,87 @@
 
 ![MolmoAct 驱动双 YAM 臂时的 ManiMux viewer](assets/viewer-hero.png)
 
+## 30 秒理解 ManiMux
+
+**ManiMux 是连接 VLA 模型和真实机器人的异步推理运行时。** 模型负责“想接下来怎么动”，
+ManiMux 负责“什么时候执行、如何平滑、安全地下发，并把全过程记录下来”。
+
+```text
+相机 + 机器人状态
+        ↓
+Policy / XPolicy 模型      生成未来 16～50 步 action chunk
+        ↓
+PolicyAdapter              转成当前机器人能执行的关节动作
+        ↓
+ManiMux Runtime            裁剪过期动作、拼接、平滑、安全检查
+        ↓
+Robot                      同一 control tick 原子下发双臂命令
+
+同时输出：Recorder episode + 3D Viewer
+```
+
+先记住三件事：
+
+1. **模型不直接控制机器人**，只返回一段未来动作。
+2. **Adapter 负责翻译**，把 joint、EE pose 或 delta 统一成 canonical action chunk。
+3. **ManiMux 负责执行**，控制频率、Timeline、Safety、Recorder 不随模型复制。
+
+## 10 分钟无硬件上手
+
+```bash
+git clone --recursive https://github.com/SII-LiuLab/manimux.git
+cd manimux
+uv sync --dev
+uv run manimux run --config configs/mock.yaml
+```
+
+`configs/mock.yaml` 使用假机器人、假相机和假 policy，但运行真实的 worker、Timeline、
+SmoothExecutor、SafetyGuard 和 Recorder。默认执行 `120` 个 control tick，并在 `data/`
+生成一个完整 episode；它不会连接相机、CAN 或真实机械臂。
+
+独立查看 YAM Viewer 演示：
+
+```bash
+uv run manimux-viewer --robot yam --demo --port 8086
+```
+
+浏览器打开 `http://localhost:8086`。这个 `--demo` 是独立可视化演示，不是上述 mock
+runtime 的实时画面。
+
+### 做三个安全小实验
+
+先复制配置，不改仓库基线：
+
+```bash
+cp configs/mock.yaml /tmp/manimux-beginner.yaml
+```
+
+然后每次只改一个值并重新运行：
+
+| 修改 | 建议值 | 能观察什么 |
+|---|---:|---|
+| `run.max_steps` | `120 → 300` | control tick 与 episode 生命周期 |
+| `policy.inference_delay_s` | `0.04 → 0.20` | 模型变慢时，控制环仍不阻塞 |
+| `execution.blend_steps` | `0 / 2 / 8` | 新旧 action chunk 的接缝差异 |
+
+第一份配置只需按七块理解：`run` 决定实验，`robot` 决定本体，`sensors` 决定观测，
+`policy` 决定模型与 action chunk，`execution` 决定调度和执行，`viewer` 决定实时显示，
+`recording` 描述记录策略（当前 runtime 默认始终记录）。逐字段说明见
+[配置导读](configs/README.md#第一份配置configsmockyaml)。
+
+## Beginner 先看哪里
+
+| 路径 | 先把它理解成 |
+|---|---|
+| `configs/` | 实验入口：选择模型、本体、checkpoint 和 runtime |
+| `docs/*-runbook.md` | 操作说明：每个模型如何安装、启动、检查和停止 |
+| `src/manimux/` | 通用引擎：runtime、robot、sensor、safety、recording、viewer |
+| `XPolicyLab/` | 模型内部：Pi05、GR00T、XR-1、LingBot 等 adapter 与 sampler |
+| `data/` | 运行结果：resolved config、动作、状态、事件和 episode 结果 |
+
+平时跑实验主要看 `configs/` 和对应 runbook；开发通用 infra 才进入 `src/manimux/`；
+修改模型预处理、flow denoise 或 RTC sampler 才进入 `XPolicyLab/`。
+
 ## 项目定位
 
 VLA 推理通常比机器人控制周期慢，而且一次输出一段 action chunk。ManiMux 把模型推理
@@ -26,17 +107,8 @@ VLA 推理通常比机器人控制周期慢，而且一次输出一段 action ch
 数据记录和实时可视化。
 
 ManiMux 不绑定某个模型库。MolmoAct、ABC 通过原生服务接入；更多基模通过
-`XPolicyLab/` 接入。我们只在 ManiMux 中维护稳定的运行时和 wire bridge，需要修改模型
-预处理、flow denoise 或 RTC 采样时，代码留在 XPolicyLab 对应的模型 adapter 内。
-
-XR-1 使用我们在 XPolicyLab fork 中维护的 `Xiaomi_Robotics_1` adapter，底层是小米
-官方 XR-1 源码；它不是 XPolicyLab 上游仓库原本自带的 adapter。ManiMux 只保留 wire
-codec 和 YAM FK/IK 映射，模型加载与 denoise 都在 XPolicyLab 内执行。
-
-因此 XR-1 服务返回的是官方 `Xiaomi-Robotics-1-5B` 的真实模型推理动作，不是启动姿态、
-预录轨迹或假数据。需要单独验收的是后半段：该 base checkpoint 没有在 YAM 上训练，
-当前 YAM stats 只定义投影单位，而 `30 × 60` 末端增量到 `30 × 14` 关节位置的 FK/IK
-转换属于 ManiMux 本体 adapter。
+`XPolicyLab/` 接入。ManiMux 只维护稳定的运行时和 wire bridge；模型预处理、flow
+denoise 或 RTC 采样留在 XPolicyLab 对应 adapter，本体映射和执行安全留在 ManiMux。
 
 ## 架构
 
@@ -142,32 +214,17 @@ Recorder 的全链路启动，确认机械臂执行的是模型输出。首次 b
 左臂持续出现异常大幅运动，因此 infra 链路记为已通，但 YAM 动作语义 Gate 未通过；这既
 不能归类为初始姿态移动，也不能当作 checkpoint 已具备 YAM zero-shot 能力。
 
-## 安装
+## 从 Mock 到真实模型
 
-```bash
-git clone --recursive https://github.com/SII-LiuLab/manimux.git
-cd manimux
-uv sync --dev
-```
-
-已有 checkout：
+已有 checkout 先同步 submodule：
 
 ```bash
 git submodule update --init --recursive
 ```
 
-核心 runtime 使用 `./.venv`；真机 runtime 使用 `envs/yam/.venv`；不同模型服务使用各自
-隔离环境。具体 CUDA、Torch 和 checkpoint 安装只写在
-[环境说明](envs/README.md)与对应模型 runbook 中。
-
-## 快速开始
-
-### 无硬件
-
-```bash
-uv run manimux run --config configs/mock.yaml
-uv run manimux-viewer --robot yam --demo --port 8086
-```
+核心开发环境使用 `./.venv`，YAM runtime 使用 `envs/yam/.venv`，不同模型服务使用各自
+隔离环境。CUDA、Torch、checkpoint 和首次启动只看
+[环境说明](envs/README.md)与对应模型 runbook，不从 README 拼接真机命令。
 
 ### YAM 公共服务
 
