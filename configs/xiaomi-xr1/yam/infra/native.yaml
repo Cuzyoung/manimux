@@ -1,5 +1,5 @@
 run:
-  # ABC 的 prompt 走 CLIP 文本编码，措辞要贴近训练时的任务名。
+  # XR-1 通过 Qwen3-VL 读取自然语言任务。
   task: put the bottle into the bin
   output_dir: ./data
   # 一次 rollout 最多执行的控制步数；达到后自动回 Home 并退出。

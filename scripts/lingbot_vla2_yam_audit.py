@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit why the local LingBot-VLA2 foundation checkpoint is not deployable on YAM yet."""
+"""Audit the local LingBot-VLA2 foundation checkpoint and official V2 source."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CHECKPOINT = REPO_ROOT / "checkpoints/pretrained/lingbot-vla-v2-6b"
+DEFAULT_SOURCE = REPO_ROOT / "XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2"
 
 
 def _tensor_shape(checkpoint: Path, tensor_name: str) -> list[int]:
@@ -24,6 +25,7 @@ def _tensor_shape(checkpoint: Path, tensor_name: str) -> list[int]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
+    parser.add_argument("--source-root", type=Path, default=DEFAULT_SOURCE)
     args = parser.parse_args()
     checkpoint = args.checkpoint.resolve()
 
@@ -36,14 +38,18 @@ def main() -> int:
         "action_projection_shape": _tensor_shape(
             checkpoint, "model.action_out_proj.weight"
         ),
-        "xpolicylab_adapter": None,
+        "official_repository": "https://github.com/Robbyant/lingbot-vla-v2",
+        "official_source_present": (
+            args.source_root / "deploy/lingbot_vla_v2_policy.py"
+        ).is_file(),
+        "xpolicylab_adapter": "XPolicyLab/policy/LingBot_VLA2",
         "yam_norm_stats": None,
-        "yam_action_mapping": None,
+        "yam_action_mapping": "absolute 12 arm joints + 2 grippers",
         "status": "blocked",
         "reason": (
-            "XPolicyLab LingBot_VLA is the older Qwen2.5 implementation; this checkpoint "
-            "is LingBot-VLA2/Qwen3 with a 55-D unified state/action interface and does "
-            "not publish the YAM embodiment mapping, horizon, or normalization statistics."
+            "The official V2 source is public, but this local foundation checkpoint does "
+            "not contain the lingbotvla_cli.yaml expected by the official loader, a "
+            "YAM post-training checkpoint, or matched YAM normalization statistics."
         ),
     }
     print(json.dumps(contract, indent=2))

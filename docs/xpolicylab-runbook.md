@@ -18,6 +18,9 @@ runbook：
 fork commit；fork 再从官方 `upstream` 获取更新。模型仍在各自独立环境和进程中运行，
 ManiMux runtime 不 import torch/JAX 等模型依赖。
 
+`--recursive` 也会初始化 XPolicyLab 内固定版本的第三方源码，例如官方 LingBot-VLA2；
+不需要用户再手动 clone 到任意系统目录。
+
 ```bash
 git clone --recursive https://github.com/SII-LiuLab/manimux.git
 cd manimux

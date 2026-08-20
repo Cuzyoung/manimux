@@ -1,5 +1,8 @@
 # XR-1 + YAM 运行手册
 
+这是原生 HTTP 适配器的历史基线。新集成默认使用
+[XPolicy XR-1 + YAM](xiaomi-xr1-yam-runbook.md)；本文保留用于交叉验证模型原生契约。
+
 和 MolmoAct / ABC 一样的四个服务，只有第 1 步（模型服务）和第 4 步的配置文件不同。
 
 > **先读这一节再上真机。** XR-1 是唯一一个输出末端笛卡尔增量的模型，而且我们手上
@@ -17,14 +20,14 @@ XPolicy 和 RTC 路线使用同一模型目录下的 `xpolicy-*` 配置，单独
 
 ## 0. 一次性准备
 
-XR-1 要独立的 venv（torch 2.8 / CUDA 12.6 + 配套的 flash-attn，和 MolmoAct 的
-cu121、ABC 的 cu128 都装不到一起）：
+XR-1 要独立的 venv（官方验证组合为 torch 2.8 / CUDA 12.8 +
+transformers 4.57.1 + flash-attn 2.8.3），不与其他模型的环境混用：
 
 ```bash
 cd /home/ubuntu/manimux
 uv venv envs/xr1/.venv --python 3.12
 uv pip install --python envs/xr1/.venv/bin/python torch==2.8.0 torchvision==0.23.0 \
-  --index-url https://download.pytorch.org/whl/cu126
+  --index-url https://download.pytorch.org/whl/cu128
 uv pip install --python envs/xr1/.venv/bin/python -e ".[xr1-yam]"
 uv pip install --python envs/xr1/.venv/bin/python flash-attn==2.8.3 --no-build-isolation
 ```
@@ -126,19 +129,19 @@ envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/native.yaml
 | chunk | 30 × 14 | 30 × 14 | 30 × 60（有效 18 列） |
 | 指令编码 | VLM prompt | CLIP 文本向量 | VLM prompt |
 | 推理延迟 | ~240 ms | ~170 ms | ~121 ms |
-| venv | `envs/yam` (cu121) | `envs/abc` (cu128) | `envs/xr1` (cu126) |
+| venv | `envs/yam` (cu121) | `envs/abc` (cu128) | `envs/xr1` (cu128) |
 
 机器人、相机、Viewer 三层三者共用，一行代码都没改。
 
 ## 零样本的已知限制
 
-**这份权重是 `Xiaomi-Robotics-1-5B`，官方定位是「微调起点」**，不是能直接部署的
-策略。官方部署文档里那个真机通用权重 `XiaomiRobotics/Xiaomi-Robotics-1` 没有公开
-（HTTP 401）。已发布的 RoboCasa / VLABench 三个权重是仿真环境的单臂微调版，驱动
-不了双臂 YAM。
+**这份权重是 `Xiaomi-Robotics-1-5B`，官方 model card 定位是「继续 post-training
+的起点」**，不是 YAM 策略。官方已发布 RoboCasa / RoboCasa365 / VLABench
+三个特定仿真本体的微调权重，但尚无 YAM 或可直接映射到双臂 YAM 的公开权重。
 
-**上游不发归一化统计量。** 模型跑起来必须要 `mean/std/q01/q99`，而仓库里唯一
-一份来自 5 个 episode 的洗衣机 demo（另一台机器人）。目前打包在
+**5B checkpoint 不附带与 YAM 匹配的归一化统计量。** 模型跑起来必须要
+`mean/std/q01/q99`，而官方 post-training demo 里的一份来自 5 个洗衣机
+episode（另一台机器人）。目前打包在
 `src/manimux/integrations/xr1_yam/norm_stats/washer_demo.json`，用
 `--norm-stats` 可以换。实测影响：
 
