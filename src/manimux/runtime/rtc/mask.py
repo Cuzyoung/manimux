@@ -50,9 +50,7 @@ def project_chunk_to_joint_speed(
     if chunk.ndim != 2:
         raise ValueError(f"actions must have shape (H, D), got {chunk.shape}")
     if current.shape != (chunk.shape[1],):
-        raise ValueError(
-            f"state must have shape ({chunk.shape[1]},), got {current.shape}"
-        )
+        raise ValueError(f"state must have shape ({chunk.shape[1]},), got {current.shape}")
     if not 0 <= start <= len(chunk):
         raise ValueError(f"start_step must be in [0, {len(chunk)}], got {start}")
     if not np.isfinite(step) or step <= 0:
@@ -90,8 +88,7 @@ def soft_mask(horizon: int, executed_steps: int, delay_steps: int) -> np.ndarray
         raise ValueError(f"horizon must be positive, got {h}")
     if not 0 <= d <= s <= h - d:
         raise ValueError(
-            f"RTC requires 0 <= delay <= executed <= horizon-delay; "
-            f"got d={d}, s={s}, H={h}"
+            f"RTC requires 0 <= delay <= executed <= horizon-delay; got d={d}, s={s}, H={h}"
         )
 
     overlap = h - s

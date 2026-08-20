@@ -23,7 +23,6 @@ from manimux.runtime.rtc import (
 )
 from manimux.types import InferenceRequest, ObservationSnapshot, RobotState
 
-
 # --------------------------------------------------------------------------- mask
 
 
@@ -59,15 +58,15 @@ def test_inpainting_condition_left_shifts_the_unexecuted_tail() -> None:
     horizon, dim, executed, delay = 30, 14, 12, 3
     chunk = np.arange(horizon * dim, dtype=np.float32).reshape(horizon, dim)
 
-    targets, weights = inpainting_condition(
-        chunk, executed_steps=executed, delay_steps=delay
-    )
+    targets, weights = inpainting_condition(chunk, executed_steps=executed, delay_steps=delay)
 
     assert targets.shape == chunk.shape
     # targets[0] must denote the same controller step as the new chunk's index 0.
     np.testing.assert_array_equal(targets[: horizon - executed], chunk[executed:])
     np.testing.assert_array_equal(targets[horizon - executed :], 0.0)
     np.testing.assert_array_equal(weights, soft_mask(horizon, executed, delay))
+
+
 def test_rtc_request_passes_the_core_worker_contract() -> None:
     """The condition rides a subclass so manimux.types stays untouched."""
     import pickle
@@ -188,7 +187,7 @@ def test_default_runtime_is_unchanged() -> None:
 
 
 def test_rtc_runtime_is_selected_by_config(tmp_path: Path) -> None:
-    config = load_config("configs/abc-yam.yaml")
+    config = load_config("configs/abc-yam-live.yaml")
     config.execution.runtime = "rtc"
     runtime = build_runtime(config, tmp_path)
 
@@ -231,15 +230,23 @@ def test_runtime_package_binds_to_factories_not_to_a_policy_or_a_body() -> None:
                 module = node.names[0].name
             if module is None or not module.startswith("manimux."):
                 continue
-            if module.startswith(("manimux.runtime", "manimux.types", "manimux.config",
-                                  "manimux.clock", "manimux.plugins", "manimux.recording",
-                                  "manimux.viewer")):
+            if module.startswith(
+                (
+                    "manimux.runtime",
+                    "manimux.types",
+                    "manimux.config",
+                    "manimux.clock",
+                    "manimux.plugins",
+                    "manimux.recording",
+                    "manimux.viewer",
+                )
+            ):
                 continue
             assert module in allowed, f"{path.name} imports {module}, which is not a factory"
 
 
 def test_execution_horizon_respects_the_feasibility_window(tmp_path: Path) -> None:
-    config = load_config("configs/abc-yam.yaml")
+    config = load_config("configs/abc-yam-live.yaml")
     config.execution.runtime = "rtc"
     config.execution.rtc.min_execute_steps = 15
     runtime = build_runtime(config, tmp_path)
@@ -253,6 +260,8 @@ def test_execution_horizon_respects_the_feasibility_window(tmp_path: Path) -> No
     # Beyond d > H/2 the window d <= s <= H-d is empty; the runtime must refuse
     # to submit rather than build a mask that violates the paper's constraint.
     assert runtime._execution_horizon(30, 16) < 16
+
+
 def _run_mock(runtime_kind: str, tmp_path: Path, max_steps: int = 120):
     """Drive a full session on mock robot/sensor/policy — no hardware."""
     import json
@@ -364,3 +373,87 @@ def test_replanning_does_not_yank_the_command_back_to_the_measurement(
     # More commits must not mean rougher motion; that is the whole point of
     # conditioning the next chunk on the current one.
     assert rtc_worst <= default_worst * 1.5, (default_worst, rtc_worst)
+
+
+# ------------------------------------------------- regression: the H that RTC uses
+
+
+def _run_slow_policy(tmp_path: Path, inference_delay_s: float = 0.4) -> list[dict]:
+    """A rollout where inference costs a large fraction of one chunk.
+
+    ``configs/mock.yaml`` infers in 40 ms against a 20 x 50 ms = 1 s chunk, so
+    ``timeline.commit`` trims almost nothing and every indexing mistake stays
+    invisible. Real policies cost 170-600 ms, which trims a third of the chunk.
+    """
+    import json
+
+    config = load_config("configs/mock.yaml")
+    config.run.max_steps = 300
+    config.execution.runtime = "rtc"
+    config.viewer.enabled = False
+    config.policy.inference_delay_s = inference_delay_s
+    config.policy.timeout_s = 2.0
+    config.execution.rtc.min_execute_steps = 8
+    config.execution.rtc.initial_delay_steps = 2
+    result = build_runtime(config, tmp_path).run()
+    return [
+        json.loads(line)
+        for line in (Path(result.episode_dir) / "events.jsonl").read_text().splitlines()
+    ]
+
+
+def test_the_condition_indexes_the_model_chunk_not_the_trimmed_plan(tmp_path: Path) -> None:
+    """Regression: a slow policy used to switch guidance off entirely.
+
+    ``timeline.active_horizon()`` returns the chunk *after* commit-time trimming.
+    Using its length as ``H`` shrinks the feasibility window ``d <= s <= H - d``
+    until it is empty, so every request after the first went out unconditioned
+    and RTC silently degraded into naive async. ``H`` has to be the horizon the
+    model produced, and ``s`` has to index that same array.
+    """
+    events = _run_slow_policy(tmp_path)
+    submissions = _of(events, "inference_submitted")
+
+    assert not submissions[0]["conditioned"], "the first chunk has nothing to condition on"
+    conditioned = [event for event in submissions[1:] if event["conditioned"]]
+    assert conditioned, "guidance never engaged once inference cost a third of a chunk"
+    assert not _of(events, "rtc_delay_infeasible"), "the window must not collapse here"
+
+    horizon = load_config("configs/mock.yaml").policy.horizon_steps
+    for event in conditioned:
+        delay, executed = event["forecast_delay"], event["executed_steps"]
+        assert delay <= executed <= horizon - delay, (delay, executed, horizon)
+    # Rows skipped at commit still count: ``s`` regularly exceeds what the
+    # cursor alone would report right after a chunk lands.
+    assert max(event["executed_steps"] for event in conditioned) >= 8
+
+
+def test_a_conditioned_chunk_commits_without_a_blend(tmp_path: Path) -> None:
+    """The blend would overwrite exactly the prefix the guidance froze.
+
+    An unconditioned chunk keeps it: nothing guarantees that one lines up.
+    """
+    config = load_config("configs/mock.yaml")
+    config.run.max_steps = 300
+    config.execution.runtime = "rtc"
+    config.viewer.enabled = False
+    config.policy.inference_delay_s = 0.4
+    config.policy.timeout_s = 2.0
+    config.execution.blend_steps = 6
+    config.execution.rtc.min_execute_steps = 8
+    config.execution.rtc.initial_delay_steps = 2
+    runtime = build_runtime(config, tmp_path)
+
+    seen: list[int] = []
+    original = runtime._timeline.commit
+
+    def spy(chunk, **kwargs):  # type: ignore[no-untyped-def]
+        seen.append(int(kwargs["blend_steps"]))
+        return original(chunk, **kwargs)
+
+    runtime._timeline.commit = spy  # type: ignore[method-assign]
+    runtime.run()
+
+    assert seen, "no chunk was ever committed"
+    assert seen[0] == config.execution.blend_steps, "the first chunk is unconditioned"
+    assert 0 in seen[1:], "a conditioned chunk still went through the blend"
