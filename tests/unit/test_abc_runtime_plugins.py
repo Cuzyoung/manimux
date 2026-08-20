@@ -10,11 +10,11 @@ import pytest
 from manimux.clock import SystemClock
 from manimux.config import load_config
 from manimux.integrations.abc_yam.policy_plugin import AbcHttpPolicyModel, AbcYamAdapter
-from manimux.robots.yam import YamDualArmDriver
-from manimux.sensors.camera_server import CameraServerSensorDriver
 from manimux.policies import build_policy_adapter, build_policy_model
 from manimux.robots import build_robot
+from manimux.robots.yam import YamDualArmDriver
 from manimux.sensors import build_sensor
+from manimux.sensors.camera_server import CameraServerSensorDriver
 from manimux.types import (
     ActionContext,
     InferenceRequest,
@@ -26,8 +26,8 @@ from manimux.types import (
 
 def test_abc_run_config_swaps_only_the_policy_layer() -> None:
     """The point of the plugin split: ABC reuses YAM, the cameras and the viewer."""
-    abc = load_config(Path("configs/abc-yam.yaml"))
-    molmoact = load_config(Path("configs/molmoact-yam.yaml"))
+    abc = load_config(Path("configs/abc-yam-live.yaml"))
+    molmoact = load_config(Path("configs/molmoact-yam-live.yaml"))
 
     assert isinstance(build_robot(abc.robot, SystemClock()), YamDualArmDriver)
     assert isinstance(build_sensor(abc.sensors[0], SystemClock()), CameraServerSensorDriver)
@@ -44,7 +44,7 @@ def test_abc_run_config_swaps_only_the_policy_layer() -> None:
 
 
 def test_abc_adapter_splits_raw_actions_into_canonical_yam_groups() -> None:
-    config = load_config("configs/abc-yam.yaml")
+    config = load_config("configs/abc-yam-live.yaml")
     adapter = build_policy_adapter(config.robot, config.policy)
     raw = np.arange(30 * 14, dtype=np.float64).reshape(30, 14)
 
@@ -62,7 +62,7 @@ def test_abc_adapter_splits_raw_actions_into_canonical_yam_groups() -> None:
 
 
 def test_abc_adapter_rejects_wrong_action_width() -> None:
-    config = load_config("configs/abc-yam.yaml")
+    config = load_config("configs/abc-yam-live.yaml")
     adapter = build_policy_adapter(config.robot, config.policy)
 
     with pytest.raises(ValueError, match="shape"):
@@ -78,7 +78,6 @@ def test_abc_live_config_matches_the_checkpoint_timing() -> None:
     # ABC-DiT was trained at 30 Hz with a fixed chunk_length of 30.
     assert config.policy.horizon_steps == 30
     assert config.policy.effective_action_dt_s == pytest.approx(1.0 / 30.0, abs=1e-4)
-    assert config.robot.options["command_mode"] == "live"
     assert config.robot.options["home_on_close"] is True
 
 

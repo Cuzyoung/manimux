@@ -14,7 +14,6 @@ robot:
     right_arm: 7
   options:
     right_config: configs/robots/yam_right.yaml
-    command_mode: live
     move_to_start_on_connect: true
     # 初始化和回 Home 的运动时间（秒）：数值越小，运动越快。
     start_duration_s: 5.0

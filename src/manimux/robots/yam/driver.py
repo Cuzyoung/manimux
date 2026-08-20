@@ -18,7 +18,6 @@ from manimux.clock import Clock
 from manimux.config import RobotConfig
 from manimux.types import RobotCommand, RobotState
 
-
 log = logging.getLogger("manimux.robots.yam")
 
 
@@ -71,6 +70,19 @@ class YamDualArmDriver:
 
     GROUP_ORDER = ("left_arm", "right_arm")
 
+    #: Every key ``robot.options`` may carry. The mapping is free-form, so an
+    #: unlisted key -- a typo, or one left over from a retired feature -- would
+    #: otherwise be ignored in silence while the arms still move.
+    OPTIONS = frozenset(
+        {
+            "right_config",
+            "start_duration_s",
+            "home_duration_s",
+            "move_to_start_on_connect",
+            "home_on_close",
+        }
+    )
+
     def __init__(self, config: RobotConfig, clock: Clock) -> None:
         if config.config is None:
             raise ValueError("yam_dual requires robot.config for the left arm")
@@ -87,13 +99,15 @@ class YamDualArmDriver:
         self._home_duration_s = float(config.options.get("home_duration_s", 5.0))
         self._start_duration_s = float(config.options.get("start_duration_s", 5.0))
         self._move_to_start_on_connect = bool(config.options.get("move_to_start_on_connect", False))
-        self._command_mode = config.options.get("command_mode", "shadow")
-        if self._command_mode not in {"shadow", "live"}:
-            raise ValueError("robot.options.command_mode must be 'shadow' or 'live'")
+        unknown = sorted(set(config.options) - self.OPTIONS)
+        if unknown:
+            raise ValueError(
+                f"unknown robot.options for yam_dual: {', '.join(unknown)}; "
+                f"known keys are {', '.join(sorted(self.OPTIONS))}"
+            )
         if self._home_duration_s <= 0 or self._start_duration_s <= 0:
             raise ValueError("YAM move durations must be positive")
         self._robot: Any | None = None
-        self._shadow_state: np.ndarray | None = None
         self._sequence = 0
 
     def connect(self) -> None:
@@ -105,12 +119,6 @@ class YamDualArmDriver:
             raise ValueError("YAM requires 7-value agent.start_joints in both configs")
         if not np.isfinite(left_start).all() or not np.isfinite(right_start).all():
             raise ValueError("YAM start joints must be finite")
-        if self._command_mode == "shadow":
-            if self._shadow_state is not None:
-                return
-            self._shadow_state = np.concatenate([left_start, right_start])
-            return
-
         if self._robot is not None:
             return
 
@@ -162,12 +170,7 @@ class YamDualArmDriver:
         return self._robot
 
     def get_state(self) -> RobotState:
-        if self._command_mode == "shadow":
-            if self._shadow_state is None:
-                raise RuntimeError("shadow YAM driver is not connected")
-            joints = self._shadow_state.copy()
-        else:
-            joints = np.asarray(self._require_robot().get_joint_state(), dtype=np.float64)
+        joints = np.asarray(self._require_robot().get_joint_state(), dtype=np.float64)
         if joints.shape != (14,) or not np.isfinite(joints).all():
             raise RuntimeError(f"YAM returned invalid joint state shape {joints.shape}")
         self._sequence += 1
@@ -181,15 +184,9 @@ class YamDualArmDriver:
         joints = np.concatenate([command.groups[name] for name in self.GROUP_ORDER])
         if joints.shape != (14,) or not np.isfinite(joints).all():
             raise ValueError("YAM command must contain two finite 7-value groups")
-        if self._command_mode == "shadow":
-            if self._shadow_state is None:
-                raise RuntimeError("shadow YAM driver is not connected")
-            return
         self._require_robot().command_joint_state(joints)
 
     def home(self) -> None:
-        if self._command_mode == "shadow":
-            return
         home = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
         self._move_joints(
             np.concatenate([home, home]),
@@ -243,7 +240,7 @@ class YamDualArmDriver:
                 raise KeyboardInterrupt
 
     def stop(self) -> None:
-        if self._robot is None or self._command_mode == "shadow":
+        if self._robot is None:
             return
         achieved = np.asarray(self._robot.get_joint_state(), dtype=np.float64)
         if achieved.shape != (14,) or not np.isfinite(achieved).all():
@@ -251,9 +248,6 @@ class YamDualArmDriver:
         self._robot.command_joint_state(achieved)
 
     def close(self) -> None:
-        if self._command_mode == "shadow":
-            self._shadow_state = None
-            return
         if self._robot is None:
             return
         robot = self._robot

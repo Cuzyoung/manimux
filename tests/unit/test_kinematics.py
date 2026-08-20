@@ -95,7 +95,6 @@ def test_fk_matches_the_recorded_episode_convention(yam) -> None:
         )
 
 
-
 def test_ik_rejects_a_malformed_target(yam) -> None:
     with pytest.raises(ValueError, match="4x4"):
         yam.ik(np.eye(3), START_JOINTS, 0.5)

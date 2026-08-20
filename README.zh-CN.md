@@ -61,7 +61,7 @@ policy-server ◄── PolicyModel ◄─────────────�
 | Timeline | `runtime/timeline.py` | 时间索引的 chunk 存储：过期前缀裁剪、blend 窗口、双臂原子提交 |
 | 执行器 | `runtime/executors/` | `smooth`（重采样 + 低通 + 限幅）和关节空间局部 `mpc` |
 | RTC runtime | `runtime/rtc/` | [Real-Time Chunking](https://arxiv.org/abs/2506.07339) 作为并列 runtime —— 用 inpainting 式引导缝合 chunk，而非下游滤波 |
-| 机器人 | `robots/` | `RobotDriver` 契约 · `mock` · ManiUniCon/Meshcat · CAN 双 **YAM**，含不运动的 `shadow` 模式 |
+| 机器人 | `robots/` | `RobotDriver` 契约 · `mock` · ManiUniCon/Meshcat · CAN 双 **YAM**（i2rt / CAN 总线） |
 | 传感器 | `sensors/` | `SensorDriver` 契约 · `mock` · RealSense · 所有策略共用的独立 ZMQ **相机服务** |
 | 策略 | `policies/` | `PolicyModel`（只做推理）+ `PolicyAdapter`（全部本体语义）、有界 worker 队列 |
 | 运动学 | `kinematics/` | 可复用 FK/IK，让末端空间策略在 adapter 里变成关节 chunk，而不是在 runtime 里 |
@@ -143,13 +143,7 @@ envs/yam/.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
 ```
 
 **4 · Runtime。** 唯一会打开 CAN 的进程 —— 但它仍然需要终端 1、2 处于运行状态。
-先用 shadow 配置：不开 CAN、机械臂不动，但 viewer 里显示的就是它将要下发的那条轨迹。
-
-```bash
-envs/yam/.venv/bin/manimux run --config configs/molmoact-yam.yaml
-```
-
-确认轨迹合理后，再换成 live 配置。**这一条会让机械臂动起来。**
+**这一条会让机械臂动起来。**
 
 ```bash
 envs/yam/.venv/bin/manimux run --config configs/molmoact-yam-live.yaml
@@ -175,7 +169,7 @@ raw_model_action → scheduled_action → optimized_action → command_sent → 
 
 | 边界 | 需实现 | 负责什么 | 参考 |
 |---|---|---|---|
-| `RobotDriver` | `connect · get_state · send_command · home · stop · close` | 厂商 SDK、CAN、命名 group（`left_arm`…）、关节顺序与单位 —— 外加一个 `shadow` 模式 | `robots/yam/` |
+| `RobotDriver` | `connect · get_state · send_command · home · stop · close` | 厂商 SDK、CAN、命名 group（`left_arm`…）、关节顺序与单位 | `robots/yam/` |
 | `SensorDriver` | `start · read · close` | 带时间戳的帧；一次连接可发布多路命名流 | `sensors/camera_server/` |
 | `PolicyModel` | `reset · infer · close` | 只做推理 —— 不碰机器人，通常是连到独立 venv 的瘦 HTTP 客户端 | `integrations/*/policy_plugin.py` |
 | `PolicyAdapter` | `build_observation · decode_action · validate` | **全部**模型×本体语义：相机映射、归一化、group 顺序、末端→关节 IK、夹爪约定、维度与有限值校验 | `integrations/*/policy_plugin.py` |
@@ -185,8 +179,8 @@ Timeline 只接受 canonical 的 `joint_position` chunk。末端空间的策略�
 `manimux.kinematics` 转换（XR-1 就是这么做的），于是换机械臂只需要改
 `policy.options.kinematics`，模型服务端根本不知道有机器人这回事。
 
-上机顺序不可跳步：**mock → shadow → 低速真机**，中间补上 adapter 的维度、单位、
-关节顺序和 NaN/Inf 拒绝的单测。细节见 [docs/plugin-runtime.md](docs/plugin-runtime.md)。
+上机顺序不可跳步：**先在 mock 上跑通，再低速上真机**，中间补上 adapter 的维度、
+单位、关节顺序和 NaN/Inf 拒绝的单测。细节见 [docs/plugin-runtime.md](docs/plugin-runtime.md)。
 
 ## 文档
 

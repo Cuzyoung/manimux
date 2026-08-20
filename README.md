@@ -64,7 +64,7 @@ plan id drops the *whole* chunk with a logged reason.
 | Timeline | `runtime/timeline.py` | Time-indexed chunk store: stale-prefix trim, blend window, atomic dual-arm commit |
 | Executors | `runtime/executors/` | `smooth` (resample + low-pass + limits) and joint-space local `mpc` |
 | RTC runtime | `runtime/rtc/` | [Real-Time Chunking](https://arxiv.org/abs/2506.07339) as a parallel runtime — inpainting-style chunk stitching instead of downstream filtering |
-| Robots | `robots/` | `RobotDriver` contract · `mock` · ManiUniCon/Meshcat · dual **YAM** over CAN, with a no-motion `shadow` mode |
+| Robots | `robots/` | `RobotDriver` contract · `mock` · ManiUniCon/Meshcat · dual **YAM** over CAN via i2rt |
 | Sensors | `sensors/` | `SensorDriver` contract · `mock` · RealSense · standalone ZMQ **camera server** shared by every policy |
 | Policies | `policies/` | `PolicyModel` (inference only) + `PolicyAdapter` (all embodiment semantics), bounded worker queue |
 | Kinematics | `kinematics/` | Reusable FK/IK so EE-space policies become joint chunks in the adapter, not in the runtime |
@@ -148,15 +148,7 @@ envs/yam/.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
 ```
 
 **4 · Runtime.** The only process that opens CAN — and it still needs terminals
-1 and 2 up. Start with the shadow config: no CAN, no motion, but the viewer
-shows the exact trajectory that would be commanded.
-
-```bash
-envs/yam/.venv/bin/manimux run --config configs/molmoact-yam.yaml
-```
-
-Only once that trajectory looks right, swap in the live config. **This one moves
-the arms.**
+1 and 2 up. **This one moves the arms.**
 
 ```bash
 envs/yam/.venv/bin/manimux run --config configs/molmoact-yam-live.yaml
@@ -184,7 +176,7 @@ fails fast at startup.
 
 | Boundary | Implement | Owns | Reference |
 |---|---|---|---|
-| `RobotDriver` | `connect · get_state · send_command · home · stop · close` | Vendor SDK, CAN, named groups (`left_arm`…), joint order and units — plus a `shadow` mode | `robots/yam/` |
+| `RobotDriver` | `connect · get_state · send_command · home · stop · close` | Vendor SDK, CAN, named groups (`left_arm`…), joint order and units | `robots/yam/` |
 | `SensorDriver` | `start · read · close` | Timestamped frames; may publish several named streams from one connection | `sensors/camera_server/` |
 | `PolicyModel` | `reset · infer · close` | Inference only — no robot access, usually a thin HTTP client to its own venv | `integrations/*/policy_plugin.py` |
 | `PolicyAdapter` | `build_observation · decode_action · validate` | **All** model×body semantics: camera mapping, normalization, group order, EE→joint IK, gripper convention, shape/finite checks | `integrations/*/policy_plugin.py` |
@@ -195,7 +187,7 @@ policy converts in the adapter via `manimux.kinematics` (XR-1 does exactly
 this), so changing arms means changing `policy.options.kinematics` — the model
 server never learns the robot exists.
 
-Bring-up order is not optional: **mock → shadow → low-speed real**, with adapter
+Bring-up order is not optional: **mock first, then low-speed real**, with adapter
 unit tests for shapes, units, joint order, and NaN/Inf rejection in between.
 Details in [docs/plugin-runtime.md](docs/plugin-runtime.md).
 

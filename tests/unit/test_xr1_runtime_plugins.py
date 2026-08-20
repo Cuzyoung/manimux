@@ -39,23 +39,35 @@ pytest.importorskip("i2rt")
 
 ANCHOR = np.array(
     [
-        -0.6094, 0.5835, 0.8425, -1.0168, -0.1108, -0.4580, 0.55,
-        -0.5000, 0.4000, 0.7000, -0.9000, 0.2000, -0.3000, 0.35,
+        -0.6094,
+        0.5835,
+        0.8425,
+        -1.0168,
+        -0.1108,
+        -0.4580,
+        0.55,
+        -0.5000,
+        0.4000,
+        0.7000,
+        -0.9000,
+        0.2000,
+        -0.3000,
+        0.35,
     ]
 )
 
 
 @pytest.fixture(scope="module")
 def adapter() -> XR1YamAdapter:
-    config = load_config("configs/xr1-yam.yaml")
+    config = load_config("configs/xr1-yam-live.yaml")
     return build_policy_adapter(config.robot, config.policy)
 
 
 def test_xr1_run_config_swaps_only_the_policy_layer() -> None:
     from manimux.robots.yam import YamDualArmDriver
 
-    xr1 = load_config(Path("configs/xr1-yam.yaml"))
-    molmoact = load_config(Path("configs/molmoact-yam.yaml"))
+    xr1 = load_config(Path("configs/xr1-yam-live.yaml"))
+    molmoact = load_config(Path("configs/molmoact-yam-live.yaml"))
 
     assert isinstance(build_robot(xr1.robot, SystemClock()), YamDualArmDriver)
     assert isinstance(build_sensor(xr1.sensors[0], SystemClock()), CameraServerSensorDriver)

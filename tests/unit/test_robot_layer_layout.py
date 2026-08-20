@@ -22,9 +22,7 @@ def test_every_run_config_shares_one_yam_body() -> None:
     seen = set()
     for config_path in sorted((repo / "configs").glob("*-yam*.yaml")):
         config = yaml.safe_load(config_path.read_text())
-        seen.add(
-            (config["robot"]["config"], config["robot"]["options"]["right_config"])
-        )
+        seen.add((config["robot"]["config"], config["robot"]["options"]["right_config"]))
     assert seen == {("configs/robots/yam_left.yaml", "configs/robots/yam_right.yaml")}
 
     for side in ("left", "right"):
