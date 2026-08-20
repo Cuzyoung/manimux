@@ -13,6 +13,7 @@ from manimux.policies.worker import PolicyWorkerClient
 from manimux.recording import EpisodeRecorder
 from manimux.robots import build_robot
 from manimux.robots.base import RobotDriver
+from manimux.runtime.diagnostics import build_plan_boundary_payload
 from manimux.runtime.executors import Executor, MPCExecutor, SmoothExecutor
 from manimux.runtime.safety import RuntimeState, SafetyGuard
 from manimux.runtime.timeline import ActionTimeline
@@ -103,6 +104,13 @@ class EdgeRuntime:
                 "session_id": self._session_id,
                 "task": self._config.run.task,
                 "executor_kind": self._config.execution.executor,
+                "runtime": self._config.execution.runtime,
+                "policy_label": self._config.viewer.policy_label,
+                "policy_worker": self._config.policy.worker,
+                "policy_adapter": self._config.policy.adapter,
+                "action_dt_s": self._config.policy.effective_action_dt_s,
+                "horizon_steps": self._config.policy.horizon_steps,
+                "blend_steps": self._config.execution.blend_steps,
             },
         )
         accepted_plans = 0
@@ -131,6 +139,8 @@ class EdgeRuntime:
             initial_state = self._robot.get_state()
             self._safety.validate_state(initial_state)
             self._executor.reset(initial_state)
+            previous_command = copy_group_vector(initial_state.groups)
+            last_command = copy_group_vector(initial_state.groups)
             self._state = RuntimeState.RUNNING
             self._viewer.publish_event(
                 "episode_started",
@@ -165,6 +175,8 @@ class EdgeRuntime:
                     self._safety.validate_state(state)
                     self._timeline = ActionTimeline(self._config.robot.group_dims)
                     self._executor.reset(state)
+                    previous_command = copy_group_vector(state.groups)
+                    last_command = copy_group_vector(state.groups)
                     discard_responses_through = max(discard_responses_through, request_seq)
                     self._state = RuntimeState.PAUSED
                     terminal_reason = "completed"
@@ -226,6 +238,7 @@ class EdgeRuntime:
                             )
                             chunk = None
                         if chunk is not None:
+                            previous_reference = self._timeline.sample(now_ns)
                             result = self._timeline.commit(
                                 chunk,
                                 now_ns=now_ns,
@@ -242,16 +255,35 @@ class EdgeRuntime:
                                 accepted_plans += 1
                                 last_inference_ms = response.inference_ms
                                 recorder.record_plan(chunk)
+                                committed = self._timeline.active_horizon()
+                                if committed is None:
+                                    raise RuntimeError("accepted plan missing committed horizon")
                                 recorder.event(
                                     "plan_accepted",
                                     plan_id=chunk.plan_id,
                                     request_seq=chunk.request_seq,
                                     trimmed_steps=result.trimmed_steps,
                                 )
+                                recorder.event(
+                                    "plan_boundary",
+                                    **build_plan_boundary_payload(
+                                        step=steps,
+                                        monotonic_ns=now_ns,
+                                        blend_anchor_source="measured_state",
+                                        blend_steps=self._config.execution.blend_steps,
+                                        trimmed_steps=result.trimmed_steps,
+                                        previous_reference=previous_reference,
+                                        previous_command=previous_command,
+                                        last_command=last_command,
+                                        measured=state.groups,
+                                        chunk=chunk,
+                                        committed=committed,
+                                    ),
+                                )
                                 self._viewer.publish_plan(
                                     chunk,
                                     response.inference_ms,
-                                    committed=self._timeline.active_horizon(),
+                                    committed=committed,
                                 )
                             else:
                                 rejected_plans += 1
@@ -312,6 +344,8 @@ class EdgeRuntime:
                     command = self._hold_command(now_ns, state.groups)
                 self._safety.validate_command(command)
                 self._robot.send_command(command)
+                previous_command = copy_group_vector(last_command)
+                last_command = copy_group_vector(command.groups)
                 self._viewer.publish_state(
                     state,
                     frames,

@@ -3,6 +3,15 @@
 和 MolmoAct 完全一样的四个服务，只有第 1 步（模型服务）和第 4 步的配置文件不同。
 运行前清空机械臂工作区并准备好急停。
 
+## 配置位置
+
+```text
+ManiMux: configs/abc/yam/infra/manimux.yaml
+RTC:     configs/abc/yam/infra/rtc.yaml
+```
+
+以后增加其他本体时放在 `configs/abc/<embodiment>/`。
+
 ## 0. 一次性准备
 
 ABC 用独立的 venv（它需要 CUDA 12.8 的 torch，和 MolmoAct 的 cu121 装不到一起）：
@@ -105,7 +114,7 @@ for c in can_left can_right; do printf '%s: ' "$c"; ip -details link show "$c" |
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run --config configs/abc-yam-live.yaml
+envs/yam/.venv/bin/manimux run --config configs/abc/yam/infra/manimux.yaml
 ```
 
 ## 和 MolmoAct 的差异

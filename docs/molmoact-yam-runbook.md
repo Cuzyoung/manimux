@@ -2,6 +2,15 @@
 
 运行前清空机械臂工作区并准备好急停。以下四个服务分别在四个终端中按顺序启动。
 
+## 配置位置
+
+```text
+ManiMux: configs/molmoact2/yam/infra/manimux.yaml
+RTC:     configs/molmoact2/yam/infra/rtc.yaml
+```
+
+以后增加其他本体时放在 `configs/molmoact2/<embodiment>/`，不要再创建顶层扁平 YAML。
+
 ## 1. MolmoAct 模型服务
 
 ```bash
@@ -49,17 +58,17 @@ for c in can_left can_right; do printf '%s: ' "$c"; ip -details link show "$c" |
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/manimux run --config configs/molmoact-yam-live.yaml
+envs/yam/.venv/bin/manimux run --config configs/molmoact2/yam/infra/manimux.yaml
 ```
 
-真机速度和时间直接修改 `configs/molmoact-yam-live.yaml`：
+真机速度和时间直接修改 `configs/molmoact2/yam/infra/manimux.yaml`：
 
 - `policy.action_dt_s`：相邻 Policy 轨迹点的时间间隔（秒）；
 - `execution.smooth.max_velocity`：关节最大速度（rad/s）；
 - `execution.smooth.max_acceleration`：关节最大加速度（rad/s²）；
 - `robot.options.start_duration_s` / `home_duration_s`：起始姿态和回零秒数。
 
-当前 live 配置使用老师原 ManiMux 的 `action_dt_s: 0.05`；30 个轨迹点约覆盖
+当前 ManiMux infra 配置使用老师原 ManiMux 的 `action_dt_s: 0.05`；30 个轨迹点约覆盖
 1.45 秒。关节限制为 `0.25 rad/s`、`0.5 rad/s²`。首次恢复真机时仍应只做
 一次短距离、工作区清空且急停就绪的低速验证。CAN 处于 `ERROR-PASSIVE` 或
 `BUS-OFF` 时禁止启动。
@@ -73,3 +82,18 @@ envs/yam/.venv/bin/manimux run --config configs/molmoact-yam-live.yaml
 相机、模型服务和 Viewer。
 
 Rollout 默认保存在 `data/run-*/episode-*`；未完整结束的记录保留 `.partial` 后缀。
+
+## Chunk 边界诊断
+
+普通 runtime 会在每个新 plan 接受时写一条 `plan_boundary` 到 episode 的
+`events.jsonl`。它同时保存模型原始 chunk 首点、ManiMux 拼接后的首点、上一条命令和实测
+关节；只增加诊断记录，不改变动作、速度或拼接算法。即使按 `Ctrl-C`，记录也会保留在
+`.partial` episode 中。
+
+分别完成 MolmoAct2 和 Pi05 的短 rollout 后，只需告知“跑完了”；分析端会自动选取两种
+policy 最新的有效 episode。手动离线分析命令为：
+
+```bash
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python scripts/analyze_chunk_boundaries.py
+```

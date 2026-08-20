@@ -64,7 +64,7 @@ class _Bimanual:
 
 
 def _live_driver() -> tuple[YamDualArmDriver, _Bimanual]:
-    config = load_config("configs/molmoact-yam-live.yaml")
+    config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
     config.robot.options["home_duration_s"] = 0.4
     config.robot.options["start_duration_s"] = 0.4
     driver = YamDualArmDriver(config.robot, SystemClock())

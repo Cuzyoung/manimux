@@ -22,7 +22,7 @@ from manimux.types import ActionContext, RobotCommand
 
 
 def test_molmoact_yam_run_config_selects_real_plugins_without_touching_hardware() -> None:
-    config = load_config(Path("configs/molmoact-yam-live.yaml"))
+    config = load_config(Path("configs/molmoact2/yam/infra/manimux.yaml"))
 
     assert isinstance(build_robot(config.robot, SystemClock()), YamDualArmDriver)
     assert isinstance(build_sensor(config.sensors[0], SystemClock()), CameraServerSensorDriver)
@@ -31,7 +31,7 @@ def test_molmoact_yam_run_config_selects_real_plugins_without_touching_hardware(
 
 
 def test_molmoact_adapter_splits_raw_actions_into_canonical_yam_groups() -> None:
-    config = load_config("configs/molmoact-yam-live.yaml")
+    config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
     adapter = build_policy_adapter(config.robot, config.policy)
     raw = np.arange(30 * 14, dtype=np.float64).reshape(30, 14)
 
@@ -48,7 +48,7 @@ def test_molmoact_adapter_splits_raw_actions_into_canonical_yam_groups() -> None
 
 
 def test_molmoact_adapter_rejects_wrong_action_width() -> None:
-    config = load_config("configs/molmoact-yam-live.yaml")
+    config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
     adapter = build_policy_adapter(config.robot, config.policy)
 
     with pytest.raises(ValueError, match="shape"):
@@ -109,7 +109,7 @@ class _FakeBimanualHardware:
 
 
 def test_yam_driver_maps_grouped_move_to_existing_joint_command() -> None:
-    config = load_config("configs/molmoact-yam-live.yaml")
+    config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
     driver = YamDualArmDriver(config.robot, SystemClock())
     backend = _FakeBimanualYam()
     driver._robot = backend
@@ -134,7 +134,7 @@ def test_an_unknown_robot_option_is_refused_before_the_arms_move() -> None:
     The arms would still move -- just not the way the config says. Reject the
     key at construction instead, before anything opens CAN.
     """
-    config = load_config("configs/molmoact-yam-live.yaml")
+    config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
     config.robot.options["start_duration"] = 1.0  # missing the _s suffix
 
     with pytest.raises(ValueError, match="start_duration"):
@@ -142,7 +142,7 @@ def test_an_unknown_robot_option_is_refused_before_the_arms_move() -> None:
 
 
 def test_live_config_enables_explicit_start_and_verified_home() -> None:
-    config = load_config("configs/molmoact-yam-live.yaml")
+    config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
 
     assert config.robot.options["move_to_start_on_connect"] is True
     assert config.robot.options["home_on_close"] is True
@@ -152,7 +152,7 @@ def test_live_config_enables_explicit_start_and_verified_home() -> None:
 
 
 def test_yam_live_close_releases_without_implicit_motion() -> None:
-    config = load_config("configs/molmoact-yam-live.yaml")
+    config = load_config("configs/molmoact2/yam/infra/manimux.yaml")
     driver = YamDualArmDriver(config.robot, SystemClock())
     backend = _FakeBimanualHardware()
     driver._robot = backend
