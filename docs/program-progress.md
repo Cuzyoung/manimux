@@ -66,7 +66,7 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 | OpenPI Pi05 YAM | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 有训练代码和 YAM checkpoint，尚未在本项目重跑训练导出 |
 | GR00T N1.7 YAM | ✅ | ✅ | ✅ | ✅ | ✅ | ➖ | 🟡 有 YAM finetune 和匹配 stats，尚未重跑训练 |
 | Xiaomi XR-1 YAM | 🟡 权重不是 YAM policy | ✅ | ✅ | ✅ | 🟡 | 🟡 XPolicy sampler hook 离线通过 | ⛔ 缺 YAM fine-tune 权重和配套 stats |
-| LingBot-VLA2 YAM | 🟡 base projection bundle | ✅ | ✅ | 🟡 config/adapter 已完成 | ⛔ | 🟡 sampler RTC 离线完成 | ⛔ 缺 YAM post-training 权重和配套 stats |
+| LingBot-VLA2 YAM | 🟡 base projection bundle | ✅ | ✅ | ✅ | ✅ | 🟡 sampler RTC 离线完成 | ⛔ 缺 YAM post-training 权重和配套 stats |
 
 ## 分模型进度
 
@@ -136,6 +136,11 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 - 真实 base GPU forward 与 XPolicy WS 已通过：独立服务首请求往返 `1.392 s`，随后稳态
   `392.3 / 396.1 ms`，低于 50 步在 30 Hz 下的 `1.667 s` 覆盖时长；输出均为有限的
   `50 x 14` absolute joint chunk。
+- 默认 ManiMux、真实三相机和双臂 YAM 已完成闭环。完整记录
+  `run-20260820T122849Z-b474d665` 执行 `1600` tick / `61.9 s`，接受 `42` 个 chunk、
+  记录 `42` 个 plan boundary，无 plan rejection，并正常完成 Recorder 收尾。
+- 该记录的 `manual-v1 success` 表示 rollout 生命周期完整结束，不是 pick 任务成功率；
+  base checkpoint 的任务能力与 YAM post-training 仍然是独立问题。
 - 官方 sampler 没有原生 RTC API，但公开了 prefix cache 和 `predict_velocity`；XPolicy 已完成
   每个 denoise step 的 VJP soft-mask guidance，不是 chunk splice。
 - `get_action_rtc`、14D raw -> normalized/padded 55D、RTC infra config 和 CPU 离线测试已完成。
@@ -146,11 +151,9 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 按以下顺序推进，不同时改 runtime 设计和模型参数：
 
 1. **XR-1 默认链路**：完成 XPolicy GPU forward -> WS -> EE codec/FK/IK 记录；训练权重另行推进。
-2. **LingBot 默认 ManiMux**：GPU forward 与 WS 已通过；下一步只验证默认 ManiMux 的相机、
-   调度和记录链路，不先改 RTC。
-3. **LingBot 训练产物**：按现有 v1 bundle schema 完成最小训练导出与回载。
-4. **统一训练交付**：每个模型 runbook 都补齐 T0-T4 的可执行命令和产物检查。
-5. **统一验收记录**：每个模型保存同样的 latency、chunk gap、action shape、数值有限性、
+2. **LingBot 训练产物**：按现有 v1 bundle schema 完成最小训练导出与回载。
+3. **统一训练交付**：每个模型 runbook 都补齐 T0-T4 的可执行命令和产物检查。
+4. **统一验收记录**：每个模型保存同样的 latency、chunk gap、action shape、数值有限性、
    Recorder 输出和真机结果，policy 成功率单独记录。
 
 ## 完成定义

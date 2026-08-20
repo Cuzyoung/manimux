@@ -54,7 +54,7 @@ horizon 是 16、30 Hz 声明一致，并且 YAM 的 q01/q99 stats 维度完整�
 
 ## 2. 安装模型环境
 
-当前本机 `gr00t_n17/.venv` 仍未完成依赖安装。安装由操作者执行：
+当前本机 `gr00t_n17/.venv` 已完成依赖安装。新的 checkout 使用同一安装入口：
 
 ```bash
 cd /home/ubuntu/manimux/XPolicyLab/policy/GR00T_N17

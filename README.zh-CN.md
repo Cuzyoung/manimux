@@ -124,7 +124,7 @@ OpenPI 官方 `pi05_base` 仍保留在 `checkpoints/pretrained/`。
 | ✅ | OpenPI Pi05 + YAM | 16 × 14 绝对关节位置 | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
 | ✅ | GR00T N1.7 + YAM | 16 × 14 绝对关节位置 | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
 | ✅ | XR-1 + YAM | `30×60` 末端增量 → `30×14` 关节 | `configs/xiaomi-xr1/yam/` | [运行手册](docs/xiaomi-xr1-yam-runbook.md) |
-| 🚧 | LingBot-VLA2 + YAM | `50×14` 关节；需要 YAM 后训练 | `configs/lingbot-vla2/yam/` | [运行手册](docs/lingbot-vla2-yam-runbook.md) |
+| ✅ | LingBot-VLA2 + YAM | `50×14` 关节；base 任务能力有限 | `configs/lingbot-vla2/yam/` | [运行手册](docs/lingbot-vla2-yam-runbook.md) |
 | 🔌 | XPolicy bridge | observation/action wire contract | `configs/xpolicylab/yam/` | [运行手册](docs/xpolicylab-runbook.md) |
 
 OpenPI Pi05 已完成真实三相机、YAM norm stats、XPolicy 模型服务、官方 10-step flow、
@@ -132,9 +132,10 @@ OpenPI Pi05 已完成真实三相机、YAM norm stats、XPolicy 模型服务、�
 没有空档。checkpoint 在当前场景能产生任务相关运动，但仍有明显犹豫且没有正式成功率；
 这是 policy 质量结论，不代表推理 infra 未完成。GR00T 也已经完成 GPU、XPolicy
 WebSocket、默认 ManiMux、真实三相机、双臂 YAM 和 Recorder 闭环；其 pick 失败属于
-policy 质量结果。XPolicy XR-1 和 LingBot-VLA2 当前仍不能视为真机验证完成。
-两者的 base 权重统一使用 `server/base.yaml` 加同一份 `infra/manimux.yaml` 测试；
-YAM projection stats 不能当作已经完成 YAM 后训练的证据。
+policy 质量结果。XPolicy XR-1 和 LingBot-VLA2 也已完成默认 ManiMux 真机链路；
+两者的 base 权重统一使用 `server/base.yaml` 加同一份 `infra/manimux.yaml` 测试。
+这里的 ✅ 表示 GPU、XPolicy、相机、调度、双臂执行和 Recorder 已连通，不表示 base
+checkpoint 已具备 YAM 任务成功率；YAM projection stats 也不能当作完成后训练的证据。
 
 XR-1 已完成真实 5B GPU forward、XPolicy WebSocket、ManiMux、相机、双臂 YAM 和
 Recorder 的全链路启动，确认机械臂执行的是模型输出。首次 base rollout 中右臂相对正常、
