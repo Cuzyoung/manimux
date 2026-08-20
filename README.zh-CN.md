@@ -25,9 +25,13 @@ VLA 推理通常比机器人控制周期慢，而且一次输出一段 action ch
 移出控制环，并统一负责 chunk 调度、过期裁剪、双臂原子提交、执行约束、安全检查、
 数据记录和实时可视化。
 
-ManiMux 不绑定某个模型库。MolmoAct、ABC、XR-1 可以通过原生服务接入；更多基模通过
+ManiMux 不绑定某个模型库。MolmoAct、ABC 通过原生服务接入；更多基模通过
 `XPolicyLab/` 接入。我们只在 ManiMux 中维护稳定的运行时和 wire bridge，需要修改模型
 预处理、flow denoise 或 RTC 采样时，代码留在 XPolicyLab 对应的模型 adapter 内。
+
+XR-1 使用我们在 XPolicyLab fork 中维护的 `Xiaomi_Robotics_1` adapter，底层是小米
+官方 XR-1 源码；它不是 XPolicyLab 上游仓库原本自带的 adapter。ManiMux 只保留 wire
+codec 和 YAM FK/IK 映射，模型加载与 denoise 都在 XPolicyLab 内执行。
 
 ## 架构
 
@@ -43,7 +47,7 @@ flowchart TB
         direction LR
         MOLMO["<b>MolmoAct2</b><br/>原生"]:::molmo
         ABCM["<b>ABC</b><br/>原生"]:::abc
-        XR1["<b>XR-1</b><br/>原生"]:::xr1
+        XR1["<b>XR-1</b><br/>XPolicy"]:::xr1
         PI05["<b>Pi05</b><br/>XPolicy"]:::pi
         GROOT["<b>GR00T N1.7</b><br/>XPolicy"]:::groot
         LING["<b>LingBot-VLA2</b><br/>XPolicy"]:::ling
@@ -112,7 +116,6 @@ OpenPI 官方 `pi05_base` 仍保留在 `checkpoints/pretrained/`。
 |---|---|---|---|---|
 | ✅ | MolmoAct2 + YAM | 30 × 14 关节位置 | `configs/molmoact2/yam/` | [MolmoAct2](docs/molmoact-yam-runbook.md) |
 | ✅ | ABC + YAM | 30 × 14 关节位置 | `configs/abc/yam/` | [ABC](docs/abc-yam-runbook.md) |
-| 🧪 | XR-1 native + YAM | 30 × 60 末端增量 → 30 × 14 关节位置 | `configs/xiaomi-xr1/yam/infra/native-manimux.yaml` | [XR-1 native](docs/xr1-yam-runbook.md) |
 | ✅ | OpenPI Pi05 + YAM | 16 × 14 绝对关节位置 | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
 | ✅ | GR00T N1.7 + YAM | 16 × 14 绝对关节位置 | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
 | 🚧 | XPolicy XR-1 + YAM | 30 × 60 末端增量 → 30 × 14 关节位置 | `configs/xiaomi-xr1/yam/{server,infra}/` | [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md) |
@@ -223,7 +226,7 @@ Safety、Recorder 与 Viewer 协议不随模型复制。完整接口见
 
 - [项目总进度](docs/program-progress.md)
 - [XPolicyLab 集成](docs/xpolicylab-runbook.md)
-- [MolmoAct2](docs/molmoact-yam-runbook.md) · [ABC](docs/abc-yam-runbook.md) · [XR-1 native](docs/xr1-yam-runbook.md)
+- [MolmoAct2](docs/molmoact-yam-runbook.md) · [ABC](docs/abc-yam-runbook.md)
 - [Pi05](docs/pi05-yam-runbook.md) · [GR00T](docs/gr00t-yam-runbook.md) · [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md)
 - [LingBot-VLA2](docs/lingbot-vla2-yam-runbook.md) · [CAN 总线](docs/can-bus.md)
 - [架构](docs/architecture.md) · [开发约定](AGENT.md)

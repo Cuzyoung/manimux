@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -11,6 +12,7 @@ from jsonschema import Draft202012Validator
 
 MODEL_PATH = Path(__file__).resolve().parents[2] / "XPolicyLab/policy/LingBot_VLA2/model.py"
 REPO_ROOT = Path(__file__).resolve().parents[2]
+ROBOT_INFO = {"arm_dim": [6, 6], "ee_dim": [1, 1]}
 
 
 def _load_model_module():
@@ -41,7 +43,7 @@ def _observation():
 
 def test_encode_yam_observation_uses_official_feature_names() -> None:
     module = _load_model_module()
-    encoded = module.encode_observation(_observation(), "fallback")
+    encoded = module.encode_observation(_observation(), "fallback", ROBOT_INFO)
     np.testing.assert_array_equal(
         encoded["observation.state.arm.position"],
         np.array([0, 1, 2, 3, 4, 5, 10, 11, 12, 13, 14, 15], dtype=np.float32),
@@ -61,7 +63,8 @@ def test_decode_absolute_joint_chunk() -> None:
         {
             "action.arm.position": arms,
             "action.effector.position": effectors,
-        }
+        },
+        ROBOT_INFO,
     )
     assert len(actions) == 3
     np.testing.assert_array_equal(actions[1]["left_arm_joint_state"], arms[1, :6])
@@ -77,8 +80,22 @@ def test_decode_rejects_wrong_action_width() -> None:
             {
                 "action.arm.position": np.zeros((2, 14), dtype=np.float32),
                 "action.effector.position": np.zeros((2, 2), dtype=np.float32),
-            }
+            },
+            ROBOT_INFO,
         )
+
+
+def test_official_feature_literals_are_normalized_for_runtime() -> None:
+    module = _load_model_module()
+    data_config = SimpleNamespace(
+        joints=[{"arm.position": 14}, "{'effector.position': 2}"],
+        norm_type=[{"arm.position": "meanstd"}],
+    )
+
+    normalized = module._normalize_official_feature_literals(data_config)
+
+    assert normalized.joints == ["{'arm.position': 14}", "{'effector.position': 2}"]
+    assert normalized.norm_type == ["{'arm.position': 'meanstd'}"]
 
 
 def test_validate_complete_bundle_without_loading_model(
@@ -229,6 +246,8 @@ def test_get_action_rtc_dispatches_sampler_level_bridge() -> None:
     model = object.__new__(module.Model)
     model._observations = [{"task": "pick"}]
     model.action_horizon = 2
+    model.action_dim = 14
+    model.robot_info = ROBOT_INFO
     model._rtc_bridge = FakeBridge()
     actions = model.get_action_rtc(
         {

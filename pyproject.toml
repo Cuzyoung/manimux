@@ -85,7 +85,6 @@ manimux-molmoact-yam = "manimux.viewer.integrations.molmoact_yam:main"
 manimux-camera-server = "manimux.sensors.camera_server.server:main"
 manimux-molmoact-server = "manimux.integrations.molmoact_yam.host_server_yam:main"
 manimux-abc-server = "manimux.integrations.abc_yam.host_server_abc:main"
-manimux-xr1-server = "manimux.integrations.xr1_yam.host_server_xr1:main"
 
 [project.entry-points."manimux.viewer.robots"]
 yam = "manimux.viewer.robots.yam:YamAdapter"

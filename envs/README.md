@@ -4,7 +4,7 @@
 > `uv venv`; they hold packages that are not in `uv.lock` (`i2rt`, `torch`,
 > `flash-attn`), and any uv project command would uninstall them.
 
-这三个目录是用 `uv venv` 建的**普通 venv**，不是 uv 的项目环境。uv 的项目环境只有
+这些目录是用 `uv venv` 建的**普通 venv**，不是 uv 的项目环境。uv 的项目环境只有
 仓库根目录的 `.venv` 一个，由 `pyproject.toml` + `uv.lock` 声明。
 
 ## 禁止事项
@@ -36,6 +36,7 @@ Would uninstall 72 packages
 | `yam/.venv` | 2.5.1+cu121 | **一切真机进程** —— MolmoAct 服务、相机服务、viewer、runtime（唯一装了 `i2rt`） |
 | `abc/.venv` | 2.11.0+cu128 | 只跑 `manimux-abc-server`；runtime 仍从 `yam` 起 |
 | `xr1/.venv` | 2.8.0+cu126 | 只跑 `manimux-xr1-server`（含 flash-attn）；runtime 仍从 `yam` 起 |
+| `lingbot-vla2/.venv` | 2.8.0+cu128 | 只跑 LingBot-VLA2 XPolicy 模型服务；runtime 仍从 `yam` 起 |
 
 ## 正确的操作方式
 

@@ -1,4 +1,4 @@
-schema_version: manimux.lingbot_vla2_yam_bundle.v1
+schema_version: xpolicylab.lingbot_vla2_yam_bundle.v1
 
 model:
   family: lingbot-vla-v2

@@ -2,8 +2,9 @@
 
 本文只覆盖 XPolicyLab 的 `Xiaomi_Robotics_1` 路线。XPolicyLab 已集成
 [小米官方 XR-1 源码](https://github.com/XiaomiRobotics/Xiaomi-Robotics-1)，用户不需要
-再 clone 一份官方仓库。原有 native 路线仅作历史对照：
-`configs/xiaomi-xr1/yam/infra/native.yaml`。
+再 clone 一份官方仓库。这个 adapter 由我们的 XPolicyLab fork 维护，不是上游
+XPolicyLab 原本自带；模型加载、预处理和 denoise 仍完整运行在 XPolicy 标准 server
+内。ManiMux 只负责 wire codec、YAM FK/IK 和执行，不提供平行的 native model server。
 
 ## 当前权重边界
 
@@ -33,9 +34,9 @@ fine-tune bundle 必须记录原生采样 Hz，并用同一值替换该配置。
 ## 配置
 
 ```text
-server:  configs/xiaomi-xr1/yam/server/xpolicy.yaml
-ManiMux: configs/xiaomi-xr1/yam/infra/xpolicy.yaml
-RTC:     configs/xiaomi-xr1/yam/infra/xpolicy-rtc.yaml
+base server:    configs/xiaomi-xr1/yam/server/base.yaml
+ManiMux:        configs/xiaomi-xr1/yam/infra/manimux.yaml
+RTC:            configs/xiaomi-xr1/yam/infra/rtc.yaml
 ```
 
 RTC 将 ManiMux `30 x 14` overlap condition 通过 FK 反编码到模型原生 `30 x 60` 空间，
@@ -57,55 +58,71 @@ monkeypatch，也没有额外动作幅度阈值。
 guidance 确实在 `_generate` 内生效；还没有 5B 模型的真实 GPU conditioned
 forward，所以 I7 仍然只能标记为离线完成。
 
-`yam.json` 只是用 YAM 数据统一了状态与动作单位，并不是当前权重的训练
-statistics。只有使用同一份 YAM 数据 fine-tune 并产出配对 stats 后，
-权重和归一化才真正匹配。
+`yam.json` 已经按官方格式由 `60` 个完整 YAM episode、`23,994` 个 30-step window
+计算：action 是 `30 x 60` anchor-relative EE delta 的 mean/std，state 是 `1 x 60`
+YAM joint/FK state 的 q01/q99。因此 **base 测试不需要再改数值**；改用官方 washer
+demo stats 反而会把另一台机器的单位送给 YAM。
 
-## 1. 离线检查
+但这份 stats 只让 YAM state/action 映射在数值上有定义，不是官方 5B checkpoint 的
+配对 post-training statistics。只有用同一份 YAM 数据 fine-tune 并导出权重后，二者才
+真正匹配。重新采集数据或改变 action codec 时再运行：
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/xiaomi_xr1_yam_server.py --check
+PYTHONPATH=src envs/yam/.venv/bin/python -m \
+  manimux.integrations.xr1_yam.compute_norm_stats \
+  --episodes /path/to/yam/episodes \
+  --out src/manimux/integrations/xr1_yam/norm_stats/yam.json
+```
+
+## Base 权重能力测试
+
+base 权重使用独立 server config，不覆盖未来的 YAM finetune；执行仍复用标准 ManiMux：
+
+```bash
+# offline contract check
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python scripts/xiaomi_xr1_yam_server.py \
+  --config configs/xiaomi-xr1/yam/server/base.yaml \
+  --check
+
+# terminal 1: model server
+envs/xr1/.venv/bin/python scripts/xiaomi_xr1_yam_server.py \
+  --config configs/xiaomi-xr1/yam/server/base.yaml
+
+# terminal 2: no-CAN GPU/WS/FK/IK probe
+envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+  --config configs/xiaomi-xr1/yam/infra/manimux.yaml
+```
+
+probe 必须返回有限的 `native_shape: [30, 60]` 与 `canonical_shape: [30, 14]`。
+通过后再启动相机，并由操作者运行：
+
+```bash
+envs/yam/.venv/bin/manimux run \
+  --config configs/xiaomi-xr1/yam/infra/manimux.yaml
+```
+
+30 Hz 仍是 YAM 对照实验假设，不是官方 checkpoint 元数据。base 能否做任务是
+policy 实验结果；shape、finite、WS 和 FK/IK 才是本轮 infra 验收项。
+
+## RTC 对照
+
+先用离线脚本验证 XPolicy 使用的 sampler guidance hook：
+
+```bash
 envs/xr1/.venv/bin/python scripts/check_xr1_rtc_sampler.py
 ```
 
-第二条不构造 5B 模型、不访问 GPU；它分别验证 Native 和 XPolicy 的 XR-1
-sampler 在有 condition 时走 guidance 分支，且 zero-weight condition 不改变输出。
-
-## 2. 模型服务
+它不构造 5B 模型、不访问 GPU。只有 base server 的 ManiMux forward 和默认 runtime
+通过后，才使用同一个 server 做 RTC 对照：
 
 ```bash
-cd /home/ubuntu/manimux
-envs/xr1/.venv/bin/python scripts/xiaomi_xr1_yam_server.py \
-  --config configs/xiaomi-xr1/yam/server/xpolicy.yaml
+envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/manimux.yaml
+envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/rtc.yaml
 ```
 
-当前 XPolicy 路线还没有真实 GPU load/forward 证据。完成它之前不要进入真机阶段。
-
-服务加载完成后，先在另一个 terminal 运行无相机、无 CAN 的单次 forward probe。对于
-XR-1，它会同时检查模型原生 `30 x 60` EE delta 和 ManiMux FK/IK 后的 `30 x 14`
-absolute joint chunk：
-
-```bash
-cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
-  --config configs/xiaomi-xr1/yam/infra/xpolicy.yaml
-```
-
-只有输出 `"status": "ok"`、`"native_shape": [30, 60]` 和
-`"canonical_shape": [30, 14]`，才算完成 XPolicy GPU forward、WS 和 FK/IK adapter
-往返。当前尚未运行该命令。
-
-## 3. ManiMux 实验
-
-普通 ManiMux 与 RTC 使用独立配置：
-
-```bash
-envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/xpolicy.yaml
-envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/xpolicy-rtc.yaml
-```
-
-不要同时运行两条。相机、Viewer、CAN 检查和停止顺序参考
+不要同时运行 ManiMux 与 RTC。相机、Viewer、CAN 检查和停止顺序参考
 [MolmoAct + YAM](molmoact-yam-runbook.md)。
 
 ## 当前边界

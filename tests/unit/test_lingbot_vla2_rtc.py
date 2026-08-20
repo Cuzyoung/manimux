@@ -70,7 +70,10 @@ def test_rtc_rejects_weights_outside_soft_mask_range() -> None:
 def test_encode_raw_condition_preserves_yam_arm_order() -> None:
     rtc = _load_rtc_module()
     condition = np.arange(28, dtype=np.float32).reshape(2, 14)
-    encoded = rtc.encode_raw_condition(condition)
+    encoded = rtc.encode_raw_condition(
+        condition,
+        {"arm_dim": [6, 6], "ee_dim": [1, 1]},
+    )
     np.testing.assert_array_equal(
         encoded["action.arm.position"],
         np.concatenate([condition[:, :6], condition[:, 7:13]], axis=-1),

@@ -6,11 +6,15 @@ from __future__ import annotations
 import argparse
 import json
 import struct
+import sys
 from pathlib import Path
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CHECKPOINT = REPO_ROOT / "checkpoints/pretrained/lingbot-vla-v2-6b"
 DEFAULT_SOURCE = REPO_ROOT / "XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2"
+DEFAULT_SERVER_CONFIG = REPO_ROOT / "configs/lingbot-vla2/yam/server/base.yaml"
 
 
 def _tensor_shape(checkpoint: Path, tensor_name: str) -> list[int]:
@@ -26,8 +30,16 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     parser.add_argument("--source-root", type=Path, default=DEFAULT_SOURCE)
+    parser.add_argument("--server-config", type=Path, default=DEFAULT_SERVER_CONFIG)
     args = parser.parse_args()
     checkpoint = args.checkpoint.resolve()
+    for path in (REPO_ROOT, REPO_ROOT / "XPolicyLab"):
+        if str(path) not in sys.path:
+            sys.path.insert(0, str(path))
+    from XPolicyLab.policy.LingBot_VLA2.model import validate_bundle
+
+    server_config = yaml.safe_load(args.server_config.read_text(encoding="utf-8"))
+    bundle = validate_bundle(server_config)
 
     contract = {
         "checkpoint": str(checkpoint),
@@ -43,17 +55,20 @@ def main() -> int:
             args.source_root / "deploy/lingbot_vla_v2_policy.py"
         ).is_file(),
         "xpolicylab_adapter": "XPolicyLab/policy/LingBot_VLA2",
-        "yam_norm_stats": None,
+        "yam_norm_stats": bundle["norm_stats_path"],
         "yam_action_mapping": "absolute 12 arm joints + 2 grippers",
-        "status": "blocked",
+        "bundle_status": bundle["status"],
+        "status": "ready" if bundle["status"] == "ready" else "blocked",
         "reason": (
-            "The official V2 source is public, but this local foundation checkpoint does "
-            "not contain the lingbotvla_cli.yaml expected by the official loader, a "
-            "YAM post-training checkpoint, or matched YAM normalization statistics."
+            "The generated bundle is structurally ready for a base-checkpoint "
+            "forward. Its YAM statistics are not matched post-training statistics, so "
+            "task capability remains unverified."
+            if bundle["status"] == "ready"
+            else "; ".join(bundle["errors"])
         ),
     }
     print(json.dumps(contract, indent=2))
-    return 2
+    return 0 if bundle["status"] == "ready" else 2
 
 
 if __name__ == "__main__":
