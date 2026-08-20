@@ -62,7 +62,9 @@ adapter 只负责协议与 YAM 字段映射；ManiMux 只负责任务生命周�
 ```text
 server:  configs/lingbot-vla2/yam/server/xpolicy.yaml
 infra:   configs/lingbot-vla2/yam/infra/manimux.yaml
+rtc:     configs/lingbot-vla2/yam/infra/rtc.yaml
 adapter: XPolicyLab/policy/LingBot_VLA2/model.py
+sampler: XPolicyLab/policy/LingBot_VLA2/rtc.py
 profile: XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_absolute.yaml
 source:  XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/  # pinned nested submodule
 schema:  XPolicyLab/policy/LingBot_VLA2/bundle.schema.json
@@ -71,8 +73,10 @@ check:   scripts/lingbot_vla2_yam_server.py
 audit:   scripts/lingbot_vla2_yam_audit.py
 ```
 
-当前没有 RTC config。官方 V2 sampler 还没有接收 ManiMux 的 soft-mask
-conditioning；普通 chunk continuation 不能命名为 RTC。
+官方 V2 sampler 本身没有在线 RTC 参数，但公开了 prefix KV cache 和
+`predict_velocity(x_t, t)`。XPolicy adapter 因此实现了独立 sampler-level RTC：
+保持官方 10-step Euler flow loop，在每个 denoise step 对 clean action estimate 做
+VJP soft-mask guidance。它没有修改已生成 chunk，也不做 chunk splice。
 
 ## 完整部署 bundle
 
@@ -165,6 +169,17 @@ envs/yam/.venv/bin/python scripts/lingbot_vla2_yam_server.py
 所以训练产物与执行时序不一致时会在模型加载前失败，而不是在真机循环中静默
 拉伸动作。
 
+RTC 配置使用同一个检查入口：
+
+```bash
+envs/yam/.venv/bin/python scripts/lingbot_vla2_yam_server.py \
+  --infra-config configs/lingbot-vla2/yam/infra/rtc.yaml
+```
+
+除相同的 Hz/dt/horizon 契约外，它还验证 sampler capability、`beta > 0`、delay
+buffer，以及 `delay <= min_execute_steps <= horizon - delay`。当前仍会因为缺少
+YAM bundle 返回 `blocked`。
+
 审计现有 foundation checkpoint 的 55 维投影：
 
 ```bash
@@ -193,9 +208,36 @@ envs/yam/.venv/bin/manimux run \
 这三条命令当前均未在 LingBot-VLA2 上执行；没有 GPU forward、server handshake、
 相机、CAN 或真机证据。
 
-## 后续 RTC
+## RTC 实现与边界
 
-RTC 必须进入官方 `sample_actions` 的 10-step flow denoise loop，接收
-`action_condition`、soft mask 和 `beta`，并在每个 denoise step 做 guided
-inpainting。完成模型原生 hook、离线数值测试和真实 latency feasibility 之前，
-不新增 `configs/lingbot-vla2/yam/infra/rtc.yaml`。
+完整路径如下：
+
+```text
+ManiMux RtcRuntime
+  -> raw absolute joint condition [H, 14] + soft mask [H]
+  -> XPolicy get_action_rtc
+  -> arm[12] + gripper[2]
+  -> checkpoint FeatureTransform normalization
+  -> valid-action mask + padding to canonical [H, 55]
+  -> every LingBot denoise step:
+       clean = x_t - t * velocity(x_t, t)
+       guidance = VJP(clean, (condition - clean) * weights)
+       guided_velocity = velocity - scale(t, beta) * guidance
+  -> official unnormalize/unpad
+  -> absolute YAM joint chunk [H, 14]
+```
+
+纯 CPU 离线测试已覆盖 guidance 方向、zero-mask 等价于 native velocity、mask
+范围、YAM 14D 拆分、55D padding/mask，以及 guidance 确实在 flow loop 内逐步
+执行。
+
+尚未完成的不是算法接线，而是运行证据：
+
+- 没有真实 YAM post-training bundle，无法做 checkpoint forward；
+- 没有测量 LingBot 在目标 GPU 上的 steady latency；
+- `rtc.yaml` 的 `initial_delay_steps: 12` 和 `min_execute_steps: 20` 目前只满足
+  `d <= s <= H-d` 静态条件，不是延迟实测结果；
+- 没有 WS、相机、CAN 或真机闭环证据。
+
+因此 RTC config 已存在但仍是 **offline-ready / live-blocked**。拿到真实 bundle
+后必须先验证默认 ManiMux，再测 latency 并更新 delay 参数，之后才允许真机 RTC。

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -45,27 +46,48 @@ def _validate(
 
     report = validate_bundle(config)
     infra_errors: list[str] = []
-    if report["status"] == "ready" and infra_config is not None:
+    if infra_config is not None:
         robot = infra_config.get("robot", {})
         policy = infra_config.get("policy", {})
         execution = infra_config.get("execution", {})
-        native_hz = float(report["native_hz"])
-        action_horizon = int(report["action_horizon"])
-        if float(robot.get("control_hz", 0.0)) != native_hz:
-            infra_errors.append(
-                f"infra robot.control_hz must equal bundle native_hz {native_hz}"
-            )
-        if int(policy.get("horizon_steps", 0)) != action_horizon:
-            infra_errors.append(
-                f"infra policy.horizon_steps must equal bundle action_horizon {action_horizon}"
-            )
-        action_dt_s = float(policy.get("action_dt_s", 0.0))
-        if abs(action_dt_s - 1.0 / native_hz) > 1e-9:
-            infra_errors.append(
-                f"infra policy.action_dt_s must equal 1/native_hz ({1.0 / native_hz})"
-            )
-        if execution.get("runtime") != "manimux":
-            infra_errors.append("LingBot-VLA2 baseline infra execution.runtime must be manimux")
+        configured_horizon = int(policy.get("horizon_steps", 0))
+        if report["status"] == "ready":
+            native_hz = float(report["native_hz"])
+            action_horizon = int(report["action_horizon"])
+            if float(robot.get("control_hz", 0.0)) != native_hz:
+                infra_errors.append(
+                    f"infra robot.control_hz must equal bundle native_hz {native_hz}"
+                )
+            if configured_horizon != action_horizon:
+                infra_errors.append(
+                    "infra policy.horizon_steps must equal bundle action_horizon "
+                    f"{action_horizon}"
+                )
+            action_dt_s = float(policy.get("action_dt_s", 0.0))
+            if abs(action_dt_s - 1.0 / native_hz) > 1e-9:
+                infra_errors.append(
+                    f"infra policy.action_dt_s must equal 1/native_hz ({1.0 / native_hz})"
+                )
+        runtime = execution.get("runtime")
+        if runtime not in {"manimux", "rtc"}:
+            infra_errors.append("infra execution.runtime must be manimux or rtc")
+        if runtime == "rtc":
+            if report.get("rtc_capability") != "pi_guided_v1_sampler":
+                infra_errors.append("RTC config requires sampler-level pi_guided_v1 support")
+            rtc = execution.get("rtc", {})
+            delay = int(rtc.get("initial_delay_steps", 0))
+            execute = int(rtc.get("min_execute_steps", 0))
+            beta = float(rtc.get("beta", 0.0))
+            if delay <= 0 or not (
+                delay <= execute <= configured_horizon - delay
+            ):
+                infra_errors.append(
+                    "RTC requires delay <= min_execute_steps <= action_horizon - delay"
+                )
+            if int(rtc.get("delay_buffer_size", 0)) <= 0:
+                infra_errors.append("RTC delay_buffer_size must be positive")
+            if not math.isfinite(beta) or beta <= 0:
+                infra_errors.append("RTC beta must be finite and positive")
     if infra_errors:
         report["errors"].extend(infra_errors)
         report["status"] = "blocked"
@@ -75,7 +97,7 @@ def _validate(
             "official_repository": "https://github.com/Robbyant/lingbot-vla-v2",
             "model_action_shape": [int(report["action_horizon"]), 14],
             "manimux_action_space": "absolute_joint_position",
-            "rtc_capability": "not_integrated",
+            "rtc_capability": report.get("rtc_capability", "blocked"),
         }
     )
     return report

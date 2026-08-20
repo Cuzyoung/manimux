@@ -16,7 +16,7 @@ configs/
 ManiMux 的机器人、传感器、policy wire、执行器、Viewer 和记录。文件只创建实际存在的
 角色，不再使用 `live` 后缀。名称直接表达实验差异，例如 Pi05 的 `base.yaml` /
 `finetune.yaml` 和 `manimux.yaml` / `stretched-50ms.yaml`，以及 Xiaomi XR-1 的
-`native.yaml` / `xpolicy.yaml` / `xpolicy-rtc.yaml`。
+`native.yaml` / `native-rtc.yaml` / `xpolicy.yaml` / `xpolicy-rtc.yaml`。
 
 公共配置不属于任何模型，继续放在顶层：
 

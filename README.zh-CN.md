@@ -100,7 +100,7 @@ OpenPI 官方 `pi05_base` 仍保留在 `checkpoints/pretrained/`。
 | ✅ | ABC + YAM | 30 × 14 关节位置 | `configs/abc/yam/` | [ABC](docs/abc-yam-runbook.md) |
 | 🧪 | XR-1 native + YAM | 30 × 60 末端增量 → 30 × 14 关节位置 | `configs/xiaomi-xr1/yam/infra/native.yaml` | [XR-1 native](docs/xr1-yam-runbook.md) |
 | ✅ | OpenPI Pi05 + YAM | 16 × 14 绝对关节位置 | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
-| 🧪 | GR00T N1.7 + YAM | 16 × 14 绝对关节位置 | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
+| ✅ | GR00T N1.7 + YAM | 16 × 14 绝对关节位置 | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
 | 🚧 | XPolicy XR-1 + YAM | 30 × 60 末端增量 → 30 × 14 关节位置 | `configs/xiaomi-xr1/yam/{server,infra}/` | [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md) |
 | 🚧 | LingBot-VLA2 + YAM | 50 × 14 绝对关节位置；需要 YAM 后训练 bundle | `configs/lingbot-vla2/yam/` | [LingBot-VLA2](docs/lingbot-vla2-yam-runbook.md) |
 | 🔌 | XPolicy bridge | 标准 observation/action wire contract | `configs/xpolicylab/yam/infra/smoke.yaml` | [XPolicyLab](docs/xpolicylab-runbook.md) |
@@ -108,8 +108,9 @@ OpenPI 官方 `pi05_base` 仍保留在 `checkpoints/pretrained/`。
 OpenPI Pi05 已完成真实三相机、YAM norm stats、XPolicy 模型服务、官方 10-step flow、
 普通 ManiMux 和 Pi-guided RTC 的双 YAM 全链路运行。RTC 实测 `d=3-5` 步，首个 chunk 后
 没有空档。checkpoint 在当前场景能产生任务相关运动，但仍有明显犹豫且没有正式成功率；
-这是 policy 质量结论，不代表推理 infra 未完成。GR00T、XPolicy XR-1 和 LingBot-VLA2
-当前都不能视为真机验证完成。
+这是 policy 质量结论，不代表推理 infra 未完成。GR00T 也已经完成 GPU、XPolicy
+WebSocket、默认 ManiMux、真实三相机、双臂 YAM 和 Recorder 闭环；其 pick 失败属于
+policy 质量结果。XPolicy XR-1 和 LingBot-VLA2 当前仍不能视为真机验证完成。
 
 ## 安装
 

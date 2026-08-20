@@ -64,9 +64,9 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 | 模型 | I0-I2 源码/契约/产物 | I3 GPU | I4 WS | I5 ManiMux | I6 YAM | I7 RTC | T0-T4 训练回载 |
 |---|---|---|---|---|---|---|---|
 | OpenPI Pi05 YAM | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 有训练代码和 YAM checkpoint，尚未在本项目重跑训练导出 |
-| GR00T N1.7 YAM | ✅ | ✅ | ✅ | 🟡 adapter/probe 已完成，runtime 未跑 | ⛔ | ➖ | 🟡 有 YAM finetune 和匹配 stats，尚未重跑训练 |
-| Xiaomi XR-1 YAM | 🟡 权重不是 YAM policy | 🟡 | 🟡 | 🟡 | 🟡 | 🟡 sampler hook 已实现 | ⛔ 缺 YAM fine-tune 权重和配套 stats |
-| LingBot-VLA2 YAM | ⛔ 缺 YAM bundle | ⛔ | ⛔ | 🟡 config/adapter 已完成 | ⛔ | ➖ | ⛔ 缺 YAM post-training、training YAML 和 stats |
+| GR00T N1.7 YAM | ✅ | ✅ | ✅ | ✅ | ✅ | ➖ | 🟡 有 YAM finetune 和匹配 stats，尚未重跑训练 |
+| Xiaomi XR-1 YAM | 🟡 权重不是 YAM policy | 🟡 | 🟡 | 🟡 | 🟡 | 🟡 Native/XPolicy sampler hook 离线通过 | ⛔ 缺 YAM fine-tune 权重和配套 stats |
+| LingBot-VLA2 YAM | ⛔ 缺 YAM bundle | ⛔ | ⛔ | 🟡 config/adapter 已完成 | ⛔ | 🟡 sampler RTC 离线完成 | ⛔ 缺 YAM post-training、training YAML 和 stats |
 
 ## 分模型进度
 
@@ -90,16 +90,24 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
   WebSocket probe 输出有限的 `16 x 14` absolute joint chunk。
 - 第一次冷启动请求为 `632.2 ms`，随后三次稳态为 `101.3 / 91.7 / 89.4 ms`，明显低于
   16 步在 30 Hz 下的 `533.3 ms` chunk 时长；稳态 latency gate 已通过。
-- 尚未验证默认 ManiMux runtime、Recorder 和 YAM 闭环。
-- 不先做 RTC；先把默认 ManiMux 链路跑通。
+- 默认 ManiMux、真实三相机、双臂 YAM 和 Recorder 闭环已经跑通。最近两次完整记录分别有
+  91/74 个 chunk 被接受，无 plan rejection 或 invalid action；操作者正常结束 episode。
+- 真机没有完成 pick 任务属于当前 Robocurve checkpoint 的 policy 质量结果，不影响 I5/I6
+  infra 验收；该模型卡本身也没有闭环真机成功率。
+- 当前未实现 GR00T RTC，I7 保持可选的 `➖`，不能用默认 chunk runtime 冒充。
 
 ### [Xiaomi XR-1](xiaomi-xr1-yam-runbook.md)
 
 - 已完成官方源码核对、XPolicy adapter、`30 x 60` anchor-relative EE delta、YAM FK/IK、
-  默认 ManiMux 与 RTC sampler hook。
+  默认 ManiMux，以及 Native HTTP / XPolicy 两条 RTC sampler hook。
+- RTC 条件链是 `30 x 14` joint -> 以新观测做 FK re-anchor -> `30 x 60` EE delta ->
+  5-step Euler 内 PiGDM VJP guidance；条件进入模型原生 sampler，不是 chunk splice。
+- 当前 `30 Hz` / `action_dt_s: 0.033333` 是部署假设；官方公开训练格式没有声明控制频率，
+  后续 YAM fine-tune bundle 必须携带训练时的 native Hz，不能把当前值当官方参数。
 - 当前官方 `Xiaomi-Robotics-1-5B` 是 post-training 起点，不是 YAM policy。
 - `yam.json` 只让单位和 codec 有定义，不能替代与权重配套的训练 stats。
-- 当前阻塞：XPolicy 路线真实 GPU forward、WS 往返，以及 YAM fine-tune bundle。
+- 当前阻塞：真实 5B checkpoint 的 GPU conditioned RTC forward、XPolicy WS 往返，以及
+  YAM fine-tune bundle。CPU 虚拟 flow 已证明两条 guidance 分支，但不等于真实模型验收。
 - 在没有 YAM 权重前，可以验收 infra shape/latency，但不能把任务失败归为 ManiMux 问题。
 
 ### [LingBot-VLA2](lingbot-vla2-yam-runbook.md)
@@ -111,18 +119,21 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 - 当前本地 `lingbot-vla-v2-6b` 是 foundation checkpoint，不是 YAM post-training 权重。
 - 缺少 YAM `hf_ckpt`、原始 `lingbotvla_cli.yaml`、匹配 `norm_stats.json`、训练 native Hz。
 - 因此 server 当前返回 `blocked` 是正确行为，不允许用零填充 55D 或假 stats 强行启动。
-- RTC 等默认模型 server 和训练 bundle 回载完成后再做。
+- 官方 sampler 没有原生 RTC API，但公开了 prefix cache 和 `predict_velocity`；XPolicy 已完成
+  每个 denoise step 的 VJP soft-mask guidance，不是 chunk splice。
+- `get_action_rtc`、14D raw -> normalized/padded 55D、RTC infra config 和 CPU 离线测试已完成。
+- RTC 仍缺真实 bundle forward、WS 和 steady latency；静态 delay 参数不能当真机证据。
 
 ## ManiMux Infra TODO
 
 按以下顺序推进，不同时改 runtime 设计和模型参数：
 
-1. **GR00T 默认链路**：安装独立环境和 Cosmos，完成 GPU forward -> WS -> ManiMux 记录。
-2. **XR-1 默认链路**：完成 XPolicy GPU forward -> WS -> EE codec/FK/IK 记录；训练权重另行推进。
-3. **LingBot 训练产物**：按现有 v1 bundle schema 完成最小训练导出与回载。
-4. **LingBot 默认链路**：真实 GPU forward -> WS -> ManiMux；默认链路通过前不做 RTC。
-5. **统一训练交付**：每个模型 runbook 都补齐 T0-T4 的可执行命令和产物检查。
-6. **统一验收记录**：每个模型保存同样的 latency、chunk gap、action shape、数值有限性、
+1. **XR-1 默认链路**：完成 XPolicy GPU forward -> WS -> EE codec/FK/IK 记录；训练权重另行推进。
+2. **LingBot 训练产物**：按现有 v1 bundle schema 完成最小训练导出与回载。
+3. **LingBot 默认链路**：真实 GPU forward -> WS -> ManiMux；默认链路通过后测 RTC latency，
+   再把现有 sampler RTC config 从 offline-ready 提升为 live-ready。
+4. **统一训练交付**：每个模型 runbook 都补齐 T0-T4 的可执行命令和产物检查。
+5. **统一验收记录**：每个模型保存同样的 latency、chunk gap、action shape、数值有限性、
    Recorder 输出和真机结果，policy 成功率单独记录。
 
 ## 完成定义

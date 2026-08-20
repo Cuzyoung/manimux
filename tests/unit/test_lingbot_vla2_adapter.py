@@ -209,3 +209,38 @@ def test_bundle_schema_and_yaml_example_stay_in_sync() -> None:
     assert example["artifacts"]["checkpoint"] == "runs/yam/hf_ckpt"
     Draft202012Validator.check_schema(schema)
     Draft202012Validator(schema).validate(example)
+
+
+def test_get_action_rtc_dispatches_sampler_level_bridge() -> None:
+    module = _load_model_module()
+
+    class FakeBridge:
+        @staticmethod
+        def infer(observation, condition, weights, beta):
+            assert observation == {"task": "pick"}
+            assert condition.shape == (2, 14)
+            assert weights.shape == (2,)
+            assert beta == 5.0
+            return {
+                "action.arm.position": np.zeros((2, 12), dtype=np.float32),
+                "action.effector.position": np.zeros((2, 2), dtype=np.float32),
+            }
+
+    model = object.__new__(module.Model)
+    model._observations = [{"task": "pick"}]
+    model.action_horizon = 2
+    model._rtc_bridge = FakeBridge()
+    actions = model.get_action_rtc(
+        {
+            "action_condition": np.zeros((2, 14), dtype=np.float32),
+            "condition_weights": np.array([1.0, 0.5], dtype=np.float32),
+            "beta": 5.0,
+        }
+    )
+    assert len(actions) == 2
+    assert set(actions[0]) == {
+        "left_arm_joint_state",
+        "left_ee_joint_state",
+        "right_arm_joint_state",
+        "right_ee_joint_state",
+    }
