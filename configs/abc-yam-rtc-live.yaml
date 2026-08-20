@@ -14,7 +14,6 @@ robot:
     right_arm: 7
   options:
     right_config: configs/robots/yam_right.yaml
-    command_mode: live
     move_to_start_on_connect: true
     # 初始化和回 Home 的运动时间（秒）：数值越小，运动越快。
     start_duration_s: 5.0
@@ -64,8 +63,6 @@ execution:
     # 引导权重上限。按 (t²+(1−t)²)/(t(1−t)) 在 t=1/steps 处取值：
     # 5 步采样 → 约 4.25。和下面的 diffusion_steps: 5 配套。
     beta: 4.25
-    # 每控制步允许的最大通道变化。和 smooth 的 max_velocity 0.25 rad/s @30Hz 等价。
-    max_joint_step: 0.0083
   executor: smooth
   inference_schedule: single_inflight
   refill_threshold_s: 0.4

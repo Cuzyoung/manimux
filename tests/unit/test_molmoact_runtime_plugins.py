@@ -13,16 +13,16 @@ from manimux.integrations.molmoact_yam.policy_plugin import (
     MolmoActHttpPolicyModel,
     MolmoActYamAdapter,
 )
-from manimux.robots.yam import YamDualArmDriver
-from manimux.sensors.camera_server import CameraServerSensorDriver
 from manimux.policies import build_policy_adapter, build_policy_model
 from manimux.robots import build_robot
+from manimux.robots.yam import YamDualArmDriver
 from manimux.sensors import build_sensor
+from manimux.sensors.camera_server import CameraServerSensorDriver
 from manimux.types import ActionContext, RobotCommand
 
 
 def test_molmoact_yam_run_config_selects_real_plugins_without_touching_hardware() -> None:
-    config = load_config(Path("configs/molmoact-yam.yaml"))
+    config = load_config(Path("configs/molmoact-yam-live.yaml"))
 
     assert isinstance(build_robot(config.robot, SystemClock()), YamDualArmDriver)
     assert isinstance(build_sensor(config.sensors[0], SystemClock()), CameraServerSensorDriver)
@@ -31,7 +31,7 @@ def test_molmoact_yam_run_config_selects_real_plugins_without_touching_hardware(
 
 
 def test_molmoact_adapter_splits_raw_actions_into_canonical_yam_groups() -> None:
-    config = load_config("configs/molmoact-yam.yaml")
+    config = load_config("configs/molmoact-yam-live.yaml")
     adapter = build_policy_adapter(config.robot, config.policy)
     raw = np.arange(30 * 14, dtype=np.float64).reshape(30, 14)
 
@@ -48,7 +48,7 @@ def test_molmoact_adapter_splits_raw_actions_into_canonical_yam_groups() -> None
 
 
 def test_molmoact_adapter_rejects_wrong_action_width() -> None:
-    config = load_config("configs/molmoact-yam.yaml")
+    config = load_config("configs/molmoact-yam-live.yaml")
     adapter = build_policy_adapter(config.robot, config.policy)
 
     with pytest.raises(ValueError, match="shape"):
@@ -109,8 +109,7 @@ class _FakeBimanualHardware:
 
 
 def test_yam_driver_maps_grouped_move_to_existing_joint_command() -> None:
-    config = load_config("configs/molmoact-yam.yaml")
-    config.robot.options["command_mode"] = "live"
+    config = load_config("configs/molmoact-yam-live.yaml")
     driver = YamDualArmDriver(config.robot, SystemClock())
     backend = _FakeBimanualYam()
     driver._robot = backend
@@ -129,37 +128,22 @@ def test_yam_driver_maps_grouped_move_to_existing_joint_command() -> None:
     np.testing.assert_array_equal(backend.command, np.r_[np.ones(7), np.full(7, 2.0)])
 
 
-def test_yam_driver_shadow_mode_never_sends_joint_command() -> None:
-    config = load_config("configs/molmoact-yam.yaml")
-    driver = YamDualArmDriver(config.robot, SystemClock())
-    backend = _FakeBimanualYam()
-    driver._robot = backend
-    driver.connect()
+def test_an_unknown_robot_option_is_refused_before_the_arms_move() -> None:
+    """``robot.options`` is free-form, so a typo would be ignored in silence.
 
-    initial_state = driver.get_state()
+    The arms would still move -- just not the way the config says. Reject the
+    key at construction instead, before anything opens CAN.
+    """
+    config = load_config("configs/molmoact-yam-live.yaml")
+    config.robot.options["start_duration"] = 1.0  # missing the _s suffix
 
-    driver.send_command(
-        RobotCommand(
-            groups={"left_arm": np.ones(7), "right_arm": np.full(7, 2.0)},
-            monotonic_ns=100,
-            plan_id="shadow-plan",
-        )
-    )
-
-    assert backend.command is None
-    after_command = driver.get_state()
-    np.testing.assert_array_equal(
-        after_command.groups["left_arm"], initial_state.groups["left_arm"]
-    )
-    np.testing.assert_array_equal(
-        after_command.groups["right_arm"], initial_state.groups["right_arm"]
-    )
+    with pytest.raises(ValueError, match="start_duration"):
+        YamDualArmDriver(config.robot, SystemClock())
 
 
 def test_live_config_enables_explicit_start_and_verified_home() -> None:
     config = load_config("configs/molmoact-yam-live.yaml")
 
-    assert config.robot.options["command_mode"] == "live"
     assert config.robot.options["move_to_start_on_connect"] is True
     assert config.robot.options["home_on_close"] is True
     assert config.robot.options["start_duration_s"] == 5.0

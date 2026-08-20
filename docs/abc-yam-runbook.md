@@ -108,12 +108,6 @@ cd /home/ubuntu/manimux
 envs/yam/.venv/bin/manimux run --config configs/abc-yam-live.yaml
 ```
 
-想先不动真机地看轨迹，用 shadow 配置：
-
-```bash
-envs/yam/.venv/bin/manimux run --config configs/abc-yam.yaml
-```
-
 ## 和 MolmoAct 的差异
 
 调参入口和 MolmoAct 完全一样（`execution.smooth` 控制速度和丝滑度，

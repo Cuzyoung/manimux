@@ -16,7 +16,7 @@ SensorDriver -> PolicyModel + PolicyAdapter -> ActionTimeline -> RobotDriver
 
 ## 配置选择
 
-`configs/mock.yaml` 是老师原有的本地异步基线；`configs/molmoact-yam.yaml`
+`configs/mock.yaml` 是老师原有的本地异步基线；`configs/molmoact-yam-live.yaml`
 描述 MolmoAct、YAM、三相机服务和 YAM Viewer 的组合。核心字段如下：
 
 ```yaml
@@ -26,7 +26,6 @@ robot:
   group_dims: {left_arm: 7, right_arm: 7}
   options:
     right_config: path/to/right.yaml
-    command_mode: shadow
 
 sensors:
   - name: yam_cameras
@@ -124,10 +123,12 @@ RobotDriver 只实现 `connect/get_state/send_command/home/stop/close`。通用
 
 ## 兼容与真机边界
 
-`manimux-molmoact-yam` 兼容入口目前仍保留，四终端手册不变。新的
-`configs/molmoact-yam.yaml` 已通过无硬件 HTTP worker、动作拆分、YAM command 映射和
-Viewer committed-plan 测试。该配置明确使用 `command_mode: shadow`，不会向 YAM 下发
-joint command，也不会初始化 i2rt、打开 CAN 或 motor-on。Shadow observation 使用左右
-YAML 中的 `agent.start_joints` 并保持静止，Viewer 只显示待执行轨迹。切换到 `live` 前必须
-先进行 shadow 对比，确认每个最终 joint command 与当前 launcher 一致，再做低速真机
-smoke test。
+`manimux-molmoact-yam` 兼容入口目前仍保留，四终端手册不变。
+`configs/molmoact-yam-live.yaml` 已通过无硬件 HTTP worker、动作拆分、YAM command 映射和
+Viewer committed-plan 测试。
+
+`yam_dual` 连接即驱动硬件，没有第二种模式。`robot.options` 是自由字典，所以驱动会
+校验其中每一个键（`right_config` / `start_duration_s` / `home_duration_s` /
+`move_to_start_on_connect` / `home_on_close`），不认识的一律在构造阶段报错 —— 拼错一个
+后缀不该变成「机械臂照动，只是不按配置动」。上真机前的验证靠 mock 配置和 adapter
+单测，再做低速真机 smoke test。

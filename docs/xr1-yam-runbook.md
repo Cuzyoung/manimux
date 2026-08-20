@@ -100,13 +100,7 @@ manimux-viewer --robot yam --host 0.0.0.0 --port 8086
 for c in can_left can_right; do printf '%s: ' "$c"; ip -details link show "$c" | grep -o 'ERROR-ACTIVE\|ERROR-PASSIVE\|BUS-OFF'; done
 ```
 
-**先跑 shadow**，机械臂完全不动，只在 Viewer 里看 IK 出来的轨迹：
-
-```bash
-envs/yam/.venv/bin/manimux run --config configs/xr1-yam.yaml
-```
-
-轨迹合理再上真机：
+**这一条会让机械臂真的动**，清空工作区、急停在手：
 
 ```bash
 envs/yam/.venv/bin/manimux run --config configs/xr1-yam-live.yaml
@@ -145,7 +139,7 @@ envs/yam/.venv/bin/manimux run --config configs/xr1-yam-live.yaml
 | 末端位移尺度 | std 约 0.051 m / 30 步，量级正常 |
 | **左右夹爪** | **坏的**：demo 的夹爪是弧度（区间 `[-3.05,-0.05]` / `[-7.14,-0.06]`），YAM 是归一化 `[0,1]`。输入端永远饱和到 +1，模型看不见真实开合；输出端增量 std 达 0.87，会把 `[0,1]` 的夹爪打飞 |
 
-所以：**手臂运动可能出得来，夹爪一定不对。** 第一次上真机务必 shadow 先看、低速、
+所以：**手臂运动可能出得来，夹爪一定不对。** 第一次上真机务必低速、
 清空工作区、急停在手；在拿到 YAM 微调权重和对应统计量之前，不要指望它完成需要
 精细抓取的任务。
 
@@ -199,4 +193,4 @@ envs/xr1/.venv/bin/manimux-xr1-server --host 127.0.0.1 --port 8400 \
 实测改善：模型输出幅度从 16σ 回到 4σ，右夹爪输入从 1 个值恢复到 507 个值，右臂 IK
 步间跳变从 57° 降到 21°。但同输入的采样一致性只从 −0.016 升到 +0.269（有把握的策略
 应接近 +1）—— **算统计量只能修好单位换算，修不好「模型没在 YAM 数据上训练过」**，
-所以上真机仍要先 shadow。
+所以上真机仍要低速、急停在手。

@@ -39,7 +39,5 @@ def test_standalone_camera_config_matches_the_yam_devices() -> None:
 
     repo = Path(realsense_pkg.__file__).resolve().parents[3].parent
     standalone = yaml.safe_load((repo / "configs/cameras.yaml").read_text())
-    embedded = yaml.safe_load(
-        (repo / "configs/robots/yam_left.yaml").read_text()
-    )
+    embedded = yaml.safe_load((repo / "configs/robots/yam_left.yaml").read_text())
     assert standalone["sensors"]["cameras"] == embedded["sensors"]["cameras"]
