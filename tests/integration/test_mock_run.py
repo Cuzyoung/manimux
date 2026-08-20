@@ -37,6 +37,15 @@ def test_mock_run_records_async_episode(tmp_path: Path) -> None:
     assert root["ticks/monotonic_ns"].shape == (80,)
     assert root["ticks/state/left_arm"].shape == (80, 6)
     assert len(list(root["plans"].group_keys())) >= 1
+    events = [
+        json.loads(line)
+        for line in (result.episode_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    boundaries = [event for event in events if event["kind"] == "plan_boundary"]
+    assert boundaries
+    assert boundaries[0]["blend_anchor_source"] == "measured_state"
+    assert set(boundaries[0]["raw_first"]) == set(config.robot.group_dims)
+    assert set(boundaries[0]["committed_first"]) == set(config.robot.group_dims)
 
 
 def test_single_inflight_schedule_refills_after_each_response(tmp_path: Path) -> None:

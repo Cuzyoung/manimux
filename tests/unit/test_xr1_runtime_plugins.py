@@ -59,15 +59,15 @@ ANCHOR = np.array(
 
 @pytest.fixture(scope="module")
 def adapter() -> XR1YamAdapter:
-    config = load_config("configs/xr1-yam-live.yaml")
+    config = load_config("configs/xiaomi-xr1/yam/infra/native.yaml")
     return build_policy_adapter(config.robot, config.policy)
 
 
 def test_xr1_run_config_swaps_only_the_policy_layer() -> None:
     from manimux.robots.yam import YamDualArmDriver
 
-    xr1 = load_config(Path("configs/xr1-yam-live.yaml"))
-    molmoact = load_config(Path("configs/molmoact-yam-live.yaml"))
+    xr1 = load_config(Path("configs/xiaomi-xr1/yam/infra/native.yaml"))
+    molmoact = load_config(Path("configs/molmoact2/yam/infra/manimux.yaml"))
 
     assert isinstance(build_robot(xr1.robot, SystemClock()), YamDualArmDriver)
     assert isinstance(build_sensor(xr1.sensors[0], SystemClock()), CameraServerSensorDriver)
@@ -158,7 +158,7 @@ def test_http_model_sends_cameras_and_carries_the_anchor_state(
 ) -> None:
     import json_numpy
 
-    config = load_config("configs/xr1-yam-live.yaml")
+    config = load_config("configs/xiaomi-xr1/yam/infra/native.yaml")
     model = build_policy_model(config.policy)
     model._session_id = "session"
 

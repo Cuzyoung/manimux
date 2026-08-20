@@ -1,5 +1,11 @@
 # Third-party notices
 
+## XPolicyLab
+
+`XPolicyLab/` is a Git submodule tracking the `Cuzyoung/XPolicyLab` fork of
+`XPolicyLab/XPolicyLab`. It remains a separately versioned project and retains
+its own license and third-party notices inside the submodule.
+
 ## MolmoAct2
 
 `src/manimux/integrations/molmoact_yam/` is derived from the YAM evaluation

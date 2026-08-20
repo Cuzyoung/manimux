@@ -36,6 +36,14 @@ molmoact-yam = [
   "uvicorn[standard]>=0.35",
 ]
 
+# No torch, no model code: the policy runs inside XPolicyLab's own environment
+# and is reached over its WebSocket protocol. This extra is only the wire.
+xpolicylab = [
+  "msgpack>=1.0.8",
+  "msgpack-numpy>=0.4.8",
+  "websockets>=14",
+]
+
 # torch is deliberately absent: the ABC checkpoint is validated against the
 # CUDA-12.8 build, which lives on a different index than the pinned cu121 wheels
 # used by molmoact-yam. Install it into envs/abc first, then this group.
@@ -124,5 +132,17 @@ packages = ["manimux"]
 exclude = ["src/manimux/integrations/molmoact_yam"]
 
 [[tool.mypy.overrides]]
-module = ["mujoco", "scipy", "scipy.*", "viser", "viser.*", "yourdfpy", "zarr", "zarr.*"]
+module = [
+  "msgpack",
+  "msgpack_numpy",
+  "mujoco",
+  "scipy",
+  "scipy.*",
+  "viser",
+  "viser.*",
+  "websockets.*",
+  "yourdfpy",
+  "zarr",
+  "zarr.*",
+]
 ignore_missing_imports = true

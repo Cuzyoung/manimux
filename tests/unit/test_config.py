@@ -17,7 +17,7 @@ def test_mock_config_loads() -> None:
 
 
 def test_total_trajectory_duration_overrides_point_spacing() -> None:
-    config = load_config(Path("configs/molmoact-yam-live.yaml"))
+    config = load_config(Path("configs/molmoact2/yam/infra/manimux.yaml"))
 
     assert config.policy.trajectory_duration_s is None
     assert config.policy.effective_action_dt_s == pytest.approx(0.05)

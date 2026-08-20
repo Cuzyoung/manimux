@@ -56,6 +56,55 @@ ARM_SLICES = {
 }
 
 
+def joint_condition_to_xr1_actions(
+    condition: np.ndarray,
+    anchor_groups: Mapping[str, np.ndarray],
+    *,
+    group_order: Sequence[str],
+    kinematics: Any,
+) -> np.ndarray:
+    """Encode joint-position waypoints as XR-1's anchor-relative 60-D actions."""
+    from manimux.integrations.xr1_yam.mibot.utils.io import rotm2aa_batch
+
+    condition = np.asarray(condition, dtype=np.float64)
+    expected_dim = sum(np.asarray(anchor_groups[name]).size for name in group_order)
+    if condition.ndim != 2 or condition.shape[1] != expected_dim:
+        raise ValueError(
+            f"XR-1 joint condition must have shape (horizon, {expected_dim}), "
+            f"got {condition.shape}"
+        )
+    if not np.isfinite(condition).all():
+        raise ValueError("XR-1 joint condition must be finite")
+    if tuple(group_order) != DEFAULT_GROUP_ORDER:
+        raise ValueError(f"XR-1 condition codec requires group order {list(DEFAULT_GROUP_ORDER)}")
+    if kinematics.num_arm_joints != ARM_JOINTS:
+        raise ValueError(f"XR-1 condition codec requires {ARM_JOINTS} arm joints")
+
+    actions = np.zeros((condition.shape[0], ACTION_DIM), dtype=np.float64)
+    offset = 0
+    for group in group_order:
+        anchor = np.asarray(anchor_groups[group], dtype=np.float64).reshape(-1)
+        if anchor.shape != (GROUP_DIM,):
+            raise ValueError(f"XR-1 anchor group {group!r} must have shape ({GROUP_DIM},)")
+        targets = condition[:, offset : offset + GROUP_DIM]
+        offset += GROUP_DIM
+
+        anchor_pose = kinematics.fk(anchor[:ARM_JOINTS], float(anchor[-1]))
+        target_poses = np.stack(
+            [kinematics.fk(row[:ARM_JOINTS], float(row[-1])) for row in targets]
+        )
+        anchor_rotation = anchor_pose[:3, :3]
+        columns = ARM_SLICES[group]
+        actions[:, columns["pos"]] = (
+            anchor_rotation.T @ (target_poses[:, :3, 3] - anchor_pose[:3, 3]).T
+        ).T
+        delta_rotations = anchor_rotation.T @ target_poses[:, :3, :3]
+        actions[:, columns["aa"]] = rotm2aa_batch(delta_rotations)
+        actions[:, columns["gripper"]] = targets[:, -1:] - anchor[-1]
+
+    return np.ascontiguousarray(actions, dtype=np.float32)
+
+
 def _string_option(options: Mapping[str, object], name: str, default: str) -> str:
     value = options.get(name, default)
     if not isinstance(value, str) or not value:

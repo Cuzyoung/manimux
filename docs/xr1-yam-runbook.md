@@ -5,6 +5,16 @@
 > **先读这一节再上真机。** XR-1 是唯一一个输出末端笛卡尔增量的模型，而且我们手上
 > 这份权重是官方的**微调起点**，不是可直接部署的策略。零样本的限制写在文末。
 
+## 配置位置
+
+```text
+Native ManiMux: configs/xiaomi-xr1/yam/infra/native.yaml
+```
+
+XPolicy 和 RTC 路线使用同一模型目录下的 `xpolicy-*` 配置，单独见
+[Xiaomi XR-1 + YAM](xiaomi-xr1-yam-runbook.md)。以后其他本体放在
+`configs/xiaomi-xr1/<embodiment>/`。
+
 ## 0. 一次性准备
 
 XR-1 要独立的 venv（torch 2.8 / CUDA 12.6 + 配套的 flash-attn，和 MolmoAct 的
@@ -103,7 +113,7 @@ for c in can_left can_right; do printf '%s: ' "$c"; ip -details link show "$c" |
 **这一条会让机械臂真的动**，清空工作区、急停在手：
 
 ```bash
-envs/yam/.venv/bin/manimux run --config configs/xr1-yam-live.yaml
+envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/native.yaml
 ```
 
 ## 三个 policy 的对照

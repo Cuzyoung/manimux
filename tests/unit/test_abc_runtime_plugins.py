@@ -26,8 +26,8 @@ from manimux.types import (
 
 def test_abc_run_config_swaps_only_the_policy_layer() -> None:
     """The point of the plugin split: ABC reuses YAM, the cameras and the viewer."""
-    abc = load_config(Path("configs/abc-yam-live.yaml"))
-    molmoact = load_config(Path("configs/molmoact-yam-live.yaml"))
+    abc = load_config(Path("configs/abc/yam/infra/manimux.yaml"))
+    molmoact = load_config(Path("configs/molmoact2/yam/infra/manimux.yaml"))
 
     assert isinstance(build_robot(abc.robot, SystemClock()), YamDualArmDriver)
     assert isinstance(build_sensor(abc.sensors[0], SystemClock()), CameraServerSensorDriver)
@@ -44,7 +44,7 @@ def test_abc_run_config_swaps_only_the_policy_layer() -> None:
 
 
 def test_abc_adapter_splits_raw_actions_into_canonical_yam_groups() -> None:
-    config = load_config("configs/abc-yam-live.yaml")
+    config = load_config("configs/abc/yam/infra/manimux.yaml")
     adapter = build_policy_adapter(config.robot, config.policy)
     raw = np.arange(30 * 14, dtype=np.float64).reshape(30, 14)
 
@@ -62,7 +62,7 @@ def test_abc_adapter_splits_raw_actions_into_canonical_yam_groups() -> None:
 
 
 def test_abc_adapter_rejects_wrong_action_width() -> None:
-    config = load_config("configs/abc-yam-live.yaml")
+    config = load_config("configs/abc/yam/infra/manimux.yaml")
     adapter = build_policy_adapter(config.robot, config.policy)
 
     with pytest.raises(ValueError, match="shape"):
@@ -73,7 +73,7 @@ def test_abc_adapter_rejects_wrong_action_width() -> None:
 
 
 def test_abc_live_config_matches_the_checkpoint_timing() -> None:
-    config = load_config("configs/abc-yam-live.yaml")
+    config = load_config("configs/abc/yam/infra/manimux.yaml")
 
     # ABC-DiT was trained at 30 Hz with a fixed chunk_length of 30.
     assert config.policy.horizon_steps == 30
@@ -105,7 +105,7 @@ def _snapshot() -> ObservationSnapshot:
 def test_abc_http_model_posts_the_server_wire_schema(monkeypatch: pytest.MonkeyPatch) -> None:
     import json_numpy
 
-    config = load_config("configs/abc-yam-live.yaml")
+    config = load_config("configs/abc/yam/infra/manimux.yaml")
     model = build_policy_model(config.policy)
     model._session_id = "session"
 

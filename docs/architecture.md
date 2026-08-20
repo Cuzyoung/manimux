@@ -169,6 +169,26 @@ class PolicyAdapter(Protocol):
 
 每个 run 只选择一个明确 adapter。V1 不尝试自动匹配任意模型和机器人。
 
+#### XPolicy 的两层 adapter
+
+XPolicy 接入时有两个职责不同的 adapter：
+
+```text
+YAM state/cameras
+    -> ManiMux XPolicyAdapter
+    -> XPolicy standard observation
+    -> XPolicy policy/Pi_05/model.py
+    -> OpenPI native input
+```
+
+- ManiMux 的 `XPolicyAdapter` 负责 YAM group/camera 与 XPolicy wire format 的互转；
+- XPolicy 的 `policy/<name>/model.py` 负责 checkpoint、模型预处理、normalization 和
+  模型原生 action 解码；
+- ManiMux RTC 根据真实执行进度生成 condition 和 soft mask；支持 RTC 的 XPolicy 模型
+  adapter 把它注入模型采样过程，不支持时明确失败；
+- `XPolicyLab/` submodule 只固定源码版本。模型仍在独立环境运行，ManiMux 通过
+  WebSocket 发出一次完整推理请求，不把模型依赖装进 runtime 环境。
+
 ## 4. 一个配置文件
 
 V1 使用一个严格校验的 YAML，不使用服务注册中心或 artifact manifest。`driver`、
@@ -435,6 +455,7 @@ src/manimux/
     robots/                  # robot adapter contract + YAM
   integrations/
     molmoact_yam/            # async launcher, policy/camera servers, recording
+    xpolicylab/              # XPolicy wire client + embodiment mapping
   assets/
     i2rt/robot_models/       # bundled YAM viewer geometry
 configs/
@@ -443,6 +464,7 @@ tests/
   integration/
   hardware/
 docs/
+XPolicyLab/                  # submodule -> Cuzyoung/XPolicyLab fork
 ```
 
 首版保持一个 Python package。不要先拆 `apps/`、`packages/`、generated contracts 或多个 deployable service。

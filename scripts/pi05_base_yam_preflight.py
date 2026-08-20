@@ -23,7 +23,7 @@ from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.sensors import build_sensor
 from manimux.types import ActionContext, InferenceRequest, ObservationSnapshot
 
-DEFAULT_CONFIG = Path("configs/pi05-base-yam-rtc-live.yaml")
+DEFAULT_CONFIG = Path("configs/pi05/yam/infra/base-rtc.yaml")
 
 
 def _request(
@@ -99,42 +99,12 @@ def main() -> int:
         first_joint_delta = float(np.max(np.abs(rows[0, arm_indices] - measured[arm_indices])))
         grippers = rows[:, gripper_indices]
 
-        delay_steps = max(1, math.ceil(steady_latency_s / policy_config.effective_action_dt_s))
-        executed_steps = max(config.execution.rtc.min_execute_steps or 1, delay_steps)
-        if not delay_steps <= executed_steps <= len(rows) - delay_steps:
-            raise RuntimeError(
-                "steady inference latency is not RTC-feasible: "
-                f"d={delay_steps}, s={executed_steps}, H={len(rows)}"
-            )
-        condition, weights = inpainting_condition(
-            rows,
-            executed_steps=executed_steps,
-            delay_steps=delay_steps,
-        )
-        rtc_request = RtcInferenceRequest(
-            session_id=session_id,
-            request_seq=3,
-            observation_time_ns=state.monotonic_ns,
-            deadline_ns=time.monotonic_ns() + 120_000_000_000,
-            observation=snapshot,
-            instruction=config.run.task,
-            action_condition=condition.astype(np.float64),
-            condition_weights=weights.astype(np.float64),
-            rtc_beta=config.execution.rtc.beta,
-        )
-        _, rtc_compile_latency_s = _decode(model, adapter, rtc_request)
-        rtc_request = dataclasses.replace(rtc_request, request_seq=4)
-        _, rtc_steady_latency_s = _decode(model, adapter, rtc_request)
-
         contract_checks = {
-            "shape_50x14": rows.shape == (50, 14),
+            "shape_matches_config": rows.shape
+            == (policy_config.horizon_steps, sum(robot_config.group_dims.values())),
             "finite": bool(np.isfinite(rows).all()),
             "grippers_in_0_1": bool(np.all((grippers >= 0.0) & (grippers <= 1.0))),
             "absolute_position_limit": bool(np.all(np.abs(rows[:, arm_indices]) <= 3.14)),
-            "rtc_steady_feasible": math.ceil(
-                rtc_steady_latency_s / policy_config.effective_action_dt_s
-            )
-            <= 25,
         }
         report = {
             "contract_checks": contract_checks,
@@ -145,16 +115,51 @@ def main() -> int:
             "latency_s": {
                 "unconditioned_compile": compile_latency_s,
                 "unconditioned_steady": steady_latency_s,
-                "rtc_compile": rtc_compile_latency_s,
-                "rtc_steady": rtc_steady_latency_s,
-            },
-            "rtc_alignment": {
-                "delay_steps": delay_steps,
-                "executed_steps": executed_steps,
-                "horizon_steps": len(rows),
             },
             "camera_shapes": {name: list(frame.data.shape) for name, frame in frames.items()},
         }
+        if config.execution.runtime == "rtc":
+            delay_steps = max(
+                1,
+                math.ceil(steady_latency_s / policy_config.effective_action_dt_s),
+            )
+            executed_steps = max(config.execution.rtc.min_execute_steps or 1, delay_steps)
+            if not delay_steps <= executed_steps <= len(rows) - delay_steps:
+                raise RuntimeError(
+                    "steady inference latency is not RTC-feasible: "
+                    f"d={delay_steps}, s={executed_steps}, H={len(rows)}"
+                )
+            condition, weights = inpainting_condition(
+                rows,
+                executed_steps=executed_steps,
+                delay_steps=delay_steps,
+            )
+            rtc_request = RtcInferenceRequest(
+                session_id=session_id,
+                request_seq=3,
+                observation_time_ns=state.monotonic_ns,
+                deadline_ns=time.monotonic_ns() + 120_000_000_000,
+                observation=snapshot,
+                instruction=config.run.task,
+                action_condition=condition.astype(np.float64),
+                condition_weights=weights.astype(np.float64),
+                rtc_beta=config.execution.rtc.beta,
+            )
+            _, rtc_compile_latency_s = _decode(model, adapter, rtc_request)
+            rtc_request = dataclasses.replace(rtc_request, request_seq=4)
+            _, rtc_steady_latency_s = _decode(model, adapter, rtc_request)
+            contract_checks["rtc_steady_feasible"] = math.ceil(
+                rtc_steady_latency_s / policy_config.effective_action_dt_s
+            ) <= len(rows) // 2
+            report["latency_s"].update(
+                rtc_compile=rtc_compile_latency_s,
+                rtc_steady=rtc_steady_latency_s,
+            )
+            report["rtc_alignment"] = {
+                "delay_steps": delay_steps,
+                "executed_steps": executed_steps,
+                "horizon_steps": len(rows),
+            }
         print(json.dumps(report, indent=2))
         return 0
     finally:

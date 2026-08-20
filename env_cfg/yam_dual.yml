@@ -1,0 +1,3 @@
+config:
+  robot: yam_dual
+  sim: yam_real

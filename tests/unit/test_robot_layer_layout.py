@@ -20,8 +20,10 @@ def test_every_run_config_shares_one_yam_body() -> None:
 
     repo = Path(robots_pkg.__file__).resolve().parents[2].parent
     seen = set()
-    for config_path in sorted((repo / "configs").glob("*-yam*.yaml")):
+    for config_path in sorted((repo / "configs").rglob("*.yaml")):
         config = yaml.safe_load(config_path.read_text())
+        if not isinstance(config, dict) or config.get("robot", {}).get("driver") != "yam_dual":
+            continue
         seen.add((config["robot"]["config"], config["robot"]["options"]["right_config"]))
     assert seen == {("configs/robots/yam_left.yaml", "configs/robots/yam_right.yaml")}
 

@@ -52,7 +52,7 @@ uv pip install --python envs/yam/.venv/bin/python \
 ```bash
 Y=envs/yam/.venv/bin
 $Y/manimux-molmoact-server --host 127.0.0.1 --port 8202
-$Y/manimux run --config configs/molmoact-yam-live.yaml
+$Y/manimux run --config configs/molmoact2/yam/infra/manimux.yaml
 ```
 
 需要跑完整测试（不 skip）时也用这里，它同时装了 `i2rt` 和开发工具：
