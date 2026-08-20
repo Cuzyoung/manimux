@@ -5,13 +5,13 @@ run:
 
 robot:
   driver: yam_dual
-  config: src/manimux/integrations/molmoact_yam/configs/molmoact_yam_left.yaml
+  config: configs/robots/yam_left.yaml
   control_hz: 30.0
   group_dims:
     left_arm: 7
     right_arm: 7
   options:
-    right_config: src/manimux/integrations/molmoact_yam/configs/molmoact_yam_right.yaml
+    right_config: configs/robots/yam_right.yaml
     command_mode: shadow
     move_to_start_on_connect: false
     start_duration_s: 5.0

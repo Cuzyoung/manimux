@@ -13,8 +13,8 @@ from manimux.integrations.molmoact_yam.policy_plugin import (
     MolmoActHttpPolicyModel,
     MolmoActYamAdapter,
 )
-from manimux.integrations.molmoact_yam.robot_plugin import YamDualArmDriver
-from manimux.integrations.molmoact_yam.sensor_plugin import CameraServerSensorDriver
+from manimux.robots.yam import YamDualArmDriver
+from manimux.sensors.camera_server import CameraServerSensorDriver
 from manimux.policies import build_policy_adapter, build_policy_model
 from manimux.robots import build_robot
 from manimux.sensors import build_sensor
@@ -183,7 +183,7 @@ def test_yam_live_close_releases_without_implicit_motion() -> None:
 
 def test_yam_wrapper_joins_control_thread_before_closing_can() -> None:
     try:
-        from manimux.integrations.molmoact_yam.gello_min.yam import YAMRobot
+        from manimux.robots.yam import YAMRobot
     except ImportError:
         pytest.skip("i2rt hardware extra is not installed")
 

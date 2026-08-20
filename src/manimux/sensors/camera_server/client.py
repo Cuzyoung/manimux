@@ -1,7 +1,7 @@
 """ZMQ client for the camera server.
 
-Used by eval launchers to pull the latest 3-camera observation without
-holding RealSense devices in-process. See ``camera_server.py`` for the wire
+Used by ManiMux runs and eval launchers to pull the latest camera bundle without
+holding RealSense devices in-process. See ``server.py`` for the wire
 protocol.
 """
 

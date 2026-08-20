@@ -24,7 +24,7 @@ import h5py
 import numpy as np
 from PIL import Image
 
-from .camera_client import CameraSubscriber
+from manimux.sensors.camera_server import CameraSubscriber
 
 # ``lerobot_convert`` (and its ``lerobot`` dependency) is imported lazily inside
 # ``convert_session_to_lerobot`` so that running rollouts does not require

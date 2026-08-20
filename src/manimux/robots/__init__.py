@@ -27,7 +27,7 @@ def _maniunicon_factory(config: RobotConfig, clock: Clock) -> RobotDriver:
 
 
 def _yam_factory(config: RobotConfig, clock: Clock) -> RobotDriver:
-    from manimux.integrations.molmoact_yam.robot_plugin import build_robot as build_yam_robot
+    from manimux.robots.yam import build_robot as build_yam_robot
 
     return build_yam_robot(config, clock)
 

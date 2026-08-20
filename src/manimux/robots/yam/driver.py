@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
+import logging
+import signal
+import threading
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -12,6 +17,45 @@ import yaml
 from manimux.clock import Clock
 from manimux.config import RobotConfig
 from manimux.types import RobotCommand, RobotState
+
+
+log = logging.getLogger("manimux.robots.yam")
+
+
+@contextlib.contextmanager
+def _finish_move_before_interrupt(what: str) -> Iterator[list[int]]:
+    """Let a blocking arm move finish before Ctrl-C takes effect.
+
+    i2rt drives ``move_joints`` with ``time.sleep`` in a loop, so a SIGINT lands
+    as ``KeyboardInterrupt`` inside that sleep: the move stops with the arm
+    mid-air and the ``close()`` that follows zeroes torques, dropping it. Defer
+    the first interrupt until the move returns. A second Ctrl-C restores the
+    default handler and aborts immediately, so a genuinely stuck move is still
+    escapable.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        yield []
+        return
+
+    pending: list[int] = []
+
+    def _handler(signum: int, frame: Any) -> None:
+        if pending:
+            signal.signal(signal.SIGINT, previous)
+            raise KeyboardInterrupt
+        pending.append(signum)
+        log.warning(
+            "Ctrl-C received; finishing %s first (press Ctrl-C again to abort now).",
+            what,
+        )
+
+    previous = signal.getsignal(signal.SIGINT)
+    signal.signal(signal.SIGINT, _handler)
+    try:
+        yield pending
+    finally:
+        with contextlib.suppress(ValueError, TypeError):
+            signal.signal(signal.SIGINT, previous)
 
 
 def _load_mapping(path: Path) -> dict[str, Any]:
@@ -70,8 +114,8 @@ class YamDualArmDriver:
         if self._robot is not None:
             return
 
-        from .gello_min.robot import BimanualRobot
-        from .gello_min.yam import YAMRobot
+        from manimux.robots.yam.arm import YAMRobot
+        from manimux.robots.yam.base import BimanualRobot
 
         left_channel = left_cfg.get("robot", {}).get("channel")
         right_channel = right_cfg.get("robot", {}).get("channel")
@@ -152,6 +196,7 @@ class YamDualArmDriver:
             duration_s=self._home_duration_s,
             transition="zero home",
             parallel=False,
+            reraise_interrupt=False,
         )
 
     def _move_joints(
@@ -161,6 +206,7 @@ class YamDualArmDriver:
         duration_s: float,
         transition: str,
         parallel: bool,
+        reraise_interrupt: bool = True,
     ) -> None:
         robot = self._require_robot()
         if target.shape != (14,) or not np.isfinite(target).all():
@@ -180,16 +226,21 @@ class YamDualArmDriver:
                 raise RuntimeError("YAM i2rt backend does not expose move_joints")
             move_joints(arm_target, time_interval_s=duration_s)
 
-        if parallel:
-            with ThreadPoolExecutor(max_workers=2, thread_name_prefix="yam-start") as pool:
-                futures = [
-                    pool.submit(move_one, arm, arm_target) for arm, arm_target in arm_targets
-                ]
-                for future in futures:
-                    future.result()
-        else:
-            for arm, arm_target in arm_targets:
-                move_one(arm, arm_target)
+        with _finish_move_before_interrupt(transition) as interrupted:
+            if parallel:
+                with ThreadPoolExecutor(max_workers=2, thread_name_prefix="yam-start") as pool:
+                    futures = [
+                        pool.submit(move_one, arm, arm_target) for arm, arm_target in arm_targets
+                    ]
+                    for future in futures:
+                        future.result()
+            else:
+                for arm, arm_target in arm_targets:
+                    move_one(arm, arm_target)
+        if interrupted:
+            log.info("%s finished; honouring the deferred Ctrl-C.", transition)
+            if reraise_interrupt:
+                raise KeyboardInterrupt
 
     def stop(self) -> None:
         if self._robot is None or self._command_mode == "shadow":

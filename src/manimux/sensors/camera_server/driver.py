@@ -8,7 +8,7 @@ from manimux.clock import Clock
 from manimux.config import SensorConfig
 from manimux.types import SensorFrame
 
-from .camera_client import CameraClient
+from manimux.sensors.camera_server.client import CameraClient
 
 
 class CameraServerSensorDriver:

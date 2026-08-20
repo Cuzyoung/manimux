@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 from manimux.config import load_config
-from manimux.runtime.edge import EdgeRuntime
+from manimux.runtime import build_runtime
 
 
 def _git_sha() -> str | None:
@@ -48,7 +48,7 @@ def _run(config_path: Path, executor: str | None = None) -> int:
         )
         handle.write("\n")
     try:
-        result = EdgeRuntime(config, run_dir).run()
+        result = build_runtime(config, run_dir).run()
     except KeyboardInterrupt:
         print("interrupted; robot shutdown and partial episode save completed")
         return 130

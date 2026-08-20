@@ -26,7 +26,7 @@ across any single bad request.
 
 CLI
 ---
-    uv run --extra molmoact-yam manimux-molmoact-camera --config <left.yaml>
+    manimux-camera-server --config <cameras.yaml>
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ from typing import Any
 import zmq
 from omegaconf import OmegaConf
 
-from .gello_min.realsense_camera import RealSenseCamera, get_device_ids
+from manimux.sensors.realsense import RealSenseCamera, get_device_ids
 
 logger = logging.getLogger("camera_server")
 
@@ -238,7 +238,7 @@ def _build_cameras_from_config(cfg_path: Path) -> dict[str, RealSenseCamera]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="YAM camera server (ZMQ).")
+    parser = argparse.ArgumentParser(description="ManiMux multi-camera server (ZMQ).")
     parser.add_argument(
         "--config",
         required=True,

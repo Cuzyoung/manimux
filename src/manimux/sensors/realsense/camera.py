@@ -6,7 +6,7 @@ import time
 
 import numpy as np
 
-from .camera import CameraDriver
+from manimux.sensors.realsense.base import CameraDriver
 
 logger = logging.getLogger(__name__)
 
@@ -114,8 +114,8 @@ class RealSenseCamera(CameraDriver):
             self._config = rs.config()
             if self._device_id is not None:
                 self._config.enable_device(self._device_id)
-            self._config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 15)
-            self._config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 15)
+            self._config.enable_stream(rs.stream.depth, 640, 360, rs.format.z16, 30)
+            self._config.enable_stream(rs.stream.color, 640, 360, rs.format.bgr8, 30)
             self._pipeline.start(self._config)
 
             for _ in range(self._warmup_frames):

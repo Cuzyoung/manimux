@@ -73,6 +73,10 @@ class MolmoActHttpPolicyModel:
             "yam_dual_molmoact2",
         )
         self._enable_cuda_graph = bool(config.options.get("enable_cuda_graph", True))
+        num_steps = config.options.get("num_steps")
+        if num_steps is not None and (not isinstance(num_steps, int) or num_steps <= 0):
+            raise ValueError("policy.options.num_steps must be a positive integer")
+        self._num_steps = num_steps
         self._timeout_s = float(config.options.get("http_timeout_s", config.timeout_s))
         if self._timeout_s <= 0:
             raise ValueError("policy.options.http_timeout_s must be positive")
@@ -118,6 +122,17 @@ class MolmoActHttpPolicyModel:
                 "enable_cuda_graph": self._enable_cuda_graph,
             }
         )
+        if self._num_steps is not None:
+            payload["num_steps"] = self._num_steps
+
+        # An RTC runtime sends the inpainting condition on a request subclass;
+        # the default runtime never sets it and the payload is unchanged.
+        condition = getattr(request, "action_condition", None)
+        weights = getattr(request, "condition_weights", None)
+        if condition is not None and weights is not None:
+            payload["action_condition"] = np.asarray(condition, dtype=np.float32)
+            payload["action_condition_weights"] = np.asarray(weights, dtype=np.float32)
+            payload["rtc_beta"] = float(getattr(request, "rtc_beta", 5.0))
 
         import json_numpy
         import requests
