@@ -33,12 +33,14 @@ import numpy as np
 from manimux.config import ManiMuxConfig
 from manimux.policies.base import decode_policy_action
 from manimux.recording.episode import EpisodeRecorder
-from manimux.runtime.edge import EdgeRuntime, RunResult, RuntimeState
+from manimux.runtime.edge import EdgeRuntime, RunResult
 from manimux.runtime.rtc.mask import inpainting_condition
 from manimux.runtime.rtc.request import RtcInferenceRequest
+from manimux.runtime.safety import RuntimeState
 from manimux.runtime.timeline import ActionTimeline
 from manimux.types import (
     ActionContext,
+    GroupVector,
     InferenceRequest,
     ObservationSnapshot,
     SensorFrame,
@@ -58,6 +60,14 @@ class RtcRuntime(EdgeRuntime):
         self._delay_forecast: deque[int] = deque(
             [int(rtc.initial_delay_steps)], maxlen=int(rtc.delay_buffer_size)
         )
+        # The mask indexes the chunk the *model* produced, so the condition has
+        # to come from that array -- not from ``timeline.active_horizon()``,
+        # which is the same chunk after commit-time trimming and blending. Its
+        # length is H - trimmed, and feeding that in as H collapses the
+        # feasibility window ``d <= s <= H - d`` to nothing.
+        self._active_rows: np.ndarray | None = None
+        self._active_offset = 0
+        self._pending_conditioned = False
 
     def _execution_horizon(self, horizon: int, delay: int) -> int:
         """``s`` for this cycle, honouring the paper's ``d <= s <= H - d``."""
@@ -122,7 +132,7 @@ class RtcRuntime(EdgeRuntime):
         loop_ms: list[float] = []
         last_report_step = 0
         horizon_steps = 0
-        last_command: dict | None = None
+        last_command: GroupVector | None = None
 
         try:
             for sensor in self._sensors:
@@ -171,6 +181,8 @@ class RtcRuntime(EdgeRuntime):
                     self._safety.validate_state(state)
                     self._timeline = ActionTimeline(self._config.robot.group_dims)
                     self._executor.reset(state)
+                    self._active_rows = None
+                    self._active_offset = 0
                     self._state = RuntimeState.PAUSED
                     recorder.event("viewer_home_requested", step=steps)
                     next_tick_ns = self._clock.now_ns()
@@ -227,15 +239,27 @@ class RtcRuntime(EdgeRuntime):
                             # the default runtime, which refills rarely, but RTC
                             # re-plans every s steps and it turns into a stutter.
                             current_command=(
-                                last_command
-                                if last_command is not None
-                                else state.groups
+                                last_command if last_command is not None else state.groups
                             ),
-                            blend_steps=self._config.execution.blend_steps,
+                            # A conditioned chunk already agrees with the one it
+                            # replaces -- that is what the guidance bought. The
+                            # blend would overwrite exactly the frozen prefix
+                            # RTC just guaranteed. An unconditioned chunk (the
+                            # first one, or one submitted outside the feasible
+                            # window) has no such guarantee and still needs it.
+                            blend_steps=(
+                                0
+                                if self._pending_conditioned
+                                else self._config.execution.blend_steps
+                            ),
                         )
                         if result.accepted:
                             accepted_plans += 1
                             last_inference_ms = response.inference_ms
+                            self._active_rows = np.concatenate(
+                                [chunk.groups[name] for name in self._group_order], axis=1
+                            )
+                            self._active_offset = result.trimmed_steps
                             # The mask indexes chunk rows, so the delay has to be
                             # counted in chunk steps too. They only coincide when
                             # control_hz happens to equal 1/action_dt_s.
@@ -274,9 +298,9 @@ class RtcRuntime(EdgeRuntime):
                             )
 
                 # ---- RTC change 1: when to infer ----------------------------
-                committed = self._timeline.active_horizon()
-                if committed is not None:
-                    horizon_steps = committed.horizon_steps
+                active = self._active_rows
+                if active is not None:
+                    horizon_steps = len(active)
                 if (
                     not request_in_flight
                     and self._worker.is_alive
@@ -284,10 +308,17 @@ class RtcRuntime(EdgeRuntime):
                 ):
                     condition = None
                     weights = None
-                    ready = committed is None  # the first chunk is unconditioned
-                    if committed is not None:
-                        horizon = committed.horizon_steps
-                        executed = self._timeline.cursor(now_ns)
+                    forecast_used = 0
+                    executed = 0
+                    ready = active is None  # the first chunk is unconditioned
+                    if active is not None:
+                        horizon = len(active)
+                        # Rows before ``_active_offset`` were already in the past
+                        # when this chunk landed, so the cursor alone undercounts
+                        # how far into the chunk the arm is. ``s`` has to index
+                        # the chunk the model produced, the same array the mask
+                        # weights index.
+                        executed = min(self._active_offset + self._timeline.cursor(now_ns), horizon)
                         delay = max(self._delay_forecast)
                         if 2 * delay > horizon and not infeasible_reported:
                             infeasible_reported = True
@@ -301,12 +332,8 @@ class RtcRuntime(EdgeRuntime):
                             ready = True
                             if delay <= executed <= horizon - delay:
                                 # ---- RTC change 2: what to condition on -----
-                                rows = np.concatenate(
-                                    [committed.groups[n] for n in self._group_order],
-                                    axis=1,
-                                )
                                 condition, weights = inpainting_condition(
-                                    rows, executed_steps=executed, delay_steps=delay
+                                    active, executed_steps=executed, delay_steps=delay
                                 )
                                 forecast_used = delay
                     if ready:
@@ -316,8 +343,7 @@ class RtcRuntime(EdgeRuntime):
                             session_id=self._session_id,
                             request_seq=request_seq,
                             observation_time_ns=state.monotonic_ns,
-                            deadline_ns=now_ns
-                            + int(self._config.policy.timeout_s * 1_000_000_000),
+                            deadline_ns=now_ns + int(self._config.policy.timeout_s * 1_000_000_000),
                             observation=self._adapter.build_observation(snapshot),
                             instruction=self._config.run.task,
                             action_condition=(
@@ -330,11 +356,12 @@ class RtcRuntime(EdgeRuntime):
                         )
                         self._worker.submit_latest(request)
                         request_in_flight = True
+                        self._pending_conditioned = condition is not None
                         inference_started_ns = now_ns
                         recorder.event(
                             "inference_submitted",
                             request_seq=request_seq,
-                            executed_steps=self._timeline.cursor(now_ns),
+                            executed_steps=executed,
                             forecast_delay=forecast_used,
                             conditioned=condition is not None,
                         )
