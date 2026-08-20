@@ -93,14 +93,17 @@ EdgeRuntime side channels:
 | ✅ | MolmoAct2 + YAM | 30 × 14 关节位置 | `configs/molmoact2/yam/` | [MolmoAct2](docs/molmoact-yam-runbook.md) |
 | ✅ | ABC + YAM | 30 × 14 关节位置 | `configs/abc/yam/` | [ABC](docs/abc-yam-runbook.md) |
 | 🧪 | XR-1 native + YAM | 30 × 60 末端增量 → 30 × 14 关节位置 | `configs/xiaomi-xr1/yam/infra/native.yaml` | [XR-1 native](docs/xr1-yam-runbook.md) |
-| 🧪 | Pi05 + YAM | 16 × 14 绝对关节位置 | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
+| ✅ | OpenPI Pi05 + YAM | 16 × 14 绝对关节位置 | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
 | 🚧 | GR00T N1.7 + YAM | 16 × 14 绝对关节位置 | `configs/gr00t-n17/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
 | 🧪 | XPolicy XR-1 + YAM | 30 × 60 末端增量 → 30 × 14 关节位置 | `configs/xiaomi-xr1/yam/{server,infra}/` | [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md) |
 | 🚧 | LingBot-VLA2 + YAM | 等待 55 维语义、映射和 stats | — | [LingBot-VLA2](docs/lingbot-vla2-yam-runbook.md) |
 | 🔌 | XPolicy bridge | 标准 observation/action wire contract | `configs/xpolicylab/yam/infra/smoke.yaml` | [XPolicyLab](docs/xpolicylab-runbook.md) |
 
-Pi05 已完成真实三相机、模型服务、ManiMux 和双 YAM 全链路运行；观察到任务相关行为，
-但尚未形成正式成功率结论。GR00T 和 XPolicy XR-1 当前不能视为真机验证完成。
+OpenPI Pi05 已完成真实三相机、YAM norm stats、XPolicy 模型服务、官方 10-step flow、
+普通 ManiMux 和 Pi-guided RTC 的双 YAM 全链路运行。RTC 实测 `d=3-5` 步，首个 chunk 后
+没有空档。checkpoint 在当前场景能产生任务相关运动，但仍有明显犹豫且没有正式成功率；
+这是 policy 质量结论，不代表推理 infra 未完成。GR00T 和 XPolicy XR-1 当前不能视为真机
+验证完成。
 
 ## 安装
 
@@ -153,6 +156,9 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   --config configs/pi05/yam/server/finetune.yaml
 
 envs/yam/.venv/bin/manimux run --config configs/pi05/yam/infra/manimux.yaml
+
+# Pi-guided RTC 复用同一个微调模型服务。
+envs/yam/.venv/bin/manimux run --config configs/pi05/yam/infra/rtc.yaml
 ```
 
 这些只展示入口，不代替 checkpoint 检查、preflight、CAN 检查和停止流程。运行真机前
