@@ -8,7 +8,7 @@ import pytest
 from manimux.types import ActionChunk, ActionHorizon, RobotState, SensorFrame
 from manimux.viewer.bridge import ViewerBridge
 from manimux.viewer.client import ViewerClient
-from manimux.viewer.dashboard import _trajectory_colors
+from manimux.viewer.dashboard import _instruction_markdown, _prefill_task, _trajectory_colors
 from manimux.viewer.protocol import PolicyPlan, RobotSnapshot, RuntimeEvent
 from manimux.viewer.robots import available_robot_adapters, load_robot_adapter
 from manimux.viewer.robots.yam import DEFAULT_I2RT_ROOT, YamAdapter
@@ -255,3 +255,15 @@ def test_trajectory_gradient_uses_deep_to_light_purple() -> None:
     assert colors[0].tolist() == [67, 20, 133]
     assert colors[-1].tolist() == [210, 150, 255]
     assert len(np.unique(colors, axis=0)) == 9
+
+
+def test_the_task_prompt_is_rendered_for_the_always_visible_header() -> None:
+    assert "pick up the red ball" in _instruction_markdown("  pick up the red ball  ")
+    assert "waiting" in _instruction_markdown("   ")
+
+
+def test_republished_instructions_do_not_erase_an_operator_mid_edit() -> None:
+    """The runtime resends its instruction on every chunk; typing must survive."""
+
+    assert _prefill_task("", "  fold the towel  ") == "fold the towel"
+    assert _prefill_task("my own comm", "fold the towel") == "my own comm"

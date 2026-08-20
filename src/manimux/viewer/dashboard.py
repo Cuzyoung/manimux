@@ -50,6 +50,23 @@ def _trajectory_colors(point_count: int) -> np.ndarray:
     ).astype(np.uint8)
 
 
+def _instruction_markdown(instruction: str) -> str:
+    """Render the live task prompt for the always-visible header."""
+
+    text = instruction.strip()
+    return f"### 📋 {text}" if text else "### 📋 _waiting for a task prompt_"
+
+
+def _prefill_task(current: str, incoming: str) -> str:
+    """Seed the operator's editable command without overwriting their typing.
+
+    The runtime republishes its instruction on every chunk, so assigning it each
+    time would erase a command the operator is halfway through composing.
+    """
+
+    return incoming.strip() if not current.strip() else current
+
+
 class PolicyViewer:
     """Robot-independent dashboard backed by one selected robot adapter."""
 
@@ -145,6 +162,7 @@ class PolicyViewer:
 
     def _build_gui(self) -> None:
         self.status = self.server.gui.add_markdown("🟠 **Waiting for policy executor**")
+        self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
         with self.server.gui.add_folder("Policy control", expand_by_default=True):
             self.start_btn = self.server.gui.add_button("Start / Resume", color="blue")
             self.pause_btn = self.server.gui.add_button("Pause", color="gray")
@@ -227,6 +245,10 @@ class PolicyViewer:
         def _show_plan(_event: Any) -> None:
             self._refresh_plan_visibility()
 
+    def _set_instruction(self, instruction: str) -> None:
+        self.instruction.content = _instruction_markdown(instruction)
+        self.task.value = _prefill_task(self.task.value, instruction)
+
     def control_state(self) -> dict[str, Any]:
         state = {
             "paused": self.paused,
@@ -291,7 +313,7 @@ class PolicyViewer:
         self.plan_chunk_id = chunk_id
         self.plan_start_index = start_index
         self.policy_name.value = str(message.get("policy", "unknown"))
-        self.task.value = str(message.get("instruction", ""))
+        self._set_instruction(str(message.get("instruction", "")))
         self.action_space.value = action_space
         self.latency.value = f"{float(message.get('inference_ms', 0.0)):.0f} ms"
         self.chunk_info.value = (
@@ -460,7 +482,7 @@ class PolicyViewer:
                 self.finish_btn,
             ):
                 button.disabled = self.observe_only
-            self.task.value = str(metadata.get("instruction", self.task.value))
+            self._set_instruction(str(metadata.get("instruction", self.task.value)))
             self.executor_info.value = "observe only" if self.observe_only else "managed"
             self.status.content = (
                 "🔵 **Connected · OBSERVE ONLY**"
