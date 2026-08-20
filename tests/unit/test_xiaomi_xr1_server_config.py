@@ -49,4 +49,15 @@ def test_xr1_runtime_status_does_not_claim_inference_ready(
     assert report["contract_status"] == "ready"
     assert report["runtime_status"] == "environment_present_gpu_forward_not_verified"
     assert report["inference_status"] == "not_verified"
-    assert report["policy_status"] == "blocked_for_yam_task_without_finetune"
+    assert report["policy_status"] == "base_checkpoint_capability_unvalidated"
+
+
+def test_xr1_base_config_does_not_claim_task_capability() -> None:
+    config = xr1_server._load_config(
+        xr1_server.REPO_ROOT / "configs/xiaomi-xr1/yam/server/base.yaml"
+    )
+    report = _validate(config)
+    assert report["contract_status"] == "ready"
+    assert report["checkpoint_variant"] == "xiaomi_robotics_1_5b_base_with_yam_stats"
+    assert report["policy_status"] == "base_checkpoint_capability_unvalidated"
+    assert report["norm_stats_role"] == "yam_projection_only_not_checkpoint_matched"

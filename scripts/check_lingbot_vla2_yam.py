@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check or launch the official LingBot-VLA2 XPolicyLab adapter."""
+"""Check the LingBot-VLA2 XPolicy adapter and ManiMux timing contract."""
 
 from __future__ import annotations
 
@@ -12,9 +12,11 @@ from typing import Any
 
 import yaml
 
+sys.dont_write_bytecode = True
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
-DEFAULT_CONFIG = REPO_ROOT / "configs/lingbot-vla2/yam/server/xpolicy.yaml"
+DEFAULT_CONFIG = REPO_ROOT / "configs/lingbot-vla2/yam/server/base.yaml"
 DEFAULT_INFRA_CONFIG = REPO_ROOT / "configs/lingbot-vla2/yam/infra/manimux.yaml"
 
 
@@ -78,9 +80,7 @@ def _validate(
             delay = int(rtc.get("initial_delay_steps", 0))
             execute = int(rtc.get("min_execute_steps", 0))
             beta = float(rtc.get("beta", 0.0))
-            if delay <= 0 or not (
-                delay <= execute <= configured_horizon - delay
-            ):
+            if delay <= 0 or not delay <= execute <= configured_horizon - delay:
                 infra_errors.append(
                     "RTC requires delay <= min_execute_steps <= action_horizon - delay"
                 )
@@ -94,10 +94,18 @@ def _validate(
     report.update(
         {
             "policy_name": "LingBot_VLA2",
+            "checkpoint_variant": config.get("checkpoint_variant", "yam_finetuned"),
             "official_repository": "https://github.com/Robbyant/lingbot-vla-v2",
             "model_action_shape": [int(report["action_horizon"]), 14],
             "manimux_action_space": "absolute_joint_position",
             "rtc_capability": report.get("rtc_capability", "blocked"),
+            "inference_status": "not_verified",
+            "policy_status": (
+                "base_checkpoint_capability_unvalidated"
+                if "base_with_yam_stats" in str(config.get("checkpoint_variant"))
+                else "requires_yam_posttraining_evidence"
+            ),
+            "norm_stats_role": config.get("norm_stats_role"),
         }
     )
     return report
@@ -107,11 +115,6 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--infra-config", type=Path, default=DEFAULT_INFRA_CONFIG)
-    parser.add_argument(
-        "--serve",
-        action="store_true",
-        help="load the model and start XPolicyLab; without this flag only check files",
-    )
     args = parser.parse_args()
 
     config = _load_config(args.config.resolve())
@@ -119,15 +122,7 @@ def main() -> int:
     report = _validate(config, infra_config)
     report["infra_config_path"] = str(args.infra_config.resolve())
     print(json.dumps(report, indent=2))
-    if report["status"] != "ready":
-        return 2
-    if not args.serve:
-        return 0
-
-    import setup_policy_server
-
-    setup_policy_server.main(config)
-    return 0
+    return 0 if report["status"] == "ready" else 2
 
 
 if __name__ == "__main__":

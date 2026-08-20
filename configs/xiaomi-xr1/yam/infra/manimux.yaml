@@ -79,7 +79,7 @@ execution:
 viewer:
   enabled: true
   robot_adapter: yam
-  policy_label: Xiaomi XR-1 via XPolicyLab
+  policy_label: Xiaomi XR-1 ManiMux via XPolicyLab
 
 recording:
   enabled: true

@@ -1,8 +1,13 @@
 from __future__ import annotations
 
-import pytest
+from pathlib import Path
 
-from scripts.lingbot_vla2_yam_server import _validate
+import pytest
+import yaml
+
+from scripts.check_lingbot_vla2_yam import _validate
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _minimal_config(**overrides: object) -> dict[str, object]:
@@ -34,7 +39,7 @@ def test_missing_posttraining_bundle_is_blocked() -> None:
     report = _validate(_minimal_config())
     assert report["status"] == "blocked"
     assert report["rtc_capability"] == "pi_guided_v1_sampler"
-    assert "missing files" in report["errors"][0]
+    assert "Could not resolve a checkpoint directory" in report["errors"][0]
 
 
 def test_infra_must_match_bundle_timing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -92,3 +97,62 @@ def test_structurally_feasible_rtc_config_is_accepted(
     report = _validate(_minimal_config(), infra)
     assert report["status"] == "ready"
     assert report["rtc_capability"] == "pi_guided_v1_sampler"
+
+
+def test_base_variant_is_reported_without_claiming_inference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import XPolicyLab.policy.LingBot_VLA2.model as adapter
+
+    monkeypatch.setattr(
+        adapter,
+        "validate_bundle",
+        lambda _: {
+            "status": "ready",
+            "errors": [],
+            "native_hz": 30.0,
+            "action_horizon": 50,
+            "rtc_capability": "pi_guided_v1_sampler",
+        },
+    )
+    config = _minimal_config(
+        checkpoint_variant="lingbot_vla2_6b_base_with_yam_stats",
+        norm_stats_role="yam_projection_only_not_checkpoint_matched",
+    )
+    infra = {
+        "robot": {"control_hz": 30.0},
+        "policy": {"horizon_steps": 50, "action_dt_s": 1 / 30},
+        "execution": {"runtime": "manimux"},
+    }
+    report = _validate(config, infra)
+    assert report["status"] == "ready"
+    assert report["inference_status"] == "not_verified"
+    assert report["policy_status"] == "base_checkpoint_capability_unvalidated"
+
+
+def test_standard_xpolicy_launcher_owns_lingbot_server() -> None:
+    launcher = REPO_ROOT / "XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh"
+    text = launcher.read_text(encoding="utf-8")
+    assert "XPolicyLab/setup_policy_server.py" not in text
+    assert '"${XPOLICYLAB_ROOT}/setup_policy_server.py"' in text
+    assert "scripts/lingbot_vla2_yam_server.py" not in text
+
+
+def test_xpolicy_deploy_uses_ckpt_name_while_manimux_base_is_explicit() -> None:
+    xpolicy = yaml.safe_load(
+        (REPO_ROOT / "XPolicyLab/policy/LingBot_VLA2/deploy.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    manimux = yaml.safe_load(
+        (REPO_ROOT / "configs/lingbot-vla2/yam/server/base.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert xpolicy["policy_name"] == manimux["policy_name"] == "LingBot_VLA2"
+    assert xpolicy["bundle_manifest_path"] is None
+    assert manimux["bundle_manifest_path"].endswith(
+        "checkpoints/pretrained/lingbot-vla-v2-6b-yam-projection/bundle.yaml"
+    )
+    assert xpolicy["checkpoint_variant"] == "yam_finetuned"
+    assert manimux["checkpoint_variant"] == "lingbot_vla2_6b_base_with_yam_stats"

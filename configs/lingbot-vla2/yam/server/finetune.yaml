@@ -12,9 +12,10 @@ env_cfg_type: yam_dual
 env_cfg: yam_dual
 action_type: joint
 eval_batch: false
+checkpoint_variant: lingbot_vla2_yam_finetuned
 
-lingbot_vla2_root: /home/ubuntu/manimux/XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2
-bundle_manifest_path: /home/ubuntu/manimux/checkpoints/pretrained/lingbot-vla-v2-yam/bundle.yaml
+lingbot_vla2_root: lingbot_vla_v2
+bundle_manifest_path: checkpoints/yam_real-lingbot_vla2_yam-yam_dual-joint-0/bundle.yaml
 use_bf16: true
 use_fp32: false
 use_compile: false

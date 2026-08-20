@@ -15,7 +15,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 XR1_ROOT = XPOLICY_ROOT / "policy/Xiaomi_Robotics_1/xiaomi_robotics_1/xr1"
-DEFAULT_CONFIG = REPO_ROOT / "configs/xiaomi-xr1/yam/server/xpolicy.yaml"
+DEFAULT_CONFIG = REPO_ROOT / "configs/xiaomi-xr1/yam/server/base.yaml"
 MODEL_PYTHON = REPO_ROOT / "envs/xr1/.venv/bin/python"
 
 
@@ -87,6 +87,7 @@ def _validate(config: dict[str, Any]) -> dict[str, Any]:
         "model_python": str(MODEL_PYTHON),
         "xpolicylab_root": str(XPOLICY_ROOT),
         "policy_name": "Xiaomi_Robotics_1",
+        "checkpoint_variant": config.get("checkpoint_variant", "yam_finetuned"),
         "checkpoint": str(checkpoint),
         "checkpoint_tensor_records": len(tensor_records),
         "processor": str(processor),
@@ -97,7 +98,12 @@ def _validate(config: dict[str, Any]) -> dict[str, Any]:
         "manimux_action_shape": [30, 14],
         "denoise_steps": 5,
         "checkpoint_role": "post_training_start_point_not_yam_policy",
-        "policy_status": "blocked_for_yam_task_without_finetune",
+        "policy_status": (
+            "base_checkpoint_capability_unvalidated"
+            if "base_with_yam_stats" in str(config.get("checkpoint_variant"))
+            else "blocked_for_yam_task_without_finetune"
+        ),
+        "norm_stats_role": config.get("norm_stats_role"),
         "rtc_capability": "manimux_pi_guided_v1_extension",
     }
 

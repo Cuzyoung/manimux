@@ -6,9 +6,11 @@ LingBot-VLA2 已公开完整源码和推理入口，ManiMux 现在也有正式�
 `XPolicyLab/policy/LingBot_VLA2/` adapter，不再复用旧的 Qwen2.5
 `LingBot_VLA`。
 
-但当前本地 `checkpoints/pretrained/lingbot-vla-v2-6b` 是 foundation
-checkpoint，不是 YAM 后训练模型，仍然**不能直接上真机**。正式入口会在加载
-GPU 和权重之前检查部署 bundle，缺文件时以状态码 `2` fail closed。
+当前本地 `checkpoints/pretrained/lingbot-vla-v2-6b` 是 foundation checkpoint，
+不是 YAM 后训练模型。官方部署文档要求 `path_to_posttraining_ckpt`，所以 foundation
+zero-shot 不是官方承诺的使用方式。为了测它是否已经学到跨本体先验，本项目提供独立
+`server/base.yaml`；执行仍然复用标准 `infra/manimux.yaml`，不会制造第三种 runtime，
+也不能把结构检查通过写成任务能力通过。
 
 ## 上游基线
 
@@ -60,18 +62,26 @@ adapter 只负责协议与 YAM 字段映射；ManiMux 只负责任务生命周�
 ## 当前文件
 
 ```text
-server:  configs/lingbot-vla2/yam/server/xpolicy.yaml
+finetune server: configs/lingbot-vla2/yam/server/finetune.yaml
+base server:     configs/lingbot-vla2/yam/server/base.yaml
 infra:   configs/lingbot-vla2/yam/infra/manimux.yaml
 rtc:     configs/lingbot-vla2/yam/infra/rtc.yaml
 adapter: XPolicyLab/policy/LingBot_VLA2/model.py
 sampler: XPolicyLab/policy/LingBot_VLA2/rtc.py
+server:  XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh
 profile: XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_absolute.yaml
 source:  XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/  # pinned nested submodule
 schema:  XPolicyLab/policy/LingBot_VLA2/bundle.schema.json
 example: configs/lingbot-vla2/yam/bundle.example.yaml
-check:   scripts/lingbot_vla2_yam_server.py
+check:   scripts/check_lingbot_vla2_yam.py
 audit:   scripts/lingbot_vla2_yam_audit.py
+prepare: scripts/prepare_lingbot_vla2_base_bundle.py
+stats:   src/manimux/integrations/lingbot_vla2_yam/norm_stats/yam_60ep.json
 ```
+
+服务端不存在第二套 native 入口。标准 launcher 调用
+`XPolicyLab/setup_policy_server.py`，后者只按 `policy_name: LingBot_VLA2` 加载
+`model.py`；ManiMux 仅通过统一 WebSocket bridge 使用它。
 
 官方 V2 sampler 本身没有在线 RTC 参数，但公开了 prefix KV cache 和
 `predict_velocity(x_t, t)`。XPolicy adapter 因此实现了独立 sampler-level RTC：
@@ -98,7 +108,7 @@ VJP soft-mask guidance。它没有修改已生成 chunk，也不做 chunk splice
 
 - JSON Schema：`XPolicyLab/policy/LingBot_VLA2/bundle.schema.json`；
 - YAML 模板：`configs/lingbot-vla2/yam/bundle.example.yaml`；
-- schema version：`manimux.lingbot_vla2_yam_bundle.v1`。
+- schema version：`xpolicylab.lingbot_vla2_yam_bundle.v1`。
 
 Manifest 的职责固定如下：
 
@@ -153,7 +163,7 @@ cp XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_absolute.yaml \
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/lingbot_vla2_yam_server.py
+envs/yam/.venv/bin/python scripts/check_lingbot_vla2_yam.py
 ```
 
 当前预期输出是 `status: blocked`、退出码 `2`。这不是脚本失败，而是准确说明
@@ -172,7 +182,7 @@ envs/yam/.venv/bin/python scripts/lingbot_vla2_yam_server.py
 RTC 配置使用同一个检查入口：
 
 ```bash
-envs/yam/.venv/bin/python scripts/lingbot_vla2_yam_server.py \
+envs/yam/.venv/bin/python scripts/check_lingbot_vla2_yam.py \
   --infra-config configs/lingbot-vla2/yam/infra/rtc.yaml
 ```
 
@@ -186,7 +196,157 @@ YAM bundle 返回 `blocked`。
 envs/yam/.venv/bin/python scripts/lingbot_vla2_yam_audit.py
 ```
 
-## Bundle 就绪后的命令
+## Base 权重能力实验
+
+### Norm stats
+
+LingBot 不能复用 XR-1 的 stats。XR-1 是 `30 x 60` anchor-relative EE delta；LingBot
+在本实验中使用 `12` 个 absolute arm joints 加 `2` 个归一化 gripper。仓库内的
+`yam_60ep.json` 由 `60` 个完整 YAM episode、`25,743` 条 transition 计算，分别包含：
+
+- `observation.state.arm.position[12]`；
+- `observation.state.effector.position[2]`；
+- `action.arm.position[12]`；
+- `action.effector.position[2]`。
+
+四组特征均使用官方 real-robot config 的 `meanstd`。这让 state 输入和 action 输出具有
+正确的 YAM 单位，但它们**不是 foundation checkpoint 的配对 post-training stats**，
+因此只用于 base 权重能力诊断。换数据集或正式 finetune 时必须重新统计：
+
+```bash
+cd /home/ubuntu/manimux
+PYTHONPATH=src envs/yam/.venv/bin/python -m \
+  manimux.integrations.lingbot_vla2_yam.compute_norm_stats \
+  --episodes /path/to/yam/episodes \
+  --out /path/to/norm_stats.json
+```
+
+### 准备 bundle
+
+以下命令不会复制 6B 权重，只在 ignored checkpoint 目录中创建相对符号链接，并从
+固定 revision 的官方 `real_robot.yaml` 生成 loader 必需的 `lingbotvla_cli.yaml`：
+
+```bash
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python scripts/prepare_lingbot_vla2_base_bundle.py
+
+envs/yam/.venv/bin/python scripts/check_lingbot_vla2_yam.py \
+  --config configs/lingbot-vla2/yam/server/base.yaml \
+  --infra-config configs/lingbot-vla2/yam/infra/manimux.yaml
+```
+
+第二条必须输出 `status: ready`、
+`checkpoint_variant: lingbot_vla2_6b_base_with_yam_stats`、
+`inference_status: not_verified`。`ready` 只表示 source、55D architecture、权重 shards、
+YAM feature mapping、stats shape、50-step horizon 和 30 Hz 部署假设彼此一致。
+
+### 安装模型环境
+
+LingBot 使用和其他模型一致的独立 `uv venv`，固定放在
+`envs/lingbot-vla2/.venv`。它是普通 venv，不受根目录 `uv.lock` 管理；不要对它运行
+`uv sync`。安装由操作者执行：
+
+```bash
+cd /home/ubuntu/manimux/XPolicyLab/policy/LingBot_VLA2
+bash install.sh
+```
+
+脚本使用 Python 3.12、PyTorch 2.8 CUDA 12.8 和 FlashAttention 2.8.3，并安装官方
+depth 依赖、LingBot-VLA2 与 XPolicyLab。安装完成后先做 GPU/WS forward，不要直接启动
+真机：
+
+```bash
+# terminal 1: XPolicy foundation base server
+cd /home/ubuntu/manimux
+bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
+  configs/lingbot-vla2/yam/server/base.yaml
+
+# terminal 2: no-CAN forward probe
+envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+  --config configs/lingbot-vla2/yam/infra/manimux.yaml
+```
+
+只有 probe 返回有限的 `native_shape: [50, 14]` 和
+`canonical_shape: [50, 14]`，才进入相机和双臂 YAM 实验：
+
+2026-08-20 已在 RTX 4090 完成该检查：Python `3.12.13`、PyTorch
+`2.8.0+cu128`、Transformers `4.57.3`、FlashAttention `2.8.3`；官方 6 个 shard
+成功加载。第二次独立服务进程的首个 10-step denoise 为 `1.253 s`、WS 往返
+`1.392 s`，随后两次稳态 denoise 为 `365 / 369 ms`、WS 往返 `392.3 / 396.1 ms`。
+50 步在 30 Hz 下覆盖 `1.667 s`，所以稳态延迟预算足以持续供给默认 ManiMux。
+三次均返回 `native_shape: [50, 14]`、`canonical_shape: [50, 14]` 且全部有限。该证据
+确认 GPU 模型、XPolicy WS、YAM 字段映射和 action decode 已连通，不代表 base 权重具有
+YAM 任务能力，也没有连接相机、CAN 或机械臂。
+
+## 真机运行：Base + ManiMux
+
+首次只运行默认 ManiMux，不使用 RTC。清空双臂工作区、准备急停，然后按顺序打开四个
+终端；不要同时启动第二个 LingBot server 或 RTC runtime。
+
+### Terminal 1：LingBot 模型服务
+
+```bash
+cd /home/ubuntu/manimux
+bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
+  configs/lingbot-vla2/yam/server/base.yaml
+```
+
+看到 `Model initialized ...` 后等待服务监听 `127.0.0.1:8501`。如需再次确认模型输出，
+在另一个终端运行无 CAN probe：
+
+```bash
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+  --config configs/lingbot-vla2/yam/infra/manimux.yaml
+```
+
+### Terminal 2：三相机服务
+
+已有 `5555` 相机服务时不要重复启动：
+
+```bash
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
+```
+
+确认三台 RealSense 均已打开，并看到 `REP bound` 与 `PUB bound`。
+
+### Terminal 3：Viewer
+
+```bash
+cd /home/ubuntu/manimux
+.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
+```
+
+浏览器打开 `http://localhost:8086`。
+
+### Terminal 4：CAN 检查与 ManiMux
+
+先确认两路 CAN 都是 `ERROR-ACTIVE`：
+
+```bash
+for c in can_left can_right; do
+  printf '%s: ' "$c"
+  ip -details link show "$c" | grep -o 'ERROR-ACTIVE\|ERROR-PASSIVE\|BUS-OFF'
+done
+```
+
+只有两路均为 `ERROR-ACTIVE` 才运行：
+
+```bash
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/manimux run \
+  --config configs/lingbot-vla2/yam/infra/manimux.yaml
+```
+
+连接后机械臂按配置用 `3.5 s` 移到起始姿态，结束时用 `3.5 s` 回 Home。正常停止时只在
+runtime 终端按一次 `Ctrl-C`，等待回零和 Recorder 收尾，再依次停止相机、模型服务和
+Viewer。Rollout 保存在 `data/run-*/episode-*`；未完整收尾的记录带 `.partial` 后缀。
+
+30 Hz 是 YAM 对照实验假设，不是从 foundation checkpoint 恢复出的训练频率。任务失败
+首先记录为 base policy 结果，不能据此判定 adapter 或 ManiMux 断路。
+
+## Finetune bundle 就绪后的命令
 
 把完整 bundle 放到 server config 已声明的目录，并让 ManiMux infra 的 Hz、dt、
 horizon 与 manifest 一致，再运行离线检查。无需修改 adapter 或 server 代码。
@@ -195,7 +355,8 @@ horizon 与 manifest 一致，再运行离线检查。无需修改 adapter 或 s
 ```bash
 # terminal 1: model server
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/lingbot_vla2_yam_server.py --serve
+bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
+  configs/lingbot-vla2/yam/server/finetune.yaml
 
 # terminal 2: cameras
 # 使用现场已经验证过的 camera server 命令。
@@ -205,8 +366,7 @@ envs/yam/.venv/bin/manimux run \
   --config configs/lingbot-vla2/yam/infra/manimux.yaml
 ```
 
-这三条命令当前均未在 LingBot-VLA2 上执行；没有 GPU forward、server handshake、
-相机、CAN 或真机证据。
+这些 finetune 命令当前仍没有 GPU forward、server handshake、相机、CAN 或真机证据。
 
 ## RTC 实现与边界
 
@@ -231,13 +391,8 @@ ManiMux RtcRuntime
 范围、YAM 14D 拆分、55D padding/mask，以及 guidance 确实在 flow loop 内逐步
 执行。
 
-尚未完成的不是算法接线，而是运行证据：
-
-- 没有真实 YAM post-training bundle，无法做 checkpoint forward；
-- 没有测量 LingBot 在目标 GPU 上的 steady latency；
-- `rtc.yaml` 的 `initial_delay_steps: 12` 和 `min_execute_steps: 20` 目前只满足
-  `d <= s <= H-d` 静态条件，不是延迟实测结果；
-- 没有 WS、相机、CAN 或真机闭环证据。
-
-因此 RTC config 已存在但仍是 **offline-ready / live-blocked**。拿到真实 bundle
-后必须先验证默认 ManiMux，再测 latency 并更新 delay 参数，之后才允许真机 RTC。
+当前 base bundle 已完成 GPU、官方模型 forward 和 XPolicy WS 验证；缺少的是匹配 YAM
+post-training 的 checkpoint/stats，以及 RTC 真机实测。`rtc.yaml` 的
+`initial_delay_steps: 12` 和 `min_execute_steps: 20` 当前只满足静态约束，不代表已完成
+RTC 参数标定。因此默认先使用 `infra/manimux.yaml`，拿到 finetune bundle 后再单独验证
+RTC。

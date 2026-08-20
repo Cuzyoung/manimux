@@ -56,12 +56,6 @@ def _abc_yam_adapter_factory(
     return build_adapter(robot, policy)
 
 
-def _xr1_http_factory(config: PolicyConfig) -> PolicyModel:
-    from manimux.integrations.xr1_yam.policy_plugin import build_model
-
-    return build_model(config)
-
-
 def _xr1_yam_adapter_factory(
     robot: RobotConfig,
     policy: PolicyConfig,
@@ -90,7 +84,6 @@ _MODEL_BUILTINS: dict[str, PolicyModelFactory] = {
     "fake": _fake_model_factory,
     "molmoact_http": _molmoact_http_factory,
     "abc_http": _abc_http_factory,
-    "xr1_http": _xr1_http_factory,
     "xpolicylab_ws": _xpolicylab_ws_factory,
 }
 _ADAPTER_BUILTINS: dict[str, PolicyAdapterFactory] = {

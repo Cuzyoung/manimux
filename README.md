@@ -25,10 +25,15 @@ VLA inference is commonly slower than a robot control period and returns actions
 ManiMux moves inference out of the control loop and owns chunk scheduling, stale-prefix trimming,
 atomic dual-arm commits, execution constraints, safety checks, recording and live visualization.
 
-ManiMux is not tied to one model library. MolmoAct, ABC and XR-1 have native service adapters;
+ManiMux is not tied to one model library. MolmoAct and ABC have native service adapters;
 additional foundation models enter through `XPolicyLab/`. ManiMux keeps the stable runtime and
 wire bridge. Model preprocessing, flow denoising and model-native RTC sampling remain in the
 corresponding XPolicyLab model adapter.
+
+XR-1 uses the `Xiaomi_Robotics_1` adapter maintained in our XPolicyLab fork,
+built on Xiaomi's official XR-1 source. It is not a stock adapter from the
+upstream XPolicyLab repository. ManiMux keeps only the wire codec and YAM
+FK/IK mapping; model loading and denoising run inside XPolicyLab.
 
 ## Architecture
 
@@ -44,7 +49,7 @@ flowchart TB
         direction LR
         MOLMO["<b>MolmoAct2</b><br/>native"]:::molmo
         ABCM["<b>ABC</b><br/>native"]:::abc
-        XR1["<b>XR-1</b><br/>native"]:::xr1
+        XR1["<b>XR-1</b><br/>XPolicy"]:::xr1
         PI05["<b>Pi05</b><br/>XPolicy"]:::pi
         GROOT["<b>GR00T N1.7</b><br/>XPolicy"]:::groot
         LING["<b>LingBot-VLA2</b><br/>XPolicy"]:::ling
@@ -115,7 +120,6 @@ Status: ✅ running · 🧪 experimental · 🚧 not deployable yet · 🔌 infr
 |---|---|---|---|---|
 | ✅ | MolmoAct2 + YAM | 30 × 14 joint positions | `configs/molmoact2/yam/` | [MolmoAct2](docs/molmoact-yam-runbook.md) |
 | ✅ | ABC + YAM | 30 × 14 joint positions | `configs/abc/yam/` | [ABC](docs/abc-yam-runbook.md) |
-| 🧪 | Native XR-1 + YAM | 30 × 60 EE deltas → 30 × 14 joint positions | `configs/xiaomi-xr1/yam/infra/native-manimux.yaml` | [Native XR-1](docs/xr1-yam-runbook.md) |
 | ✅ | OpenPI Pi05 + YAM | 16 × 14 absolute joint positions | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
 | ✅ | GR00T N1.7 + YAM | 16 × 14 absolute joint positions | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
 | 🚧 | XPolicy XR-1 + YAM | 30 × 60 EE deltas → 30 × 14 joint positions | `configs/xiaomi-xr1/yam/{server,infra}/` | [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md) |
@@ -227,7 +231,7 @@ copied per model. See [Architecture](docs/architecture.md) for the complete cont
 
 - [Program progress](docs/program-progress.md)
 - [XPolicyLab integration](docs/xpolicylab-runbook.md)
-- [MolmoAct2](docs/molmoact-yam-runbook.md) · [ABC](docs/abc-yam-runbook.md) · [Native XR-1](docs/xr1-yam-runbook.md)
+- [MolmoAct2](docs/molmoact-yam-runbook.md) · [ABC](docs/abc-yam-runbook.md)
 - [Pi05](docs/pi05-yam-runbook.md) · [GR00T](docs/gr00t-yam-runbook.md) · [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md)
 - [LingBot-VLA2](docs/lingbot-vla2-yam-runbook.md) · [CAN bus](docs/can-bus.md)
 - [Architecture](docs/architecture.md) · [Development conventions](AGENT.md)

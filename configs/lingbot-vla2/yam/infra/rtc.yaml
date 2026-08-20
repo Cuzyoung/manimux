@@ -13,8 +13,8 @@ robot:
   options:
     right_config: configs/robots/yam_right.yaml
     move_to_start_on_connect: true
-    start_duration_s: 5.0
-    home_duration_s: 5.0
+    start_duration_s: 3.5
+    home_duration_s: 3.5
     home_on_close: true
 
 sensors:

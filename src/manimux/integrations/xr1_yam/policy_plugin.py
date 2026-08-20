@@ -26,8 +26,6 @@ incremental step-to-step offsets.
 from __future__ import annotations
 
 import logging
-import math
-import time
 import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -35,7 +33,7 @@ from typing import Any
 import numpy as np
 
 from manimux.config import PolicyConfig, RobotConfig
-from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
+from manimux.types import ActionChunk, ActionContext, ObservationSnapshot
 
 log = logging.getLogger("manimux.policies.xr1")
 
@@ -71,8 +69,7 @@ def joint_condition_to_xr1_actions(
     expected_dim = sum(np.asarray(anchor_groups[name]).size for name in group_order)
     if condition.ndim != 2 or condition.shape[1] != expected_dim:
         raise ValueError(
-            f"XR-1 joint condition must have shape (horizon, {expected_dim}), "
-            f"got {condition.shape}"
+            f"XR-1 joint condition must have shape (horizon, {expected_dim}), got {condition.shape}"
         )
     if not np.isfinite(condition).all():
         raise ValueError("XR-1 joint condition must be finite")
@@ -124,15 +121,6 @@ def _string_sequence(
     return tuple(value)
 
 
-def _server_url(server: str) -> str:
-    normalized = server.strip().rstrip("/")
-    if "://" not in normalized:
-        normalized = f"http://{normalized}"
-    if not normalized.endswith("/act"):
-        normalized += "/act"
-    return normalized
-
-
 def _axis_angle_to_rotation(axis_angle: np.ndarray) -> np.ndarray:
     """Rodrigues' formula, matching ``mibot.utils.io.aa2rotm``."""
     theta = float(np.linalg.norm(axis_angle))
@@ -147,139 +135,6 @@ def _axis_angle_to_rotation(axis_angle: np.ndarray) -> np.ndarray:
         ]
     )
     return np.eye(3) + np.sin(theta) * cross + (1.0 - np.cos(theta)) * (cross @ cross)
-
-
-class XR1HttpPolicyModel:
-    """HTTP inference backend; robot semantics stay in ``XR1YamAdapter``."""
-
-    def __init__(self, config: PolicyConfig) -> None:
-        self._url = _server_url(_string_option(config.options, "server", DEFAULT_SERVER))
-        self._health_url = self._url.removesuffix("/act") + "/healthz"
-        self._group_order = _string_sequence(config.options, "group_order", DEFAULT_GROUP_ORDER)
-        self._camera_map = dict(DEFAULT_CAMERA_MAP)
-        camera_map = config.options.get("camera_map")
-        if camera_map is not None:
-            if not isinstance(camera_map, dict) or not all(
-                isinstance(key, str) and isinstance(value, str) for key, value in camera_map.items()
-            ):
-                raise ValueError("policy.options.camera_map must map strings to strings")
-            self._camera_map = dict(camera_map)
-        self._timeout_s = float(config.options.get("http_timeout_s", config.timeout_s))
-        if self._timeout_s <= 0:
-            raise ValueError("policy.options.http_timeout_s must be positive")
-        self._horizon_steps = config.horizon_steps
-        from manimux.kinematics import build_kinematics
-
-        kinematics_name = _string_option(config.options, "kinematics", "yam")
-        kinematics_options = config.options.get("kinematics_options", {})
-        if not isinstance(kinematics_options, dict):
-            raise ValueError("policy.options.kinematics_options must be a mapping")
-        self._kinematics = build_kinematics(kinematics_name, **kinematics_options)
-        self._session_id: str | None = None
-
-    def reset(self, session_id: str) -> None:
-        import requests
-
-        response = requests.get(self._health_url, timeout=self._timeout_s)
-        if response.status_code != 200:
-            raise RuntimeError(f"XR-1 health check failed with status {response.status_code}")
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise RuntimeError("XR-1 health check returned invalid JSON") from exc
-        if payload.get("status") != "ok":
-            raise RuntimeError(f"XR-1 health check is not ready: {payload!r}")
-        self._session_id = session_id
-
-    def infer(self, request: InferenceRequest) -> object:
-        if request.session_id != self._session_id:
-            raise RuntimeError("XR-1 session is not initialized")
-        snapshot = request.observation
-        missing_groups = [name for name in self._group_order if name not in snapshot.state.groups]
-        if missing_groups:
-            raise ValueError(f"XR-1 observation is missing groups: {missing_groups}")
-        missing_frames = [name for name in self._camera_map.values() if name not in snapshot.frames]
-        if missing_frames:
-            raise ValueError(f"XR-1 observation is missing cameras: {missing_frames}")
-
-        state = np.concatenate([snapshot.state.groups[name] for name in self._group_order])
-        payload: dict[str, Any] = {
-            wire_name: snapshot.frames[source_name].data
-            for wire_name, source_name in self._camera_map.items()
-        }
-        payload.update(
-            {
-                "timestamp": time.time(),
-                "instruction": request.instruction,
-                "state": state,
-            }
-        )
-
-        # An RTC runtime sends the inpainting condition on a request subclass;
-        # the default runtime never sets it and the payload is unchanged.
-        condition = getattr(request, "action_condition", None)
-        weights = getattr(request, "condition_weights", None)
-        if (condition is None) != (weights is None):
-            raise ValueError("RTC action_condition and condition_weights must be provided together")
-        if condition is not None:
-            condition_array = np.asarray(condition, dtype=np.float32)
-            expected_shape = (
-                self._horizon_steps,
-                sum(np.asarray(snapshot.state.groups[name]).size for name in self._group_order),
-            )
-            if condition_array.shape != expected_shape:
-                raise ValueError(
-                    f"RTC action_condition must have shape {expected_shape}, "
-                    f"got {condition_array.shape}"
-                )
-            weights_array = np.asarray(weights, dtype=np.float32)
-            if weights_array.shape != (self._horizon_steps,):
-                raise ValueError(
-                    f"RTC condition_weights must have shape {(self._horizon_steps,)}, "
-                    f"got {weights_array.shape}"
-                )
-            if not np.isfinite(weights_array).all() or np.any(
-                (weights_array < 0.0) | (weights_array > 1.0)
-            ):
-                raise ValueError("RTC condition_weights must be finite and in [0, 1]")
-            beta = float(getattr(request, "rtc_beta", 5.0))
-            if not math.isfinite(beta) or beta <= 0:
-                raise ValueError(f"rtc_beta must be finite and positive, got {beta}")
-            payload["action_condition"] = joint_condition_to_xr1_actions(
-                condition_array,
-                snapshot.state.groups,
-                group_order=self._group_order,
-                kinematics=self._kinematics,
-            )
-            payload["action_condition_weights"] = weights_array
-            payload["rtc_beta"] = beta
-
-        import json_numpy
-        import requests
-
-        remaining_s = max(0.001, (request.deadline_ns - time.monotonic_ns()) / 1e9)
-        response = requests.post(
-            self._url,
-            headers={"Content-Type": "application/json"},
-            data=json_numpy.dumps(payload),
-            timeout=min(self._timeout_s, remaining_s),
-        )
-        if response.status_code != 200:
-            raise RuntimeError(f"XR-1 server error {response.status_code}: {response.text}")
-        decoded = json_numpy.loads(response.text)
-        if not isinstance(decoded, dict) or "actions" not in decoded:
-            raise ValueError("XR-1 response must contain actions")
-        actions = np.asarray(decoded["actions"], dtype=np.float64)
-        if actions.ndim != 2 or actions.shape[1] != ACTION_DIM or not np.isfinite(actions).all():
-            raise ValueError(
-                f"XR-1 actions must be a finite (horizon, {ACTION_DIM}) matrix, got {actions.shape}"
-            )
-        # The deltas are anchored on the state that produced them, so the anchor
-        # has to travel with them to the adapter.
-        return {"actions": np.ascontiguousarray(actions), "state": state}
-
-    def close(self) -> None:
-        self._session_id = None
 
 
 class XR1YamAdapter:
@@ -400,10 +255,6 @@ class XR1YamAdapter:
             )
         if any(robot.group_dims[name] != GROUP_DIM for name in self._group_order):
             raise ValueError(f"XR-1 YAM requires two {GROUP_DIM}-value arm+gripper groups")
-
-
-def build_model(config: PolicyConfig) -> XR1HttpPolicyModel:
-    return XR1HttpPolicyModel(config)
 
 
 def build_adapter(robot: RobotConfig, policy: PolicyConfig) -> XR1YamAdapter:
