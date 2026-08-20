@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,8 @@ EXPECTED_DIMS = {
 }
 EXPECTED_HORIZON = 16
 EXPECTED_FREQUENCY_HZ = 30.0
+MODEL_PYTHON = GR00T_ROOT / ".venv/bin/python"
+REQUIRED_RUNTIME_DISTRIBUTIONS = ("torch", "transformers", "flash_attn", "xpolicylab")
 
 
 def _prepare_imports() -> None:
@@ -135,6 +138,104 @@ def _validate_checkpoint(config: dict[str, Any]) -> tuple[Path, int]:
     return model_dir, horizon
 
 
+def _cosmos_cache_path(repo_id: str) -> Path:
+    cache_root = Path(
+        os.environ.get(
+            "HF_HUB_CACHE",
+            Path(os.environ.get("HF_HOME", Path.home() / ".cache/huggingface")) / "hub",
+        )
+    ).expanduser()
+    return cache_root / f"models--{repo_id.replace('/', '--')}"
+
+
+def _runtime_environment_complete() -> tuple[bool, list[str]]:
+    venv_root = MODEL_PYTHON.parents[1]
+    missing: list[str] = []
+    if not MODEL_PYTHON.is_file() or not os.access(MODEL_PYTHON, os.X_OK):
+        missing.append(str(MODEL_PYTHON))
+    if not (venv_root / "pyvenv.cfg").is_file():
+        missing.append(str(venv_root / "pyvenv.cfg"))
+    site_packages = tuple((venv_root / "lib").glob("python*/site-packages"))
+    if not site_packages:
+        missing.append(f"{venv_root}/lib/python*/site-packages")
+    else:
+        normalized = {
+            path.name.split("-", 1)[0].lower().replace("-", "_")
+            for root in site_packages
+            for path in root.glob("*.dist-info")
+        }
+        missing.extend(
+            f"python distribution: {name}"
+            for name in REQUIRED_RUNTIME_DISTRIBUTIONS
+            if name not in normalized
+        )
+    return not missing, missing
+
+
+def _cosmos_snapshot_complete(path: Path) -> bool:
+    required_files = ("config.json", "preprocessor_config.json", "tokenizer_config.json")
+    if not path.is_dir() or any(not (path / name).is_file() for name in required_files):
+        return False
+    if (path / "model.safetensors").is_file():
+        return True
+    index_path = path / "model.safetensors.index.json"
+    if not index_path.is_file():
+        return False
+    try:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    shards = set(index.get("weight_map", {}).values())
+    return bool(shards) and all((path / shard).is_file() for shard in shards)
+
+
+def _runtime_readiness(config: dict[str, Any]) -> dict[str, Any]:
+    requirements: list[str] = []
+    environment_complete, missing_environment = _runtime_environment_complete()
+    if not environment_complete:
+        requirements.append(
+            "finish GR00T environment installation; missing "
+            + ", ".join(missing_environment)
+        )
+
+    cosmos_value = str(
+        config.get("cosmos_model_path", "nvidia/Cosmos-Reason2-2B")
+    ).strip()
+    cosmos_path = Path(cosmos_value).expanduser()
+    is_local = cosmos_path.is_absolute() or cosmos_value.startswith((".", "~"))
+    if is_local:
+        cosmos_cached = _cosmos_snapshot_complete(cosmos_path)
+        cosmos_source = str(cosmos_path.resolve())
+        if not cosmos_cached:
+            requirements.append(f"local Cosmos model is missing or incomplete: {cosmos_source}")
+    else:
+        cache_path = _cosmos_cache_path(cosmos_value)
+        snapshots = cache_path / "snapshots"
+        cosmos_cached = snapshots.is_dir() and any(
+            _cosmos_snapshot_complete(snapshot) for snapshot in snapshots.iterdir()
+        )
+        cosmos_source = cosmos_value
+        if not cosmos_cached:
+            requirements.append(
+                f"authenticate Hugging Face access or fully cache {cosmos_value}"
+            )
+
+    if not environment_complete:
+        runtime_status = "blocked_incomplete_model_environment"
+    elif not cosmos_cached:
+        runtime_status = "operator_action_required_for_cosmos"
+    else:
+        runtime_status = "environment_and_cosmos_present_gpu_forward_not_verified"
+    return {
+        "runtime_status": runtime_status,
+        "model_python": str(MODEL_PYTHON),
+        "cosmos_source": cosmos_source,
+        "cosmos_cached": cosmos_cached,
+        "runtime_requirements": requirements,
+        "inference_status": "not_verified",
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
@@ -144,9 +245,11 @@ def main() -> int:
     config = _load_config(args.config.resolve())
     model_dir, horizon = _validate_checkpoint(config)
     contract = {
+        "contract_status": "ready",
         "xpolicylab_root": str(XPOLICY_ROOT),
         "policy_name": "GR00T_N17",
         "model_root": str(model_dir),
+        "checkpoint_source": config.get("checkpoint_source"),
         "embodiment_tag": config.get("embodiment_tag", "NEW_EMBODIMENT"),
         "action_space": "absolute_joint_position",
         "action_dimension": sum(EXPECTED_DIMS.values()),
@@ -158,6 +261,7 @@ def main() -> int:
         "rtc": False,
         "cosmos_model": config.get("cosmos_model_path", "nvidia/Cosmos-Reason2-2B"),
     }
+    contract.update(_runtime_readiness(config))
     if args.check:
         print(json.dumps(contract, indent=2))
         return 0

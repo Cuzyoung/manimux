@@ -1,0 +1,25 @@
+schema_version: manimux.lingbot_vla2_yam_bundle.v1
+
+model:
+  family: lingbot-vla-v2
+  official_source_revision: 951475ae1b1d87553e7dc47c97b53a3d695c0d13
+
+# All artifact paths are relative to this manifest. Absolute paths and paths
+# escaping the bundle root are rejected.
+artifacts:
+  training_config: lingbotvla_cli.yaml
+  checkpoint: runs/yam/hf_ckpt
+  norm_stats: norm_stats.json
+  robot_config: robot_config.yaml
+
+# These values come from YAM post-training data, not from deployment guesses.
+control:
+  native_hz: 30.0
+  action_horizon: 50
+  action_space: absolute_joint_position
+
+embodiment:
+  name: yam_dual
+  arm_dofs: [6, 6]
+  gripper_dofs: [1, 1]
+  cameras: [camera_top, camera_wrist_left, camera_wrist_right]

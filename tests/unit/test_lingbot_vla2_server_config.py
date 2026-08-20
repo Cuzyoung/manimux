@@ -10,11 +10,8 @@ def _minimal_config(**overrides: object) -> dict[str, object]:
         "policy_name": "LingBot_VLA2",
         "protocol": "ws",
         "action_type": "joint",
-        "action_horizon": 50,
         "lingbot_vla2_root": "/missing/source",
-        "checkpoint_path": "/missing/checkpoint",
-        "robot_config_path": "/missing/robot.yaml",
-        "norm_stats_path": "/missing/stats.json",
+        "bundle_manifest_path": "/missing/bundle.yaml",
     }
     config.update(overrides)
     return config
@@ -26,7 +23,6 @@ def _minimal_config(**overrides: object) -> dict[str, object]:
         ({"policy_name": "LingBot_VLA"}, "policy_name must be LingBot_VLA2"),
         ({"protocol": "http"}, "protocol must be ws"),
         ({"action_type": "ee"}, "action_type must be joint"),
-        ({"action_horizon": 0}, "action_horizon must be positive"),
     ],
 )
 def test_server_rejects_contract_drift(override, message) -> None:
@@ -39,3 +35,26 @@ def test_missing_posttraining_bundle_is_blocked() -> None:
     assert report["status"] == "blocked"
     assert report["rtc_capability"] == "not_integrated"
     assert "missing files" in report["errors"][0]
+
+
+def test_infra_must_match_bundle_timing(monkeypatch: pytest.MonkeyPatch) -> None:
+    import XPolicyLab.policy.LingBot_VLA2.model as adapter
+
+    monkeypatch.setattr(
+        adapter,
+        "validate_bundle",
+        lambda _: {
+            "status": "ready",
+            "errors": [],
+            "native_hz": 20.0,
+            "action_horizon": 25,
+        },
+    )
+    infra = {
+        "robot": {"control_hz": 30.0},
+        "policy": {"horizon_steps": 50, "action_dt_s": 1 / 30},
+        "execution": {"runtime": "manimux"},
+    }
+    report = _validate(_minimal_config(), infra)
+    assert report["status"] == "blocked"
+    assert len(report["errors"]) == 3

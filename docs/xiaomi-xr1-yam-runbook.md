@@ -60,6 +60,20 @@ envs/xr1/.venv/bin/python scripts/xiaomi_xr1_yam_server.py \
 
 当前 XPolicy 路线还没有真实 GPU load/forward 证据。完成它之前不要进入真机阶段。
 
+服务加载完成后，先在另一个 terminal 运行无相机、无 CAN 的单次 forward probe。对于
+XR-1，它会同时检查模型原生 `30 x 60` EE delta 和 ManiMux FK/IK 后的 `30 x 14`
+absolute joint chunk：
+
+```bash
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+  --config configs/xiaomi-xr1/yam/infra/xpolicy.yaml
+```
+
+只有输出 `"status": "ok"`、`"native_shape": [30, 60]` 和
+`"canonical_shape": [30, 14]`，才算完成 XPolicy GPU forward、WS 和 FK/IK adapter
+往返。当前尚未运行该命令。
+
 ## 3. ManiMux 实验
 
 普通 ManiMux 与 RTC 使用独立配置：

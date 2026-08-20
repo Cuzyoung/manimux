@@ -81,8 +81,14 @@ EdgeRuntime side channels:
 | `src/manimux/recording/` | episode、Zarr、事件和动作血缘 |
 | `src/manimux/viewer/` | 通用 Viewer 协议和机器人几何 adapter |
 | `XPolicyLab/` | 指向我们 XPolicyLab fork 的 submodule；模型内部改动在这里 |
+| `checkpoints/pretrained/` | 未经本项目微调的基础模型或上游发布权重 |
+| `checkpoints/finetuned/<publisher>/` | 按发布者和公开仓库名区分的微调 checkpoint |
 | `configs/<model>/<embodiment>/` | 每个模型 × 本体的独立实验配置 |
 | `docs/*-runbook.md` | 每个模型的安装、启动、检查和停止流程 |
+
+例如 Robocurve 发布的两个 YAM checkpoint 位于
+`checkpoints/finetuned/robocurve/{pi05-yam-molmoact2,gr00t-n1.7-yam-molmoact2}`；
+OpenPI 官方 `pi05_base` 仍保留在 `checkpoints/pretrained/`。
 
 ## 当前集成
 
@@ -94,8 +100,8 @@ EdgeRuntime side channels:
 | ✅ | ABC + YAM | 30 × 14 关节位置 | `configs/abc/yam/` | [ABC](docs/abc-yam-runbook.md) |
 | 🧪 | XR-1 native + YAM | 30 × 60 末端增量 → 30 × 14 关节位置 | `configs/xiaomi-xr1/yam/infra/native.yaml` | [XR-1 native](docs/xr1-yam-runbook.md) |
 | ✅ | OpenPI Pi05 + YAM | 16 × 14 绝对关节位置 | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
-| 🚧 | GR00T N1.7 + YAM | 16 × 14 绝对关节位置 | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
-| 🧪 | XPolicy XR-1 + YAM | 30 × 60 末端增量 → 30 × 14 关节位置 | `configs/xiaomi-xr1/yam/{server,infra}/` | [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md) |
+| 🧪 | GR00T N1.7 + YAM | 16 × 14 绝对关节位置 | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
+| 🚧 | XPolicy XR-1 + YAM | 30 × 60 末端增量 → 30 × 14 关节位置 | `configs/xiaomi-xr1/yam/{server,infra}/` | [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md) |
 | 🚧 | LingBot-VLA2 + YAM | 50 × 14 绝对关节位置；需要 YAM 后训练 bundle | `configs/lingbot-vla2/yam/` | [LingBot-VLA2](docs/lingbot-vla2-yam-runbook.md) |
 | 🔌 | XPolicy bridge | 标准 observation/action wire contract | `configs/xpolicylab/yam/infra/smoke.yaml` | [XPolicyLab](docs/xpolicylab-runbook.md) |
 
@@ -198,6 +204,7 @@ Safety、Recorder 与 Viewer 协议不随模型复制。完整接口见
 
 ## 文档
 
+- [项目总进度](docs/program-progress.md)
 - [XPolicyLab 集成](docs/xpolicylab-runbook.md)
 - [MolmoAct2](docs/molmoact-yam-runbook.md) · [ABC](docs/abc-yam-runbook.md) · [XR-1 native](docs/xr1-yam-runbook.md)
 - [Pi05](docs/pi05-yam-runbook.md) · [GR00T](docs/gr00t-yam-runbook.md) · [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md)
