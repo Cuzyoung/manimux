@@ -33,6 +33,11 @@ XR-1 使用我们在 XPolicyLab fork 中维护的 `Xiaomi_Robotics_1` adapter，
 官方 XR-1 源码；它不是 XPolicyLab 上游仓库原本自带的 adapter。ManiMux 只保留 wire
 codec 和 YAM FK/IK 映射，模型加载与 denoise 都在 XPolicyLab 内执行。
 
+因此 XR-1 服务返回的是官方 `Xiaomi-Robotics-1-5B` 的真实模型推理动作，不是启动姿态、
+预录轨迹或假数据。需要单独验收的是后半段：该 base checkpoint 没有在 YAM 上训练，
+当前 YAM stats 只定义投影单位，而 `30 × 60` 末端增量到 `30 × 14` 关节位置的 FK/IK
+转换属于 ManiMux 本体 adapter。
+
 ## 架构
 
 两个速度不同的循环。整个设计的重点是它们之间的交接。
@@ -130,6 +135,11 @@ WebSocket、默认 ManiMux、真实三相机、双臂 YAM 和 Recorder 闭环；
 policy 质量结果。XPolicy XR-1 和 LingBot-VLA2 当前仍不能视为真机验证完成。
 两者的 base 权重统一使用 `server/base.yaml` 加同一份 `infra/manimux.yaml` 测试；
 YAM projection stats 不能当作已经完成 YAM 后训练的证据。
+
+XR-1 已完成真实 5B GPU forward、XPolicy WebSocket、ManiMux、相机、双臂 YAM 和
+Recorder 的全链路启动，确认机械臂执行的是模型输出。首次 base rollout 中右臂相对正常、
+左臂持续出现异常大幅运动，因此 infra 链路记为已通，但 YAM 动作语义 Gate 未通过；这既
+不能归类为初始姿态移动，也不能当作 checkpoint 已具备 YAM zero-shot 能力。
 
 ## 安装
 

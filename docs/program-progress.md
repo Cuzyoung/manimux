@@ -65,7 +65,7 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 |---|---|---|---|---|---|---|---|
 | OpenPI Pi05 YAM | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 有训练代码和 YAM checkpoint，尚未在本项目重跑训练导出 |
 | GR00T N1.7 YAM | ✅ | ✅ | ✅ | ✅ | ✅ | ➖ | 🟡 有 YAM finetune 和匹配 stats，尚未重跑训练 |
-| Xiaomi XR-1 YAM | 🟡 权重不是 YAM policy | 🟡 | 🟡 | 🟡 | 🟡 | 🟡 XPolicy sampler hook 离线通过 | ⛔ 缺 YAM fine-tune 权重和配套 stats |
+| Xiaomi XR-1 YAM | 🟡 权重不是 YAM policy | ✅ | ✅ | ✅ | 🟡 | 🟡 XPolicy sampler hook 离线通过 | ⛔ 缺 YAM fine-tune 权重和配套 stats |
 | LingBot-VLA2 YAM | 🟡 base projection bundle | ✅ | ✅ | 🟡 config/adapter 已完成 | ⛔ | 🟡 sampler RTC 离线完成 | ⛔ 缺 YAM post-training 权重和配套 stats |
 
 ## 分模型进度
@@ -108,8 +108,16 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 - base 权重使用 `server/base.yaml` 与标准 `infra/manimux.yaml`；继续使用从 60 个 YAM
   episode 计算的官方格式 `30 x 60` action 与 `1 x 60` state stats，不使用 washer demo。
 - `yam.json` 只让单位和 codec 有定义，不能替代与权重配套的训练 stats。
-- 当前阻塞：真实 5B checkpoint 的 GPU conditioned RTC forward、XPolicy WS 往返，以及
-  YAM fine-tune bundle。CPU 虚拟 flow 已证明两条 guidance 分支，但不等于真实模型验收。
+- 2026-08-20 已完成真实 5B base 的 GPU normal forward、XPolicy WS 和 YAM FK/IK probe：
+  冷请求 `953.0 ms`，热态三次 `164.5 / 151.7 / 152.5 ms`，均返回有限的原生
+  `30 x 60` 与 canonical `30 x 14` action。
+- 2026-08-20 首次 YAM 闭环观察到左臂绕向本体背面；这说明 shape、finite 和 IK 收敛
+  不能证明 EE 坐标语义、IK 分支或 checkpoint/bundle 匹配正确。I6 继续保持未通过，停止
+  后续真机测试，直到离线回放复现并完成左右臂目标位姿、坐标系和 joint-limit 审计。
+- 这次闭环确认机械臂执行的是官方 5B 模型经 XPolicy 返回的真实动作，不是启动姿态、
+  预录轨迹或 mock；因此 I5 ManiMux infra 记为通过，I6 仍按动作语义未通过处理。
+- 当前阻塞：真实 5B checkpoint 的 GPU conditioned RTC forward、左臂 EE/IK 语义审计
+  和 YAM fine-tune bundle。CPU 虚拟 flow 已证明两条 guidance 分支，但不等于真实 RTC。
 - 在没有 YAM 权重前，可以验收 infra shape/latency，但不能把任务失败归为 ManiMux 问题。
 
 ### [LingBot-VLA2](lingbot-vla2-yam-runbook.md)

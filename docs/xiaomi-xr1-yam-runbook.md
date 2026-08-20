@@ -6,6 +6,10 @@
 XPolicyLab 原本自带；模型加载、预处理和 denoise 仍完整运行在 XPolicy 标准 server
 内。ManiMux 只负责 wire codec、YAM FK/IK 和执行，不提供平行的 native model server。
 
+该链路运行时，机械臂收到的是官方 `Xiaomi-Robotics-1-5B` 经过完整 forward 和 denoise
+产生的动作，不是启动姿态、预录轨迹或 mock。XPolicy 负责真实模型推理；ManiMux 负责将
+原生 EE delta 转为 YAM joint position 并调度执行。
+
 ## 当前权重边界
 
 本地 `model_states.pt` 来自官方
@@ -30,6 +34,19 @@ YAM FK/IK 只存在于 ManiMux adapter 中。
 官方公开的 post-training 数据格式没有声明控制 Hz。当前 `action_dt_s=0.033333`
 （30 Hz）是 YAM 部署假设，不是已从 XR-1 checkpoint 证明的训练频率。未来 YAM
 fine-tune bundle 必须记录原生采样 Hz，并用同一值替换该配置。
+
+## 模型环境
+
+XR-1 模型服务使用 `envs/xr1/.venv`。切换到 XPolicy server 后，该环境不仅需要模型
+依赖，还必须安装 XPolicyLab 的 HDF5、WebSocket 和 msgpack 依赖：
+
+```bash
+cd /home/ubuntu/manimux
+uv pip install --python envs/xr1/.venv/bin/python -e XPolicyLab
+```
+
+缺少这一步时，服务会在导入 `XPolicyLab.utils.process_data` 时首先报
+`ModuleNotFoundError: h5py`，继续手工补单个包还会遗漏后续 wire 依赖。
 
 ## 配置
 
@@ -106,6 +123,73 @@ envs/yam/.venv/bin/manimux run \
 30 Hz 仍是 YAM 对照实验假设，不是官方 checkpoint 元数据。base 能否做任务是
 policy 实验结果；shape、finite、WS 和 FK/IK 才是本轮 infra 验收项。
 
+2026-08-20 已在 RTX 4090 完成 base GPU/WS/FK/IK probe。模型加载 `1135` 个 tensor，
+原生输出为有限的 `30 x 60`，转换后为有限的 `30 x 14` absolute joint chunk。第一次
+冷请求为 `953.0 ms`，随后三次热态为 `164.5 / 151.7 / 152.5 ms`。30 步在 30 Hz 下
+覆盖约 `1.0 s`，热态推理约占 `4.6-5.0` 步，默认 ManiMux 具备供给余量。该证据不包含
+相机、CAN 或机械臂，也不证明 base checkpoint 能完成 YAM 任务。
+
+## 真机运行：Base + ManiMux
+
+首次只运行默认 ManiMux，不使用 RTC。清空双臂工作区并准备急停；不要同时启动第二个
+XR-1 server 或 RTC runtime。
+
+### Terminal 1：XR-1 XPolicy 模型服务
+
+```bash
+cd /home/ubuntu/manimux
+envs/xr1/.venv/bin/python scripts/xiaomi_xr1_yam_server.py \
+  --config configs/xiaomi-xr1/yam/server/base.yaml
+```
+
+看到模型加载完成并监听 `127.0.0.1:8500` 后，先在另一个终端完成无 CAN probe：
+
+```bash
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+  --config configs/xiaomi-xr1/yam/infra/manimux.yaml
+```
+
+只有 probe 返回有限的 `native_shape: [30, 60]` 和
+`canonical_shape: [30, 14]` 才继续。
+
+### Terminal 2：三相机服务
+
+已有 `5555` 相机服务时不要重复启动：
+
+```bash
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
+```
+
+### Terminal 3：Viewer
+
+```bash
+cd /home/ubuntu/manimux
+.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
+```
+
+### Terminal 4：CAN 检查与 ManiMux
+
+```bash
+for c in can_left can_right; do
+  printf '%s: ' "$c"
+  ip -details link show "$c" | grep -o 'ERROR-ACTIVE\|ERROR-PASSIVE\|BUS-OFF'
+done
+```
+
+只有两路均为 `ERROR-ACTIVE` 才运行：
+
+```bash
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/manimux run \
+  --config configs/xiaomi-xr1/yam/infra/manimux.yaml
+```
+
+连接后的前 `5.0 s` 是配置规定的起始姿态移动，不是模型动作；之后才执行 XR-1 经
+XPolicy 输出、再由 YAM FK/IK 转换得到的关节命令。正常停止时只在 runtime 终端按一次
+`Ctrl-C`，等待 `5.0 s` 回 Home 和 Recorder 收尾，再停止相机、模型服务和 Viewer。
+
 ## RTC 对照
 
 先用离线脚本验证 XPolicy 使用的 sampler guidance hook：
@@ -127,8 +211,13 @@ envs/yam/.venv/bin/manimux run --config configs/xiaomi-xr1/yam/infra/rtc.yaml
 
 ## 当前边界
 
-已离线验证配置、权重/processor/stats 路径、动作 codec、FK/IK condition round-trip、RTC
-payload 和两条路径的 sampler guidance 分支。尚未启动 XPolicy 模型服务、GPU
-conditioned forward、真实相机、CAN、
-preflight 或真机。`model_states.pt` 是 post-training 起点，不是已经证明能在 YAM 上
-完成任务的策略。
+已验证配置、权重/processor/stats 路径、GPU normal forward、XPolicy WS、动作 codec、
+FK/IK normal action conversion、RTC condition round-trip、payload 和两条 sampler
+guidance 分支。尚未验证真实 GPU conditioned RTC forward；真实相机/CAN/真机链路已经
+启动过，但动作语义验收失败。`model_states.pt` 是 post-training 起点，不是已经证明能在
+YAM 上完成任务的策略。
+
+2026-08-20 的首次 YAM 闭环中，左臂出现绕向本体背面的动作。该结果将真机 Gate 判定为
+**未通过**：当前证据只证明 60D 输出能被转换成有限的 14D joint chunk，不证明模型 EE
+坐标、左右臂映射、IK 分支和 YAM 关节语义正确。在完成 Recorder 离线回放、逐步 EE 目标
+重建、左右臂坐标系对照和 joint-limit 审计前，不再运行该配置的真机。
