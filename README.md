@@ -35,6 +35,13 @@ built on Xiaomi's official XR-1 source. It is not a stock adapter from the
 upstream XPolicyLab repository. ManiMux keeps only the wire codec and YAM
 FK/IK mapping; model loading and denoising run inside XPolicyLab.
 
+The XR-1 service therefore returns genuine actions inferred by the official
+`Xiaomi-Robotics-1-5B` model, not startup poses, prerecorded trajectories, or
+mock data. The downstream boundary is separate: the base checkpoint was not
+trained on YAM, the current YAM statistics define projection units only, and
+the `30 x 60` EE-delta to `30 x 14` joint-position FK/IK conversion belongs to
+the ManiMux embodiment adapter.
+
 ## Architecture
 
 Two loops at different speeds. The whole design is about the hand-off between them.
@@ -135,6 +142,13 @@ XPolicy WebSocket, default ManiMux, three-camera, dual-YAM and Recorder executio
 rollouts are policy-quality results. XPolicy XR-1 and LingBot-VLA2 must not be described as
 hardware-validated yet. Their base checkpoints can be measured with `server/base.yaml` plus the
 same `infra/manimux.yaml`; YAM projection statistics are not evidence of YAM post-training.
+
+XR-1 has completed a real 5B GPU forward, XPolicy WebSocket, ManiMux, camera,
+dual-YAM and Recorder end-to-end startup, confirming that the robot executed
+model output. In the first base rollout the right arm was comparatively normal
+while the left arm made persistently abnormal large motions. The infrastructure
+path is therefore connected, but the YAM action-semantics gate remains failed;
+this was neither startup-pose motion nor evidence of YAM zero-shot capability.
 
 ## Install
 

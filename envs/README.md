@@ -46,6 +46,9 @@ Would uninstall 72 packages
 uv pip install --python envs/yam/.venv/bin/python -e ".[molmoact-yam]"
 uv pip install --python envs/yam/.venv/bin/python \
   "git+https://github.com/i2rt-robotics/i2rt.git@5d47b358bafb30c65e397f2ece506550a0db4594"
+
+# XR-1 XPolicy model server dependencies
+uv pip install --python envs/xr1/.venv/bin/python -e XPolicyLab
 ```
 
 运行时一律走显式路径（不要 `source` 之后裸敲命令，容易跑错环境）：
