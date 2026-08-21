@@ -19,6 +19,13 @@ MODEL_PYTHON = XPOLICY_ROOT / "policy/Pi_05/openpi/.venv/bin/python"
 HARDWARE_VERIFIED_VARIANTS = {
     "pi05_base_with_yam_stats",
     "pi05_yam_finetuned",
+    "pi05_yam_pick_red_ball_box_step_1000",
+}
+YAM_FINETUNED_VARIANTS = HARDWARE_VERIFIED_VARIANTS
+GPU_FORWARD_VERIFIED_VARIANTS = YAM_FINETUNED_VARIANTS
+TASK_QUALITY_LIMITED_VARIANTS = {
+    "pi05_yam_finetuned",
+    "pi05_yam_pick_red_ball_box_step_1000",
 }
 
 
@@ -64,21 +71,30 @@ def _resolved_contract(config_path: Path, config: dict[str, Any]) -> dict[str, A
     checkpoint_variant = str(config["checkpoint_variant"])
     environment_present = MODEL_PYTHON.is_file()
     hardware_verified = checkpoint_variant in HARDWARE_VERIFIED_VARIANTS
+    gpu_forward_verified = checkpoint_variant in GPU_FORWARD_VERIFIED_VARIANTS
     return {
         "contract_status": "ready",
         "runtime_status": (
             "hardware_verified"
             if environment_present and hardware_verified
+            else "gpu_forward_verified_hardware_not_verified"
+            if environment_present and gpu_forward_verified
             else "blocked_missing_model_environment"
             if not environment_present
             else "environment_present_gpu_forward_not_verified"
         ),
         "inference_status": (
-            "hardware_verified" if hardware_verified else "not_verified"
+            "hardware_verified"
+            if hardware_verified
+            else "gpu_forward_verified"
+            if gpu_forward_verified
+            else "not_verified"
         ),
         "policy_status": (
             "yam_finetune_task_quality_limited"
-            if checkpoint_variant == "pi05_yam_finetuned"
+            if checkpoint_variant in TASK_QUALITY_LIMITED_VARIANTS
+            else "yam_finetune_not_evaluated"
+            if checkpoint_variant in YAM_FINETUNED_VARIANTS
             else "base_checkpoint_not_yam_finetune"
         ),
         "model_python": str(MODEL_PYTHON),

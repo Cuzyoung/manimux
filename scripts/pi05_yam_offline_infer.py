@@ -17,6 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 OPENPI_SRC = XPOLICY_ROOT / "policy/Pi_05/openpi/src"
 DEFAULT_CONFIG = REPO_ROOT / "configs/pi05/yam/server/finetune.yaml"
+DEFAULT_INFRA_CONFIG = REPO_ROOT / "configs/pi05/yam/infra/manimux.yaml"
 
 
 def _prepare_imports() -> None:
@@ -33,7 +34,35 @@ def _load_config(path: Path) -> dict[str, Any]:
     return loaded
 
 
-def _synthetic_observation(image_height: int, image_width: int) -> dict[str, Any]:
+def _resolve_path(value: str, *, relative_to: Path) -> Path:
+    path = Path(value).expanduser()
+    return path.resolve() if path.is_absolute() else (relative_to / path).resolve()
+
+
+def _load_start_state(infra_path: Path) -> np.ndarray:
+    infra = _load_config(infra_path)
+    robot = infra.get("robot")
+    if not isinstance(robot, dict):
+        raise ValueError(f"infra config is missing robot mapping: {infra_path}")
+    options = robot.get("options")
+    if not isinstance(options, dict):
+        raise ValueError(f"infra config is missing robot.options: {infra_path}")
+    left_path = _resolve_path(str(robot["config"]), relative_to=REPO_ROOT)
+    right_path = _resolve_path(str(options["right_config"]), relative_to=REPO_ROOT)
+    left = np.asarray(_load_config(left_path)["agent"]["start_joints"], dtype=np.float32)
+    right = np.asarray(_load_config(right_path)["agent"]["start_joints"], dtype=np.float32)
+    if left.shape != (7,) or right.shape != (7,):
+        raise ValueError(
+            f"YAM start_joints must be 7D per arm, got {left.shape} and {right.shape}"
+        )
+    return np.concatenate([left, right])
+
+
+def _synthetic_observation(
+    image_height: int,
+    image_width: int,
+    start_state: np.ndarray,
+) -> dict[str, Any]:
     image = np.zeros((image_height, image_width, 3), dtype=np.uint8)
     return {
         "images": {
@@ -41,8 +70,8 @@ def _synthetic_observation(image_height: int, image_width: int) -> dict[str, Any
             "cam_left_wrist": image.copy(),
             "cam_right_wrist": image.copy(),
         },
-        "state": np.zeros(14, dtype=np.float32),
-        "instruction": "Pick the red block up.",
+        "state": start_state,
+        "instruction": "Pick the red ball up and place it into the box.",
     }
 
 
@@ -67,12 +96,15 @@ def _pack_action_chunk(action_steps: Any) -> np.ndarray:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--infra-config", type=Path, default=DEFAULT_INFRA_CONFIG)
     parser.add_argument("--image-height", type=int, default=360)
     parser.add_argument("--image-width", type=int, default=640)
     args = parser.parse_args()
 
     config_path = args.config.expanduser().resolve()
+    infra_path = args.infra_config.expanduser().resolve()
     config = _load_config(config_path)
+    start_state = _load_start_state(infra_path)
     _prepare_imports()
 
     from XPolicyLab.policy.Pi_05.model import Model
@@ -81,7 +113,9 @@ def main() -> int:
     model = Model(config)
     load_seconds = time.monotonic() - load_started
 
-    model.update_obs(_synthetic_observation(args.image_height, args.image_width))
+    model.update_obs(
+        _synthetic_observation(args.image_height, args.image_width, start_state)
+    )
     infer_started = time.monotonic()
     action_chunk = _pack_action_chunk(model.get_action())
     infer_seconds = time.monotonic() - infer_started
@@ -96,6 +130,7 @@ def main() -> int:
         "mode": "offline_synthetic_observation",
         "hardware_connected": False,
         "config": str(config_path),
+        "infra_config": str(infra_path),
         "model_path": str(Path(config["model_path"]).expanduser().resolve()),
         "norm_stats": str(
             Path(config["norm_stats_path"]).expanduser().resolve() / "norm_stats.json"
@@ -108,6 +143,7 @@ def main() -> int:
         "action_max": float(action_chunk.max()),
         "action_mean": float(action_chunk.mean()),
         "first_action": action_chunk[0].tolist(),
+        "initial_state": start_state.tolist(),
     }
     print(json.dumps(report, indent=2))
     return 0
