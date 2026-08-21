@@ -15,6 +15,8 @@ import yaml
 
 from manimux.config import load_config
 from manimux.policies import build_policy_adapter, build_policy_model
+from manimux.runtime.aac import AacInferenceRequest
+from manimux.runtime.paint import PaintInferenceRequest
 from manimux.types import (
     ActionContext,
     InferenceRequest,
@@ -35,9 +37,7 @@ def _start_joints(path: Path, expected_dim: int) -> np.ndarray:
     payload = yaml.safe_load(path.read_text(encoding="utf-8"))
     values = np.asarray(payload["agent"]["start_joints"], dtype=np.float64)
     if values.shape != (expected_dim,) or not np.isfinite(values).all():
-        raise ValueError(
-            f"{path} agent.start_joints must contain {expected_dim} finite values"
-        )
+        raise ValueError(f"{path} agent.start_joints must contain {expected_dim} finite values")
     return values
 
 
@@ -86,9 +86,8 @@ def _snapshot(config_path: Path, height: int, width: int) -> ObservationSnapshot
 
 def _native_action_summary(raw: object) -> dict[str, object]:
     if isinstance(raw, Mapping) and "actions" in raw:
-        actions = np.asarray(raw["actions"])
-        native_format = "packed_actions"
-    elif isinstance(raw, Sequence) and raw and all(isinstance(step, Mapping) for step in raw):
+        raw = raw["actions"]
+    if isinstance(raw, Sequence) and raw and all(isinstance(step, Mapping) for step in raw):
         rows = [
             np.concatenate([np.asarray(value).reshape(-1) for value in step.values()])
             for step in raw
@@ -96,7 +95,13 @@ def _native_action_summary(raw: object) -> dict[str, object]:
         actions = np.stack(rows)
         native_format = "action_step_dicts"
     else:
-        return {"native_shape": None, "native_format": "unknown"}
+        try:
+            actions = np.asarray(raw)
+        except (TypeError, ValueError):
+            return {"native_shape": None, "native_format": "unknown"}
+        if actions.dtype == object:
+            return {"native_shape": None, "native_format": "unknown"}
+        native_format = "packed_actions"
     return {
         "native_shape": list(actions.shape),
         "native_finite": bool(np.isfinite(actions).all()),
@@ -121,14 +126,44 @@ def main() -> int:
     snapshot = _snapshot(config_path, args.height, args.width)
     session_id = f"xpolicy-probe-{uuid.uuid4().hex[:8]}"
     observation_time_ns = time.monotonic_ns()
-    request = InferenceRequest(
-        session_id=session_id,
-        request_seq=1,
-        observation_time_ns=observation_time_ns,
-        deadline_ns=observation_time_ns + int(config.policy.timeout_s * 1_000_000_000),
-        observation=snapshot,
-        instruction=args.instruction,
-    )
+    request_fields = {
+        "session_id": session_id,
+        "request_seq": 1,
+        "observation_time_ns": observation_time_ns,
+        "deadline_ns": observation_time_ns
+        + int(config.policy.timeout_s * 1_000_000_000),
+        "observation": snapshot,
+        "instruction": args.instruction,
+    }
+    if config.execution.runtime == "aac":
+        aac = config.execution.aac
+        request = AacInferenceRequest(
+            **request_fields,
+            aac_num_samples=aac.num_samples,
+            aac_motion_threshold=aac.motion_threshold,
+            aac_ee_stats_path=aac.ee_stats_path,
+            aac_chunk_id_selector=aac.chunk_id_selector,
+            aac_backward_beta=aac.backward_beta,
+        )
+    elif config.execution.runtime == "paint":
+        paint = config.execution.paint
+        group_order = list(config.policy.options["group_order"])
+        packed_state = np.concatenate(
+            [snapshot.state.groups[name] for name in group_order]
+        )
+        prefix = np.repeat(
+            packed_state[None, :],
+            paint.initial_delay_steps,
+            axis=0,
+        )
+        request = PaintInferenceRequest(
+            **request_fields,
+            paint_action_prefix=prefix,
+            paint_delay_steps=paint.initial_delay_steps,
+            paint_execution_steps=paint.execution_steps,
+        )
+    else:
+        request = InferenceRequest(**request_fields)
 
     model = build_policy_model(config.policy)
     adapter = build_policy_adapter(config.robot, config.policy)
@@ -153,12 +188,21 @@ def main() -> int:
     )
     group_order = list(config.policy.options["group_order"])
     packed = np.concatenate([chunk.groups[name] for name in group_order], axis=1)
-    expected_shape = (
-        config.policy.horizon_steps,
-        sum(int(config.robot.group_dims[name]) for name in group_order),
-    )
-    if packed.shape != expected_shape:
-        raise ValueError(f"expected a {expected_shape} chunk, got {packed.shape}")
+    expected_width = sum(int(config.robot.group_dims[name]) for name in group_order)
+    if config.execution.runtime == "aac":
+        if packed.ndim != 2 or packed.shape[1] != expected_width:
+            raise ValueError(
+                f"expected an AAC chunk with width {expected_width}, got {packed.shape}"
+            )
+        if not 2 <= packed.shape[0] <= config.policy.horizon_steps:
+            raise ValueError(
+                "expected AAC selected horizon in "
+                f"[2, {config.policy.horizon_steps}], got {packed.shape[0]}"
+            )
+    else:
+        expected_shape = (config.policy.horizon_steps, expected_width)
+        if packed.shape != expected_shape:
+            raise ValueError(f"expected a {expected_shape} chunk, got {packed.shape}")
     if not np.isfinite(packed).all():
         raise ValueError("ManiMux adapter returned non-finite joint targets")
 
@@ -177,6 +221,8 @@ def main() -> int:
                 "minimum": float(packed.min()),
                 "maximum": float(packed.max()),
                 "first_action": packed[0].tolist(),
+                "aac": raw.get("aac") if isinstance(raw, Mapping) else None,
+                "paint": raw.get("paint") if isinstance(raw, Mapping) else None,
             },
             indent=2,
         )

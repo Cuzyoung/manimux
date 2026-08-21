@@ -18,7 +18,8 @@ runbook：
 fork commit；fork 再从官方 `upstream` 获取更新。模型仍在各自独立环境和进程中运行，
 ManiMux runtime 不 import torch/JAX 等模型依赖。
 
-`--recursive` 也会初始化 XPolicyLab 内固定版本的第三方源码，例如官方 LingBot-VLA2；
+`--recursive` 也会初始化 XPolicyLab 内固定版本的第三方源码，例如官方 LingBot-VLA2 和
+Cosmos3 使用的 `NVIDIA/cosmos-framework`；
 不需要用户再手动 clone 到任意系统目录。
 
 ```bash
@@ -44,14 +45,15 @@ YAM state + 三路 RGB + instruction
         -> XPolicy 标准 action keys
         -> ManiMux model-specific adapter
         -> ActionChunk(joint_position)
-        -> ManiMux 或 RTC runtime
+        -> ManiMux shared runtime + default/RTC strategy
 ```
 
 边界保持明确：
 
 - XPolicy model adapter 负责模型输入、输出、norm stats 和模型原生 sampler；
 - ManiMux policy adapter 负责机器人 group、动作语义以及必要的 FK/IK；
-- ManiMux runtime 负责时间线、异步调度、执行、记录和 Viewer；
+- ManiMux shared runtime 负责时间线、执行、记录和 Viewer；InferenceStrategy 负责普通
+  chunk 或 RTC 的请求时机与条件；
 - 相机、CAN 和机器人 driver 不进入模型仓库。
 
 ## YAM embodiment 声明
@@ -102,7 +104,8 @@ uv pip install --python envs/yam/.venv/bin/python -e ".[xpolicylab]"
 
 RTC 不是 WebSocket worker 自动提供的能力。只有模型 adapter 实现 `get_action_rtc`，并且
 conditioning 真正进入模型原生 denoise/sampling 过程时，才能写 RTC config。否则 server
-必须明确返回“不支持 RTC”，不能静默退化为普通推理。
+必须明确返回“不支持 RTC”，不能静默退化为普通推理。XPolicy server 会在 `HELLO_ACK`
+声明 `sampling_modes`；PolicyWorker 将该能力交给 ManiMux，RTC 缺失时会在机器人连接前失败。
 
 ## 离线自测
 

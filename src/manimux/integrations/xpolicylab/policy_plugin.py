@@ -17,13 +17,18 @@ between separate RPCs.
 
 from __future__ import annotations
 
-import math
 import uuid
 from collections.abc import Mapping, Sequence
 
 import numpy as np
 
 from manimux.config import PolicyConfig, RobotConfig
+from manimux.integrations.xpolicylab.aac import (
+    AacPreviousAction,
+    EeActionStats,
+    load_ee_action_stats,
+    select_ee_chunk,
+)
 from manimux.integrations.xpolicylab.obs_codec import (
     GroupLayout,
     build_layouts,
@@ -31,6 +36,8 @@ from manimux.integrations.xpolicylab.obs_codec import (
     encode_observation,
 )
 from manimux.integrations.xpolicylab.ws_client import XPolicyLabWsClient
+from manimux.kinematics.base import ArmKinematics
+from manimux.policies.capabilities import PolicyCapabilities
 from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
 
 DEFAULT_SERVER = "ws://127.0.0.1:8500"
@@ -42,8 +49,6 @@ DEFAULT_CAMERA_MAP = {
     "cam_right_wrist": "right_camera",
 }
 DEFAULT_GRIPPER_DOFS = 1
-DEFAULT_ACTION_CODEC = "joint_position"
-XR1_ACTION_CODEC = "xr1_ee_delta"
 
 
 def _string_option(options: Mapping[str, object], name: str, default: str) -> str:
@@ -93,6 +98,13 @@ def _positive_int_option(options: Mapping[str, object], name: str, default: int)
     return value
 
 
+def _bool_option(options: Mapping[str, object], name: str, default: bool) -> bool:
+    value = options.get(name, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"policy.options.{name} must be a boolean")
+    return value
+
+
 def _layouts_from_options(
     options: Mapping[str, object],
     group_dims: Mapping[str, int],
@@ -127,21 +139,12 @@ class XPolicyLabWsPolicyModel:
         self._group_order = _string_sequence(options, "group_order", DEFAULT_GROUP_ORDER)
         self._group_prefixes = _string_mapping(options, "group_prefixes", DEFAULT_GROUP_PREFIXES)
         self._gripper_dofs = _positive_int_option(options, "gripper_dofs", DEFAULT_GRIPPER_DOFS)
-        self._action_codec = _string_option(options, "action_codec", DEFAULT_ACTION_CODEC)
-        if self._action_codec not in {DEFAULT_ACTION_CODEC, XR1_ACTION_CODEC}:
-            raise ValueError(
-                "policy.options.action_codec must be 'joint_position' or 'xr1_ee_delta'"
-            )
-        self._kinematics = None
-        if self._action_codec == XR1_ACTION_CODEC:
-            from manimux.kinematics import build_kinematics
-
-            kinematics_name = _string_option(options, "kinematics", "yam")
-            kinematics_options = options.get("kinematics_options", {})
-            if not isinstance(kinematics_options, dict):
-                raise ValueError("policy.options.kinematics_options must be a mapping")
-            self._kinematics = build_kinematics(kinematics_name, **kinematics_options)
         self._horizon_steps = config.horizon_steps
+        self._aac_kinematics_name = _string_option(options, "aac_kinematics", "yam")
+        self._aac_kinematics: ArmKinematics | None = None
+        self._aac_ee_stats: EeActionStats | None = None
+        self._aac_ee_stats_path: str | None = None
+        self._aac_previous: AacPreviousAction | None = None
         self._layouts: tuple[GroupLayout, ...] = ()
         self._session_id: str | None = None
         self._client: XPolicyLabWsClient | None = None
@@ -159,6 +162,7 @@ class XPolicyLabWsPolicyModel:
         client.reset()
         self._client = client
         self._session_id = session_id
+        self._aac_previous = None
 
     def infer(self, request: InferenceRequest) -> object:
         if request.session_id != self._session_id:
@@ -186,69 +190,126 @@ class XPolicyLabWsPolicyModel:
         weights = getattr(request, "condition_weights", None)
         if (condition is None) != (weights is None):
             raise ValueError("RTC action_condition and condition_weights must be provided together")
+        aac_num_samples = getattr(request, "aac_num_samples", None)
+        paint_prefix = getattr(request, "paint_action_prefix", None)
+        paint_delay_steps = getattr(request, "paint_delay_steps", None)
+        if (paint_prefix is None) != (paint_delay_steps is None):
+            raise ValueError(
+                "PAINT paint_action_prefix and paint_delay_steps must be provided together"
+            )
+        if paint_prefix is not None:
+            if condition is not None or aac_num_samples is not None:
+                raise ValueError("PAINT cannot be combined with RTC or AAC sampling")
+            prefix_array = np.asarray(paint_prefix, dtype=np.float32)
+            delay_steps = int(paint_delay_steps)
+            expected_width = sum(layout.dim for layout in self._layouts)
+            if (
+                delay_steps <= 0
+                or prefix_array.shape != (delay_steps, expected_width)
+                or not np.isfinite(prefix_array).all()
+            ):
+                raise ValueError(
+                    "PAINT action prefix must be finite with shape "
+                    f"({delay_steps}, {expected_width}), got {prefix_array.shape}"
+                )
+            return client.infer(
+                observation,
+                sampling={
+                    "mode": "paint",
+                    "action_prefix": prefix_array,
+                    "delay_steps": delay_steps,
+                },
+            )
+        if aac_num_samples is not None:
+            if condition is not None:
+                raise ValueError("AAC and RTC sampling cannot be requested together")
+            result = client.infer(
+                observation,
+                sampling={
+                    "mode": "aac",
+                    "num_samples": int(aac_num_samples),
+                },
+            )
+            if not isinstance(result, Mapping):
+                raise ValueError("AAC server response must be a mapping")
+            candidates = result.get("actions")
+            if not isinstance(candidates, Sequence) or isinstance(candidates, str | bytes):
+                raise ValueError("AAC server response must contain candidate chunks")
+            if len(candidates) != int(aac_num_samples):
+                raise ValueError(
+                    f"AAC expected {int(aac_num_samples)} candidates, got {len(candidates)}"
+                )
+            if self._aac_kinematics is None:
+                from manimux.kinematics import build_kinematics
+
+                self._aac_kinematics = build_kinematics(self._aac_kinematics_name)
+            stats_path = getattr(request, "aac_ee_stats_path", None)
+            if not isinstance(stats_path, str) or not stats_path:
+                raise ValueError("AAC requires aac_ee_stats_path")
+            if self._aac_ee_stats is None or self._aac_ee_stats_path != stats_path:
+                self._aac_ee_stats = load_ee_action_stats(stats_path, layouts=self._layouts)
+                self._aac_ee_stats_path = stats_path
+            selected, selection, self._aac_previous = select_ee_chunk(
+                candidates,
+                layouts=self._layouts,
+                current_groups=snapshot.state.groups,
+                kinematics=self._aac_kinematics,
+                ee_stats=self._aac_ee_stats,
+                motion_threshold=float(getattr(request, "aac_motion_threshold", 3.0)),
+                chunk_id_selector=str(getattr(request, "aac_chunk_id_selector", "0")),
+                previous=self._aac_previous,
+                backward_beta=float(getattr(request, "aac_backward_beta", 0.99)),
+            )
+            return {"actions": selected, "aac": selection.metadata()}
         if condition is None:
-            raw = client.infer(observation, sampling={"mode": "default"})
-            return self._response_with_anchor(raw, snapshot)
+            return client.infer(observation, sampling={"mode": "default"})
 
         beta = float(getattr(request, "rtc_beta", 5.0))
-        if not math.isfinite(beta) or beta <= 0:
+        if not np.isfinite(beta) or beta <= 0:
             raise ValueError(f"rtc_beta must be finite and positive, got {beta}")
         condition_array = np.asarray(condition, dtype=np.float32)
         weights_array = np.asarray(weights, dtype=np.float32)
-        expected_condition = (
-            self._horizon_steps,
-            sum(layout.dim for layout in self._layouts),
-        )
-        if condition_array.shape != expected_condition:
+        if (
+            condition_array.ndim != 2
+            or condition_array.shape[0] != self._horizon_steps
+            or not np.isfinite(condition_array).all()
+        ):
             raise ValueError(
-                f"RTC action_condition must have shape {expected_condition}, "
+                f"RTC action_condition must have shape ({self._horizon_steps}, native_dim), "
                 f"got {condition_array.shape}"
             )
-        if weights_array.shape != (condition_array.shape[0],):
+        if (
+            weights_array.shape != (condition_array.shape[0],)
+            or not np.isfinite(weights_array).all()
+        ):
             raise ValueError(
                 f"RTC condition_weights must have shape {(condition_array.shape[0],)}, "
                 f"got {weights_array.shape}"
             )
-        sampling_condition = condition_array
-        if self._action_codec == XR1_ACTION_CODEC:
-            from manimux.integrations.xr1_yam.policy_plugin import (
-                joint_condition_to_xr1_actions,
-            )
-
-            assert self._kinematics is not None
-            sampling_condition = joint_condition_to_xr1_actions(
-                condition_array,
-                snapshot.state.groups,
-                group_order=self._group_order,
-                kinematics=self._kinematics,
-            )
-        raw = client.infer(
+        return client.infer(
             observation,
             sampling={
                 "mode": "rtc",
-                "action_condition": sampling_condition,
+                "action_condition": condition_array,
                 "condition_weights": weights_array,
                 "beta": beta,
             },
         )
-        return self._response_with_anchor(raw, snapshot)
-
-    def _response_with_anchor(self, raw: object, snapshot: ObservationSnapshot) -> object:
-        if self._action_codec != XR1_ACTION_CODEC:
-            return raw
-        anchor = np.concatenate(
-            [
-                np.asarray(snapshot.state.groups[name], dtype=np.float64)
-                for name in self._group_order
-            ]
-        )
-        return {"actions": raw, "state": np.ascontiguousarray(anchor)}
 
     def close(self) -> None:
         client, self._client = self._client, None
         self._session_id = None
         if client is not None:
             client.close()
+
+    def capabilities(self) -> PolicyCapabilities:
+        client = self._client
+        modes = (
+            frozenset({"default"})
+            if client is None
+            else getattr(client, "sampling_modes", frozenset({"default"}))
+        )
+        return PolicyCapabilities(sampling_modes=modes)
 
 
 class XPolicyLabAdapter:
@@ -260,6 +321,7 @@ class XPolicyLabAdapter:
         self._required_cameras = tuple(self._camera_map.values())
         self._action_dt_ns = int(policy.effective_action_dt_s * 1_000_000_000)
         self._horizon_steps = policy.horizon_steps
+        self._allow_short_horizon = _bool_option(policy.options, "allow_short_horizon", False)
 
     def build_observation(self, snapshot: ObservationSnapshot) -> ObservationSnapshot:
         missing = [name for name in self._required_cameras if name not in snapshot.frames]
@@ -268,11 +330,20 @@ class XPolicyLabAdapter:
         return snapshot
 
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
-        groups = decode_action_steps(raw, layouts=self._layouts)
+        action_payload = raw.get("actions") if isinstance(raw, Mapping) else raw
+        groups = decode_action_steps(action_payload, layouts=self._layouts)
         horizons = {values.shape[0] for values in groups.values()}
-        if horizons != {self._horizon_steps}:
+        horizon = next(iter(horizons)) if len(horizons) == 1 else None
+        valid_short_horizon = (
+            self._allow_short_horizon
+            and horizon is not None
+            and 2 <= horizon <= self._horizon_steps
+        )
+        if horizons != {self._horizon_steps} and not valid_short_horizon:
             raise ValueError(
-                f"XPolicyLab action horizon must be {self._horizon_steps}, got {sorted(horizons)}"
+                f"XPolicyLab action horizon must be {self._horizon_steps}"
+                f"{' or 2..' + str(self._horizon_steps) if self._allow_short_horizon else ''}, "
+                f"got {sorted(horizons)}"
             )
         return ActionChunk(
             plan_id=f"xpolicylab-{context.request_seq}-{uuid.uuid4().hex[:8]}",

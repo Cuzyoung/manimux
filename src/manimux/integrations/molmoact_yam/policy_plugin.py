@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 
 from manimux.config import PolicyConfig, RobotConfig
+from manimux.policies.capabilities import PolicyCapabilities
 from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
 
 DEFAULT_SERVER = "http://127.0.0.1:8202"
@@ -156,6 +157,9 @@ class MolmoActHttpPolicyModel:
 
     def close(self) -> None:
         self._session_id = None
+
+    def capabilities(self) -> PolicyCapabilities:
+        return PolicyCapabilities(sampling_modes=frozenset({"default", "rtc"}))
 
 
 class MolmoActYamAdapter:

@@ -139,6 +139,7 @@ class XPolicyLabWsClient:
         self._request_timeout_s = request_timeout_s
         self._conn: Any | None = None
         self._step = 0
+        self._sampling_modes = frozenset({"default"})
 
     @property
     def url(self) -> str:
@@ -147,6 +148,10 @@ class XPolicyLabWsClient:
     @property
     def step(self) -> int:
         return self._step
+
+    @property
+    def sampling_modes(self) -> frozenset[str]:
+        return self._sampling_modes
 
     def connect(self) -> None:
         """Open the socket and complete the ``hello`` handshake."""
@@ -165,7 +170,12 @@ class XPolicyLabWsClient:
             max_size=_NO_FRAME_SIZE_LIMIT,
         )
         try:
-            self.request(HELLO, {}, timeout_s=self._connect_timeout_s)
+            reply = self.request(HELLO, {}, timeout_s=self._connect_timeout_s)
+            payload = reply.get("payload")
+            capabilities = payload.get("capabilities") if isinstance(payload, dict) else None
+            modes = capabilities.get("sampling_modes") if isinstance(capabilities, dict) else None
+            if isinstance(modes, list) and modes and all(isinstance(mode, str) for mode in modes):
+                self._sampling_modes = frozenset(modes)
         except Exception:
             self.close()
             raise
@@ -192,6 +202,8 @@ class XPolicyLabWsClient:
         payload = reply.get("payload")
         if not isinstance(payload, dict) or "actions" not in payload:
             raise XPolicyLabProtocolError("infer reply has no actions")
+        if sampling.get("mode") in {"aac", "paint"}:
+            return dict(payload)
         return payload["actions"]
 
     def request(

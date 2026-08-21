@@ -27,13 +27,21 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
 
 from manimux.config import PolicyConfig, RobotConfig
-from manimux.types import ActionChunk, ActionContext, ObservationSnapshot
+from manimux.runtime.rtc.request import RtcInferenceRequest
+from manimux.types import (
+    ActionChunk,
+    ActionContext,
+    InferenceRequest,
+    ObservationSnapshot,
+)
 
 log = logging.getLogger("manimux.policies.xr1")
 
@@ -156,6 +164,7 @@ class XR1YamAdapter:
         if not isinstance(options, dict):
             raise ValueError("policy.options.kinematics_options must be a mapping")
         self._kinematics = build_kinematics(kinematics_name, **options)
+        self._anchors: OrderedDict[int, np.ndarray] = OrderedDict()
         if self._kinematics.num_arm_joints != ARM_JOINTS:
             raise ValueError(
                 f"XR-1 assumes {ARM_JOINTS} arm joints, kinematics reports "
@@ -168,11 +177,38 @@ class XR1YamAdapter:
             raise ValueError(f"XR-1 YAM adapter is missing cameras: {missing}")
         return snapshot
 
+    def prepare_request(self, request: InferenceRequest) -> InferenceRequest:
+        anchor = np.concatenate(
+            [
+                np.asarray(request.observation.state.groups[name], dtype=np.float64)
+                for name in self._group_order
+            ]
+        )
+        self._anchors[request.request_seq] = np.ascontiguousarray(anchor)
+        while len(self._anchors) > 8:
+            self._anchors.popitem(last=False)
+        if not isinstance(request, RtcInferenceRequest) or request.action_condition is None:
+            return request
+        native_condition = joint_condition_to_xr1_actions(
+            request.action_condition,
+            request.observation.state.groups,
+            group_order=self._group_order,
+            kinematics=self._kinematics,
+        )
+        return replace(request, action_condition=native_condition)
+
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
-        if not isinstance(raw, dict) or "actions" not in raw or "state" not in raw:
-            raise TypeError("XR-1 adapter expects {'actions': ndarray, 'state': ndarray}")
-        actions = np.asarray(raw["actions"], dtype=np.float64)
-        anchor = np.asarray(raw["state"], dtype=np.float64).reshape(-1)
+        if isinstance(raw, dict) and "actions" in raw and "state" in raw:
+            actions = np.asarray(raw["actions"], dtype=np.float64)
+            anchor = np.asarray(raw["state"], dtype=np.float64).reshape(-1)
+        else:
+            actions = np.asarray(raw, dtype=np.float64)
+            stored = self._anchors.pop(context.request_seq, None)
+            if stored is None:
+                raise ValueError(
+                    f"XR-1 adapter has no observation anchor for request {context.request_seq}"
+                )
+            anchor = stored
         expected_state = sum(self._group_dims[name] for name in self._group_order)
         if anchor.shape != (expected_state,):
             raise ValueError(f"XR-1 anchor state must have shape ({expected_state},)")

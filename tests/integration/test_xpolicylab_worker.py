@@ -87,7 +87,13 @@ class FakeXPolicyLabServer:
         }
         if kind == "hello":
             self.calls.put(("hello", None))
-            return {**envelope, "message_type": "hello_ack", "payload": {}}
+            return {
+                **envelope,
+                "message_type": "hello_ack",
+                "payload": {
+                    "capabilities": {"sampling_modes": ["default", "rtc"]}
+                },
+            }
         if kind == "reset":
             self.calls.put(("reset", None))
             return {**envelope, "message_type": "reset_result", "payload": {"result": None}}
@@ -200,6 +206,15 @@ def test_the_handshake_and_call_order_match_the_protocol(server: FakeXPolicyLabS
     while not server.calls.empty():
         order.append(server.calls.get()[0])
     assert order == ["hello", "reset", "infer"]
+
+
+def test_handshake_reports_sampling_capabilities(server: FakeXPolicyLabServer) -> None:
+    _, policy = _configs(server.url)
+    model = build_policy_model(policy)
+    model.reset("session-capabilities")
+
+    assert model.capabilities().sampling_modes == frozenset({"default", "rtc"})
+    model.close()
 
 
 def test_the_observation_survives_the_wire_intact(server: FakeXPolicyLabServer) -> None:

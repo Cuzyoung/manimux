@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from manimux.config import load_config
+from manimux.policies.capabilities import PolicyCapabilities
 from manimux.runtime import build_runtime
 from manimux.runtime.edge import EdgeRuntime
 from manimux.runtime.rtc import (
@@ -195,6 +196,20 @@ def test_rtc_runtime_is_selected_by_config(tmp_path: Path) -> None:
     # Execution stays the default runtime's: same timeline, same executor.
     assert runtime._executor is not None
     assert type(runtime._timeline).__name__ == "ActionTimeline"
+    assert RtcRuntime.run is EdgeRuntime.run
+
+
+def test_rtc_capability_is_checked_before_robot_connection(tmp_path: Path) -> None:
+    config = load_config("configs/mock.yaml")
+    config.execution.runtime = "rtc"
+    runtime = build_runtime(config, tmp_path)
+
+    class _DefaultOnlyWorker:
+        capabilities = PolicyCapabilities()
+
+    runtime._worker = _DefaultOnlyWorker()
+    with pytest.raises(RuntimeError, match="does not advertise"):
+        runtime._validate_policy_capabilities()
 
 
 def test_runtime_package_binds_to_factories_not_to_a_policy_or_a_body() -> None:

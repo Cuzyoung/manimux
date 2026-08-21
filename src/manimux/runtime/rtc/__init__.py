@@ -3,9 +3,11 @@
 from manimux.runtime.rtc.mask import inpainting_condition, soft_mask
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.runtime.rtc.runtime import RtcRuntime
+from manimux.runtime.rtc.strategy import RtcInferenceStrategy
 
 __all__ = [
     "RtcInferenceRequest",
+    "RtcInferenceStrategy",
     "RtcRuntime",
     "inpainting_condition",
     "soft_mask",
