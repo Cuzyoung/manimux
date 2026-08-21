@@ -63,7 +63,7 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 
 | 模型 | I0-I2 源码/契约/产物 | I3 GPU | I4 WS | I5 ManiMux | I6 YAM | I7 RTC | T0-T4 训练回载 |
 |---|---|---|---|---|---|---|---|
-| OpenPI Pi05 YAM | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 有训练代码和 YAM checkpoint，尚未在本项目重跑训练导出 |
+| OpenPI Pi05 YAM | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ 20条YAM示教完成训练、stats导出、回载和真机部署 |
 | GR00T N1.7 YAM | ✅ | ✅ | ✅ | ✅ | ✅ | ➖ | 🟡 有 YAM finetune 和匹配 stats，尚未重跑训练 |
 | Xiaomi XR-1 YAM | 🟡 权重不是 YAM policy | ✅ | ✅ | ✅ | 🟡 | 🟡 XPolicy sampler hook 离线通过 | ⛔ 缺 YAM fine-tune 权重和配套 stats |
 | LingBot-VLA2 YAM | 🟡 base projection bundle | ✅ | ✅ | ✅ | ✅ | 🟡 sampler RTC 离线完成 | ⛔ 缺 YAM post-training 权重和配套 stats |
@@ -72,12 +72,12 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 
 ### [OpenPI Pi05](pi05-yam-runbook.md)
 
-- 已完成三相机、14D absolute joint、16-step、YAM stats、XPolicy server、默认 ManiMux
+- 已完成三相机、14D absolute joint、16/50-step、YAM stats、XPolicy server、默认 ManiMux
   和 Pi-guided RTC 真机链路。
 - RTC 已有真实延迟与无 post-start chunk gap 记录。
-- 当前动作犹豫属于 checkpoint / policy 质量问题，不是 infra 断路。
-- 剩余训练任务：用项目自己的训练命令重跑一次最小 fine-tune，导出权重和 stats，再由现有
-  `configs/pi05/yam/server/finetune.yaml` 回载。
+- 已用20条红球任务YAM示教从官方 `pi05_base` 微调1000步，回载checkpoint自带stats，
+  并完成双臂YAM真机部署。模型能明显复现示教轨迹，但低质量练手数据不足以稳定完成任务。
+- 后续训练任务：采集高质量任务数据，沿用相同训练和部署contract做多模型公平对比。
 
 ### [GR00T N1.7](gr00t-yam-runbook.md)
 

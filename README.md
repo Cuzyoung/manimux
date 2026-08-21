@@ -198,7 +198,7 @@ Status: ✅ running · 🧪 experimental · 🚧 not deployable yet · 🔌 infr
 |---|---|---|---|---|
 | ✅ | MolmoAct2 + YAM | 30 × 14 joint positions | `configs/molmoact2/yam/` | [MolmoAct2](docs/molmoact-yam-runbook.md) |
 | ✅ | ABC + YAM | 30 × 14 joint positions | `configs/abc/yam/` | [ABC](docs/abc-yam-runbook.md) |
-| ✅ | OpenPI Pi05 + YAM | 16 × 14 absolute joint positions | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
+| ✅ | OpenPI Pi05 + YAM | 16/50 × 14 absolute joint positions | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
 | ✅ | GR00T N1.7 + YAM | 16 × 14 absolute joint positions | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
 | ✅ | XR-1 + YAM | `30×60` EE delta → `30×14` joints | `configs/xiaomi-xr1/yam/` | [Runbook](docs/xiaomi-xr1-yam-runbook.md) |
 | ✅ | LingBot-VLA2 + YAM | `50×14` joints; limited base capability | `configs/lingbot-vla2/yam/` | [Runbook](docs/lingbot-vla2-yam-runbook.md) |
@@ -215,6 +215,12 @@ default ManiMux hardware paths using `server/base.yaml` with the shared `infra/m
 Here ✅ means GPU, XPolicy, cameras, scheduling, dual-arm execution and Recorder are connected;
 it does not establish YAM task success for a base checkpoint, and projection statistics are not
 evidence of YAM post-training.
+
+The local `pi05_base`-initialized red-ball fine-tune at step 1000 has a separate 50-step contract,
+checkpoint-matched `yam_pick_red_ball_box_v1` stats, and verified offline GPU, XPolicy WebSocket,
+three-camera, ManiMux and dual-YAM execution. It reproduces the low-quality 20-episode demonstration
+trajectory but does not yet complete the task reliably; this is a policy-quality result, not an
+infrastructure gap.
 
 XR-1 has completed a real 5B GPU forward, XPolicy WebSocket, ManiMux, camera,
 dual-YAM and Recorder end-to-end startup, confirming that the robot executed

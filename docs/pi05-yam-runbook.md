@@ -3,7 +3,69 @@
 本文只覆盖 Pi05。默认实验使用 YAM 微调 checkpoint 和普通 ManiMux runtime；同一微调
 checkpoint 的 RTC 和 Pi05 base + RTC 都是独立实验，不与默认配置混用。
 
-## 模型契约
+## 本地红球任务 checkpoint
+
+本次训练从官方 `pi05_base` 初始化，使用以下 20 条 YAM episode 微调：
+
+```text
+/home/ubuntu/yam-abc-reproduce/data/episodes/pick_the_red_ball_up_and_place_it_into_the_box/
+```
+
+推理使用 step 1000 checkpoint 自带的同名 stats，不复用 Robocurve stats：
+
+```text
+checkpoints/finetuned/ziyang/pi05-yam-pick-red-ball-box-b384/1000/
+  params/
+  assets/yam_pick_red_ball_box_v1/norm_stats.json
+```
+
+- server：`configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml`；
+- ManiMux：`configs/pi05/yam/infra/manimux-pick-red-ball-box-step1000.yaml`；
+- 输入：三路独立 RGB、14 维 YAM state 和红球任务文本；
+- 输出：`50 x 14` absolute joint positions；
+- 时间语义：轨迹点 30Hz，底层下发 100Hz；
+- 起始位：episode `20260812_193716_0751770e` 的第一帧，左右臂关节和夹爪逐值匹配；
+- 当前证据：真实 checkpoint 的离线 GPU、XPolicy WebSocket、三相机、ManiMux 和双臂
+  YAM 真机链路均已通过。模型能明显复现示教轨迹，但20条练手数据质量有限，尚不能稳定
+  完成任务，因此记录为部署成功、policy质量有限，不记作任务成功率。
+
+只检查路径与契约：
+
+```bash
+cd /home/ubuntu/manimux
+XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
+  scripts/pi05_yam_server.py --check \
+  --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
+```
+
+离线 GPU forward 会用上述 episode 第一帧的 14 维状态，不连接相机、CAN 或机器人：
+
+```bash
+XLA_PYTHON_CLIENT_PREALLOCATE=false \
+  XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
+  scripts/pi05_yam_offline_infer.py \
+  --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml \
+  --infra-config configs/pi05/yam/infra/manimux-pick-red-ball-box-step1000.yaml
+```
+
+模型服务：
+
+```bash
+XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
+  scripts/pi05_yam_server.py \
+  --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
+```
+
+完成相机、CAN 和 preflight 检查后，真机 ManiMux 由操作者运行：
+
+```bash
+envs/yam/.venv/bin/manimux run \
+  --config configs/pi05/yam/infra/manimux-pick-red-ball-box-step1000.yaml
+```
+
+以下章节记录先前 Robocurve 16-step checkpoint 的独立实验，不要与本地 50-step 配置混用。
+
+## Robocurve 模型
 
 YAM 微调权重位于：
 
