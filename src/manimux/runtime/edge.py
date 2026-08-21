@@ -7,21 +7,26 @@ from pathlib import Path
 
 from manimux.clock import Clock, SystemClock
 from manimux.config import ManiMuxConfig
-from manimux.policies import build_policy_adapter
-from manimux.policies.base import decode_policy_action
+from manimux.policies import PolicyCapabilities, build_policy_adapter
+from manimux.policies.base import decode_policy_action, prepare_policy_request
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.recording import EpisodeRecorder
 from manimux.robots import build_robot
 from manimux.robots.base import RobotDriver
 from manimux.runtime.diagnostics import build_plan_boundary_payload
 from manimux.runtime.executors import Executor, MPCExecutor, SmoothExecutor
+from manimux.runtime.inference import (
+    DefaultChunkStrategy,
+    InferenceStrategy,
+    RequestState,
+    prepare_strategy_chunk,
+)
 from manimux.runtime.safety import RuntimeState, SafetyGuard
 from manimux.runtime.timeline import ActionTimeline
 from manimux.sensors import build_sensor
 from manimux.types import (
     ActionContext,
     GroupVector,
-    InferenceRequest,
     ObservationSnapshot,
     RobotCommand,
     SensorFrame,
@@ -41,12 +46,15 @@ class RunResult:
 
 
 class EdgeRuntime:
+    """One real-robot control loop with a replaceable inference strategy."""
+
     def __init__(
         self,
         config: ManiMuxConfig,
         run_dir: Path,
         *,
         clock: Clock | None = None,
+        strategy: InferenceStrategy | None = None,
     ) -> None:
         self._config = config
         self._run_dir = run_dir
@@ -60,6 +68,7 @@ class EdgeRuntime:
         self._worker = PolicyWorkerClient(config.policy, self._session_id)
         self._timeline = ActionTimeline(config.robot.group_dims)
         self._executor = self._build_executor()
+        self._strategy = strategy or DefaultChunkStrategy(config)
         limits = (
             config.execution.smooth
             if config.execution.executor == "smooth"
@@ -92,7 +101,18 @@ class EdgeRuntime:
             plan_id=self._timeline.active_plan_id,
         )
 
-    def run(self) -> RunResult:
+    def _validate_policy_capabilities(self) -> None:
+        capabilities = getattr(self._worker, "capabilities", PolicyCapabilities())
+        missing = self._strategy.required_sampling_modes.difference(
+            capabilities.sampling_modes
+        )
+        if missing:
+            raise RuntimeError(
+                f"execution strategy {self._strategy.name!r} requires sampling modes "
+                f"{sorted(missing)} that the policy server does not advertise"
+            )
+
+    def run(self) -> RunResult:  # noqa: C901 - the safety-critical loop stays linear
         started_wall = time.perf_counter()
         episode_id = f"episode-{uuid.uuid4().hex[:12]}"
         recorder = EpisodeRecorder(
@@ -104,7 +124,7 @@ class EdgeRuntime:
                 "session_id": self._session_id,
                 "task": self._config.run.task,
                 "executor_kind": self._config.execution.executor,
-                "runtime": self._config.execution.runtime,
+                "runtime": self._strategy.name,
                 "policy_label": self._config.viewer.policy_label,
                 "policy_worker": self._config.policy.worker,
                 "policy_adapter": self._config.policy.adapter,
@@ -130,15 +150,15 @@ class EdgeRuntime:
         try:
             for sensor in self._sensors:
                 sensor.start()
-                # A ping only proves the server socket is alive. Pull one real
-                # observation before enabling motors so stale/missing cameras fail closed.
                 sensor.read()
             self._worker.start()
+            self._validate_policy_capabilities()
             self._robot.connect()
             robot_connected = True
             initial_state = self._robot.get_state()
             self._safety.validate_state(initial_state)
             self._executor.reset(initial_state)
+            self._strategy.reset()
             previous_command = copy_group_vector(initial_state.groups)
             last_command = copy_group_vector(initial_state.groups)
             self._state = RuntimeState.RUNNING
@@ -147,13 +167,14 @@ class EdgeRuntime:
                 metadata={
                     "instruction": self._config.run.task,
                     "max_steps": self._config.run.max_steps,
-                    "control_mode": "managed",
+                    "control_mode": self._strategy.control_mode,
                 },
             )
             next_tick_ns = self._clock.now_ns()
 
             while steps < self._config.run.max_steps:
-                now_ns = self._clock.now_ns()
+                loop_start_ns = self._clock.now_ns()
+                now_ns = loop_start_ns
                 state = self._robot.get_state()
                 self._safety.validate_state(state)
                 frames: dict[str, SensorFrame] = {}
@@ -164,6 +185,7 @@ class EdgeRuntime:
                     if overlap:
                         raise RuntimeError(f"duplicate sensor frames: {sorted(overlap)}")
                     frames.update(batch)
+
                 viewer_control = self._viewer.poll_control()
                 if viewer_control.finish_requested:
                     terminal_reason = "viewer_finish_requested"
@@ -175,14 +197,12 @@ class EdgeRuntime:
                     self._safety.validate_state(state)
                     self._timeline = ActionTimeline(self._config.robot.group_dims)
                     self._executor.reset(state)
+                    self._strategy.reset()
                     previous_command = copy_group_vector(state.groups)
                     last_command = copy_group_vector(state.groups)
                     discard_responses_through = max(discard_responses_through, request_seq)
                     self._state = RuntimeState.PAUSED
-                    terminal_reason = "completed"
                     recorder.event("viewer_home_requested", step=steps)
-                    # home() can take seconds. Rebase the controller clock instead
-                    # of issuing a burst of catch-up commands from stale state.
                     next_tick_ns = self._clock.now_ns()
                     continue
                 self._state = (
@@ -198,13 +218,9 @@ class EdgeRuntime:
                 response = self._worker.poll()
                 if response is not None:
                     request_in_flight = False
+                    rejection_reason = None
                     if response.error is not None:
-                        rejected_plans += 1
-                        recorder.event(
-                            "inference_rejected",
-                            request_seq=response.request_seq,
-                            reason=response.error,
-                        )
+                        rejection_reason = response.error
                     elif (
                         response.session_id != self._session_id
                         or response.request_seq <= discard_responses_through
@@ -212,11 +228,14 @@ class EdgeRuntime:
                         or response.finished_time_ns > last_request_deadline_ns
                         or response.raw_action is None
                     ):
+                        rejection_reason = "stale_or_expired_response"
+                    if rejection_reason is not None:
+                        self._strategy.on_response_rejected(response)
                         rejected_plans += 1
                         recorder.event(
                             "inference_rejected",
                             request_seq=response.request_seq,
-                            reason="stale_or_expired_response",
+                            reason=rejection_reason,
                         )
                     else:
                         try:
@@ -230,6 +249,7 @@ class EdgeRuntime:
                                 ),
                             )
                         except (TypeError, ValueError) as exc:
+                            self._strategy.on_response_rejected(response)
                             rejected_plans += 1
                             recorder.event(
                                 "plan_rejected",
@@ -237,8 +257,45 @@ class EdgeRuntime:
                                 reason=f"invalid_action:{type(exc).__name__}:{exc}",
                             )
                             chunk = None
+                        if chunk is not None and chunk.action_space != "joint_position":
+                            self._strategy.on_response_rejected(response)
+                            rejected_plans += 1
+                            recorder.event(
+                                "plan_rejected",
+                                request_seq=response.request_seq,
+                                reason=(
+                                    "invalid_action:canonical action_space must be "
+                                    f"'joint_position', got {chunk.action_space!r}"
+                                ),
+                            )
+                            chunk = None
+                        if chunk is not None:
+                            try:
+                                chunk = prepare_strategy_chunk(
+                                    self._strategy,
+                                    chunk=chunk,
+                                    response=response,
+                                    now_ns=now_ns,
+                                )
+                            except (TypeError, ValueError) as exc:
+                                self._strategy.on_response_rejected(response)
+                                rejected_plans += 1
+                                recorder.event(
+                                    "plan_rejected",
+                                    request_seq=response.request_seq,
+                                    reason=(
+                                        "invalid_strategy_chunk:"
+                                        f"{type(exc).__name__}:{exc}"
+                                    ),
+                                )
+                                chunk = None
                         if chunk is not None:
                             previous_reference = self._timeline.sample(now_ns)
+                            commit = self._strategy.commit_settings(
+                                response=response,
+                                measured=state.groups,
+                                last_command=last_command,
+                            )
                             result = self._timeline.commit(
                                 chunk,
                                 now_ns=now_ns,
@@ -248,8 +305,8 @@ class EdgeRuntime:
                                 max_plan_age_ns=int(
                                     self._config.execution.max_plan_age_s * 1_000_000_000
                                 ),
-                                current_command=state.groups,
-                                blend_steps=self._config.execution.blend_steps,
+                                current_command=commit.current_command,
+                                blend_steps=commit.blend_steps,
                             )
                             if result.accepted:
                                 accepted_plans += 1
@@ -258,19 +315,25 @@ class EdgeRuntime:
                                 committed = self._timeline.active_horizon()
                                 if committed is None:
                                     raise RuntimeError("accepted plan missing committed horizon")
+                                event_fields = self._strategy.on_plan_accepted(
+                                    chunk=chunk,
+                                    result=result,
+                                    response=response,
+                                    now_ns=now_ns,
+                                )
                                 recorder.event(
                                     "plan_accepted",
                                     plan_id=chunk.plan_id,
                                     request_seq=chunk.request_seq,
-                                    trimmed_steps=result.trimmed_steps,
+                                    **event_fields,
                                 )
                                 recorder.event(
                                     "plan_boundary",
                                     **build_plan_boundary_payload(
                                         step=steps,
                                         monotonic_ns=now_ns,
-                                        blend_anchor_source="measured_state",
-                                        blend_steps=self._config.execution.blend_steps,
+                                        blend_anchor_source=commit.anchor_source,
+                                        blend_steps=commit.blend_steps,
                                         trimmed_steps=result.trimmed_steps,
                                         previous_reference=previous_reference,
                                         previous_command=previous_command,
@@ -286,6 +349,7 @@ class EdgeRuntime:
                                     committed=committed,
                                 )
                             else:
+                                self._strategy.on_response_rejected(response)
                                 rejected_plans += 1
                                 recorder.event(
                                     "plan_rejected",
@@ -294,34 +358,39 @@ class EdgeRuntime:
                                     reason=result.reason,
                                 )
 
-                refill_ns = int(self._config.execution.refill_threshold_s * 1_000_000_000)
-                request_expired = now_ns > last_request_deadline_ns
-                request_ready = (
-                    not request_in_flight
-                    if self._config.execution.inference_schedule == "single_inflight"
-                    else last_submitted_seq < 0 or request_expired
-                )
-                if (
-                    self._timeline.remaining_ns(now_ns) < refill_ns
-                    and request_ready
-                    and self._worker.is_alive
-                ):
-                    request_seq += 1
-                    deadline_ns = now_ns + int(self._config.policy.timeout_s * 1_000_000_000)
+                if self._worker.is_alive:
                     snapshot = ObservationSnapshot(state=state, frames=frames)
-                    request = InferenceRequest(
+                    submission = self._strategy.build_submission(
                         session_id=self._session_id,
-                        request_seq=request_seq,
-                        observation_time_ns=state.monotonic_ns,
-                        deadline_ns=deadline_ns,
-                        observation=self._adapter.build_observation(snapshot),
-                        instruction=self._config.run.task,
+                        request_seq=request_seq + 1,
+                        now_ns=now_ns,
+                        snapshot=snapshot,
+                        adapter=self._adapter,
+                        timeline=self._timeline,
+                        request_state=RequestState(
+                            in_flight=request_in_flight,
+                            last_submitted_seq=last_submitted_seq,
+                            last_deadline_ns=last_request_deadline_ns,
+                        ),
+                        runtime_state=self._state,
                     )
-                    self._worker.submit_latest(request)
-                    request_in_flight = True
-                    last_submitted_seq = request_seq
-                    last_request_deadline_ns = deadline_ns
-                    recorder.event("inference_submitted", request_seq=request_seq)
+                    if submission is not None:
+                        prepared_request = prepare_policy_request(
+                            self._adapter,
+                            submission.request,
+                        )
+                        request_seq = submission.request.request_seq
+                        self._worker.submit_latest(prepared_request)
+                        request_in_flight = True
+                        last_submitted_seq = request_seq
+                        last_request_deadline_ns = prepared_request.deadline_ns
+                        recorder.event(
+                            "inference_submitted",
+                            request_seq=request_seq,
+                            **submission.event_fields,
+                        )
+                for kind, fields in self._strategy.take_runtime_events(step=steps):
+                    recorder.event(kind, **fields)
 
                 reference = self._timeline.reference_horizon(
                     now_ns=now_ns,
@@ -334,11 +403,6 @@ class EdgeRuntime:
                         name: values[0].copy() for name, values in reference.groups.items()
                     }
                     command = self._executor.step(now_ns, state, reference)
-                elif self._state == RuntimeState.RUNNING:
-                    # Match MolmoAct's measured-state chunk stitching: while a new
-                    # chunk is unavailable, hold the measured pose and resume from it.
-                    self._executor.reset(state)
-                    command = self._hold_command(now_ns, state.groups)
                 else:
                     self._executor.reset(state)
                     command = self._hold_command(now_ns, state.groups)
@@ -371,8 +435,13 @@ class EdgeRuntime:
                             name: frame.capture_monotonic_ns for name, frame in frames.items()
                         },
                     )
-                if self._state == RuntimeState.RUNNING:
                     steps += 1
+
+                self._strategy.on_tick(
+                    steps=steps,
+                    loop_ms=(self._clock.now_ns() - loop_start_ns) / 1e6,
+                    control_dt_ns=self._control_dt_ns,
+                )
                 next_tick_ns += self._control_dt_ns
                 finished_tick_ns = self._clock.now_ns()
                 if next_tick_ns <= finished_tick_ns:
@@ -384,9 +453,8 @@ class EdgeRuntime:
                     next_tick_ns = finished_tick_ns + self._control_dt_ns
                 self._clock.sleep_until_ns(next_tick_ns)
 
-            success = True
             episode_dir = recorder.finish(
-                success=success,
+                success=True,
                 terminal_reason=terminal_reason,
                 steps=steps,
                 wall_time_s=time.perf_counter() - started_wall,
@@ -397,7 +465,7 @@ class EdgeRuntime:
                 steps=steps,
                 accepted_plans=accepted_plans,
                 rejected_plans=rejected_plans,
-                success=success,
+                success=True,
                 terminal_reason=terminal_reason,
             )
         except KeyboardInterrupt:
@@ -426,14 +494,11 @@ class EdgeRuntime:
                     self._robot.home()
                 except BaseException as exc:
                     cleanup_errors.append(exc)
-            try:
-                self._robot.close()
-            except BaseException as exc:
-                cleanup_errors.append(exc)
-            try:
-                self._worker.close()
-            except BaseException as exc:
-                cleanup_errors.append(exc)
+            for closer in (self._robot.close, self._worker.close):
+                try:
+                    closer()
+                except BaseException as exc:
+                    cleanup_errors.append(exc)
             for sensor in self._sensors:
                 try:
                     sensor.close()

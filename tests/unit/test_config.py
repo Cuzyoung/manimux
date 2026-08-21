@@ -6,6 +6,8 @@ import pytest
 from pydantic import ValidationError
 
 from manimux.config import ManiMuxConfig, load_config
+from manimux.plugins import PluginError
+from manimux.runtime import build_runtime
 
 
 def test_mock_config_loads() -> None:
@@ -34,3 +36,35 @@ def test_unknown_config_field_fails() -> None:
                 "policy": {"worker": "fake", "adapter": "identity"},
             }
         )
+
+
+def test_all_infra_configs_load() -> None:
+    for path in sorted(Path("configs").glob("*/yam/infra/*.yaml")):
+        load_config(path)
+
+
+def test_rtc_rejects_default_scheduler_fields_that_it_does_not_use() -> None:
+    config = load_config(Path("configs/mock.yaml"))
+    payload = config.model_dump(mode="python")
+    payload["execution"]["runtime"] = "rtc"
+    payload["execution"]["refill_threshold_s"] = 0.2
+
+    with pytest.raises(ValidationError, match="not used by RTC"):
+        ManiMuxConfig.model_validate(payload)
+
+
+def test_recording_cannot_be_silently_disabled() -> None:
+    config = load_config(Path("configs/mock.yaml"))
+    payload = config.model_dump(mode="python")
+    payload["recording"]["enabled"] = False
+
+    with pytest.raises(ValidationError):
+        ManiMuxConfig.model_validate(payload)
+
+
+def test_unknown_inference_strategy_fails_before_runtime_construction(tmp_path: Path) -> None:
+    config = load_config(Path("configs/mock.yaml"))
+    config.execution.runtime = "missing_strategy"
+
+    with pytest.raises(PluginError, match="manimux.inference_strategies"):
+        build_runtime(config, tmp_path)

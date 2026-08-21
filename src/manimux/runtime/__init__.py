@@ -1,8 +1,7 @@
-"""Execution runtimes.
+"""Shared execution runtime with replaceable inference strategies.
 
-``manimux`` is the original time-indexed runtime with a smoothing executor.
-``rtc`` is Physical Intelligence real-time chunking. A run picks one with
-``execution.runtime``; the default keeps the original behaviour byte for byte.
+``execution.runtime`` selects the default latest-chunk strategy, ACT temporal
+ensembling, Physical Intelligence real-time chunking, or a strategy plugin.
 """
 
 from __future__ import annotations
@@ -11,14 +10,18 @@ from pathlib import Path
 
 from manimux.config import ManiMuxConfig
 from manimux.runtime.edge import EdgeRuntime, RunResult
+from manimux.runtime.inference import build_inference_strategy
 
 
 def build_runtime(config: ManiMuxConfig, run_dir: Path) -> EdgeRuntime:
-    if config.execution.runtime == "manimux":
-        return EdgeRuntime(config, run_dir)
-    from manimux.runtime.rtc import RtcRuntime
+    strategy = build_inference_strategy(config)
+    if strategy.name != "rtc":
+        return EdgeRuntime(config, run_dir, strategy=strategy)
+    from manimux.runtime.rtc import RtcInferenceStrategy, RtcRuntime
 
-    return RtcRuntime(config, run_dir)
+    if not isinstance(strategy, RtcInferenceStrategy):
+        raise TypeError("built-in RTC factory returned the wrong strategy type")
+    return RtcRuntime(config, run_dir, strategy=strategy)
 
 
 __all__ = ["EdgeRuntime", "RunResult", "build_runtime"]

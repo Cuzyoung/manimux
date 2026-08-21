@@ -58,11 +58,8 @@ execution:
     # Ten flow steps: clip at (t^2 + (1-t)^2) / (t(1-t)), t=0.1.
     beta: 9.1
   executor: smooth
-  inference_schedule: single_inflight
-  refill_threshold_s: 0.2
   commit_lead_s: 0.0
   max_plan_age_s: 2.0
-  underrun_hold_s: 0.5
   # Only the first unconditioned chunk uses this. Conditioned RTC chunks
   # already agree with the old chunk and bypass external blending.
   blend_steps: 4

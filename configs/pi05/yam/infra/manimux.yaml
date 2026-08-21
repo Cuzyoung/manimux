@@ -56,7 +56,6 @@ execution:
   refill_threshold_s: 0.2
   commit_lead_s: 0.0
   max_plan_age_s: 2.0
-  underrun_hold_s: 0.5
   blend_steps: 4
   smooth:
     cutoff_hz: 8.0

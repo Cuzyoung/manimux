@@ -1,7 +1,7 @@
 # Pi05 + YAM 运行手册
 
-本文只覆盖 Pi05。默认实验使用 YAM 微调 checkpoint 和普通 ManiMux runtime；同一微调
-checkpoint 的 RTC 和 Pi05 base + RTC 都是独立实验，不与默认配置混用。
+本文只覆盖 Pi05 模型、checkpoint、输入输出契约和普通 ManiMux 基线。推理方法的原理、
+参数、验证步骤和真机命令归各自的方法文档，不在模型 runbook 重复维护。
 
 ## 本地红球任务 checkpoint
 
@@ -62,6 +62,12 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
 envs/yam/.venv/bin/manimux run \
   --config configs/pi05/yam/infra/manimux-pick-red-ball-box-step1000.yaml
 ```
+
+Pi05 上的训练免推理方法由方法文档单独维护：
+
+- ACT temporal ensemble：[`act-temporal-ensemble.md`](act-temporal-ensemble.md)；
+- AAC：[`reproductions/aac-pi05.md`](reproductions/aac-pi05.md)；
+- PAINT：[`reproductions/paint-pi05.md`](reproductions/paint-pi05.md)。
 
 以下章节记录先前 Robocurve 16-step checkpoint 的独立实验，不要与本地 50-step 配置混用。
 

@@ -81,11 +81,59 @@ Beginner 先从全 mock 配置理解七个顶层区域。
 | 字段 | 含义 |
 |---|---|
 | `executor` | `smooth` 或 `mpc`。mock 默认只使用下面的 `smooth` 参数；`mpc` 块此时不参与执行。 |
+| `runtime` | 推理 strategy：`manimux`、`act_temporal_ensemble`、`rtc`、`aac`，或第三方插件。它不更换 Robot、Timeline、Executor 和 Safety。 |
 | `refill_threshold_s` | 当前 Timeline 剩余时间低于该值时提交下一次推理请求。 |
 | `commit_lead_s` | 新 chunk 被接受后，从“当前时刻 + lead”开始生效，给原子切换留出极小调度余量。 |
 | `max_plan_age_s` | 从 observation 时间算起，chunk 超过该年龄就以 `plan_too_old` 拒绝。 |
-| `underrun_hold_s` | schema 中保留的 underrun 参数；当前 EdgeRuntime 没有读取它，Timeline 无可用动作时会立即保持 measured pose。 |
 | `blend_steps` | 新 chunk 裁掉过期前缀后，前多少步从当前 measured command 线性过渡到模型轨迹。`0` 表示不融合。 |
+
+`refill_threshold_s` 和 `inference_schedule` 只属于默认 strategy。`runtime: rtc` 有自己的
+`H/s/d` 调度；`runtime: act_temporal_ensemble` 使用 `query_interval_steps`；`runtime: aac`
+在自适应短 chunk 执行完后同步请求下一组候选；`runtime: paint` 使用论文的异步 `s/d`
+prefix contract。这些 strategy 若配置
+默认 strategy 的调度字段会直接校验失败，避免出现“写了参数但实际没生效”。
+
+`execution.temporal_ensemble` 仅在 `runtime: act_temporal_ensemble` 时生效：
+
+| 字段 | 默认值 | 含义 |
+|---|---:|---|
+| `coefficient` | `0.01` | 官方 ACT 的指数权重系数 `w_i ∝ exp(-coefficient × i)`；预测按旧到新排列。 |
+| `query_interval_steps` | `1` | 每隔多少个 **policy action step** 请求一个新 chunk。`1` 是官方 ACT temporal aggregation 频率；Pi05 示例用 `4`，即约 `4 × 33.3 = 133 ms`。 |
+
+ACT strategy 要求 `blend_steps: 0`：重叠 chunk 已由 ACT 公式融合，再做线性 seam blend
+会二次修改算法输出。当前实现的公式和默认系数来自官方 ACT commit `742c753`，ManiMux
+只把同步的逐步查询改成非阻塞、可参数化的 policy-step 查询调度。
+
+`execution.aac` 仅在 `runtime: aac` 时生效：
+
+| 字段 | 默认值 | 含义 |
+|---|---:|---|
+| `num_samples` | `20` | 一次视觉编码后并行采样的候选 chunk 数，跟随官方 AAC。 |
+| `motion_threshold` | `3.0` | 未归一化 EE motion floor 阈值，必须按本体动作单位标定；YAM 60 条示教配置使用 `0.2`。 |
+| `ee_stats_path` | required | entropy/selector 使用的固定 EE 增量 min-max；必须匹配本体、FK、joint 顺序和训练数据域。 |
+| `chunk_id_selector` | `"0"` | `"0"` 选第一条候选（官方默认），也支持官方 `mean` 和 `backward` selector。 |
+| `backward_beta` | `0.99` | `backward` selector 对重叠未来动作的指数权重。 |
+
+AAC 要求 `policy.options.allow_short_horizon: true` 和 `blend_steps: 0`。官方实现面向 GR00T
+N1.5 的 7D EE pose/gripper action；`configs/{groot,pi05}/yam/infra/aac*.yaml` 是明确标注的
+YAM adaptation：模型仍输出 14D absolute joints，但 `aac_kinematics: yam` 会先用共享 YAM
+FK 转成左右逐步 EE 增量，使用 config 指向的固定 stats 做官方 min-max，再分别执行官方
+score 后取平均。stats 只参与 AAC 评分，最终执行仍是原始 joint chunk。它不是官方论文
+的 Pi05/YAM 配置。
+
+`execution.paint` 仅在 `runtime: paint` 时生效：
+
+| 字段 | 默认值 | 含义 |
+|---|---:|---|
+| `execution_steps` | `10` | 论文中的执行窗口 `s`：旧 chunk 至少执行到该 index 才提交下一次异步推理。 |
+| `initial_delay_steps` | `4` | 首次 PAINT 请求使用的延迟 `d`；之后用已完成请求的真实耗时滚动更新。 |
+| `delay_buffer_size` | `10` | 延迟历史窗口；使用窗口内最大值，避免真实推理超过已锚定 prefix。 |
+
+PAINT 要求 `d <= s <= H-d` 且 `blend_steps: 0`。ManiMux 将旧 chunk 的 `A[s:s+d]` 送给
+XPolicy；XPolicy sampler 完成论文的 naive forward、backward Euler、prefix repaint 和
+final forward。禁用 seam blend 是为了避免旧 chunk 在成为下一次 prefix condition 前被
+Timeline 二次改写。若响应
+实际需要丢弃的步数超过 condition 的 `d`，runtime 会拒绝该响应而不是执行未锚定动作。
 
 `execution.smooth` 仅在 `executor: smooth` 时生效：
 
@@ -113,11 +161,11 @@ Beginner 先从全 mock 配置理解七个顶层区域。
 | `enabled` | 是否把状态、相机、plan 和事件发布给 ManiMux Viewer。mock 默认关闭。 |
 | `robot_adapter` | Viewer 采用哪套机器人几何和关节映射；`enabled: false` 时不生效。 |
 
-### `recording`：是否保存 episode
+### `recording`：保存 episode
 
 | 字段 | 含义 |
 |---|---|
-| `enabled` | 配置层已经声明该开关，但当前 EdgeRuntime 始终创建 Recorder，尚未根据该值关闭记录；mock 写 `true` 与实际行为一致。 |
+| `enabled` | 当前必须为 `true`。真机运行强制保留 episode、事件和命令 lineage；写 `false` 会在配置校验阶段失败。 |
 
 ### mock 中没有显式写出的常用字段
 
@@ -130,8 +178,11 @@ Beginner 先从全 mock 配置理解七个顶层区域。
 | `policy.options` | `{}` | 具体模型插件自己的地址、相机映射、stats、group order 等参数。 |
 | `robot.config` / `robot.options` | `null` / `{}` | RobotDriver 的外部配置路径和本体专用参数。 |
 | `sensor.options` | `{}` | SensorDriver 专用的 endpoint、camera names 等参数。 |
-| `execution.runtime` | `manimux` | 选择默认 Timeline runtime 或 `rtc` runtime。 |
-| `execution.inference_schedule` | `deadline` | `deadline` 允许旧请求到期后提交新请求；`single_inflight` 始终只保留一个未完成请求。 |
-| `execution.rtc` | defaults | 仅 `runtime: rtc` 使用的 delay、最小执行步数和 guidance 参数。 |
+| `execution.runtime` | `manimux` | 选择共享 Runtime 内的 strategy；支持内置 `manimux`/`act_temporal_ensemble`/`rtc`/`aac`/`paint`、entry point 或 `module:factory`。 |
+| `execution.inference_schedule` | `deadline` | 仅默认 strategy 使用；`deadline` 允许旧请求到期后提交新请求，`single_inflight` 始终只保留一个未完成请求。 |
+| `execution.rtc` | defaults | 仅 RTC strategy 使用的 delay、最小执行步数和 guidance 参数。 |
+| `execution.temporal_ensemble` | defaults | 仅 ACT strategy 使用的官方指数权重和查询间隔。 |
+| `execution.aac` | defaults | 仅 AAC strategy 使用的多样本数、motion floor 和候选选择参数。 |
+| `execution.paint` | defaults | 仅 PAINT strategy 使用的执行窗口、延迟先验和滚动窗口。 |
 | `viewer.policy_label` | `""` | Viewer 与 Recorder 中显示的模型名称。 |
 | `viewer.camera_hz` | `5.0` | 向 Viewer 发布相机图像的最高频率；不改变 policy 读取相机的频率。 |

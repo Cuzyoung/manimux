@@ -5,6 +5,7 @@ from collections.abc import Callable
 from manimux.config import PolicyConfig, RobotConfig
 from manimux.plugins import load_plugin
 from manimux.policies.base import PolicyAdapter, PolicyModel
+from manimux.policies.capabilities import PolicyCapabilities
 from manimux.policies.fake import FakePolicyAdapter, FakePolicyModel
 
 PolicyModelFactory = Callable[[PolicyConfig], PolicyModel]
@@ -119,6 +120,7 @@ __all__ = [
     "FakePolicyAdapter",
     "FakePolicyModel",
     "PolicyAdapter",
+    "PolicyCapabilities",
     "PolicyAdapterFactory",
     "PolicyModel",
     "PolicyModelFactory",

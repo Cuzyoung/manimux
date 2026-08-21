@@ -97,18 +97,96 @@ class RtcConfig(StrictModel):
     # configured by ``execution.executor`` and ``execution.smooth`` as usual.
 
 
+class TemporalEnsembleConfig(StrictModel):
+    """ACT temporal ensembling with an asynchronous query cadence."""
+
+    coefficient: float = Field(default=0.01, ge=0)
+    query_interval_steps: int = Field(default=1, gt=0)
+
+
+class AacConfig(StrictModel):
+    """Adaptive Action Chunking sampling and selection parameters."""
+
+    num_samples: int = Field(default=20, gt=1)
+    motion_threshold: float = Field(default=3.0, ge=0)
+    ee_stats_path: str | None = None
+    chunk_id_selector: Literal["0", "mean", "backward"] = "0"
+    backward_beta: float = Field(default=0.99, gt=0, le=1)
+
+
+class PaintConfig(StrictModel):
+    """PAINT asynchronous execution parameters (arXiv:2606.19774)."""
+
+    execution_steps: int = Field(default=10, gt=0)
+    initial_delay_steps: int = Field(default=4, gt=0)
+    delay_buffer_size: int = Field(default=10, gt=0)
+
+
 class ExecutionConfig(StrictModel):
-    runtime: Literal["manimux", "rtc"] = "manimux"
+    runtime: str = Field(default="manimux", min_length=1)
     executor: Literal["smooth", "mpc"] = "smooth"
     inference_schedule: Literal["deadline", "single_inflight"] = "deadline"
     refill_threshold_s: float = Field(default=0.4, gt=0)
     commit_lead_s: float = Field(default=0.02, ge=0)
     max_plan_age_s: float = Field(default=1.0, gt=0)
-    underrun_hold_s: float = Field(default=0.5, ge=0)
     blend_steps: int = Field(default=2, ge=0)
     smooth: SmoothConfig = SmoothConfig()
     mpc: MPCConfig = MPCConfig()
     rtc: RtcConfig = RtcConfig()
+    temporal_ensemble: TemporalEnsembleConfig = TemporalEnsembleConfig()
+    aac: AacConfig = AacConfig()
+    paint: PaintConfig = PaintConfig()
+
+    @model_validator(mode="after")
+    def validate_strategy_fields(self) -> ExecutionConfig:
+        if self.runtime == "rtc":
+            ignored = {"inference_schedule", "refill_threshold_s"}.intersection(
+                self.model_fields_set
+            )
+            if ignored:
+                names = ", ".join(sorted(ignored))
+                raise ValueError(f"execution fields are not used by RTC: {names}")
+        if self.runtime == "act_temporal_ensemble":
+            ignored = {"inference_schedule", "refill_threshold_s"}.intersection(
+                self.model_fields_set
+            )
+            if ignored:
+                names = ", ".join(sorted(ignored))
+                raise ValueError(
+                    f"execution fields are not used by ACT temporal ensembling: {names}"
+                )
+            if self.blend_steps != 0:
+                raise ValueError(
+                    "ACT temporal ensembling requires execution.blend_steps=0 "
+                    "to avoid modifying the ensembled trajectory"
+                )
+        if self.runtime == "aac":
+            if not self.aac.ee_stats_path:
+                raise ValueError("execution.aac.ee_stats_path is required by AAC")
+            ignored = {"inference_schedule", "refill_threshold_s"}.intersection(
+                self.model_fields_set
+            )
+            if ignored:
+                names = ", ".join(sorted(ignored))
+                raise ValueError(f"execution fields are not used by AAC: {names}")
+            if self.blend_steps != 0:
+                raise ValueError(
+                    "AAC requires execution.blend_steps=0 so the selected chunk "
+                    "is not rewritten at commit"
+                )
+        if self.runtime == "paint":
+            ignored = {"inference_schedule", "refill_threshold_s"}.intersection(
+                self.model_fields_set
+            )
+            if ignored:
+                names = ", ".join(sorted(ignored))
+                raise ValueError(f"execution fields are not used by PAINT: {names}")
+            if self.blend_steps != 0:
+                raise ValueError(
+                    "PAINT requires execution.blend_steps=0 so A[s:s+d] is not "
+                    "rewritten before it becomes the next prefix condition"
+                )
+        return self
 
 
 class ViewerConfig(StrictModel):
@@ -119,7 +197,7 @@ class ViewerConfig(StrictModel):
 
 
 class RecordingConfig(StrictModel):
-    enabled: bool = True
+    enabled: Literal[True] = True
 
 
 class ManiMuxConfig(StrictModel):
@@ -130,6 +208,30 @@ class ManiMuxConfig(StrictModel):
     execution: ExecutionConfig = ExecutionConfig()
     viewer: ViewerConfig = ViewerConfig()
     recording: RecordingConfig = RecordingConfig()
+
+    @model_validator(mode="after")
+    def validate_runtime_contract(self) -> ManiMuxConfig:
+        if self.execution.runtime == "rtc":
+            delay = self.execution.rtc.initial_delay_steps
+            if 2 * delay > self.policy.horizon_steps:
+                raise ValueError("RTC requires 2 * initial_delay_steps <= policy.horizon_steps")
+        if self.execution.runtime == "act_temporal_ensemble":
+            query_interval = self.execution.temporal_ensemble.query_interval_steps
+            if query_interval >= self.policy.horizon_steps:
+                raise ValueError(
+                    "ACT temporal ensembling requires query_interval_steps "
+                    "< policy.horizon_steps so consecutive chunks overlap"
+                )
+        if self.execution.runtime == "paint":
+            execution = self.execution.paint.execution_steps
+            delay = self.execution.paint.initial_delay_steps
+            horizon = self.policy.horizon_steps
+            if not delay <= execution <= horizon - delay:
+                raise ValueError(
+                    "PAINT requires initial_delay_steps <= execution_steps "
+                    "<= horizon_steps - initial_delay_steps"
+                )
+        return self
 
 
 def load_config(path: str | Path) -> ManiMuxConfig:

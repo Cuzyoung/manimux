@@ -19,8 +19,10 @@ from manimux.integrations.xpolicylab.obs_codec import (
     encode_observation,
 )
 from manimux.integrations.xpolicylab.policy_plugin import build_adapter, build_model
-from manimux.integrations.xpolicylab.ws_client import normalize_url
+from manimux.integrations.xpolicylab.ws_client import XPolicyLabWsClient, normalize_url
+from manimux.integrations.xr1_yam.policy_plugin import build_adapter as build_xr1_adapter
 from manimux.integrations.xr1_yam.policy_plugin import joint_condition_to_xr1_actions
+from manimux.runtime.aac import AacInferenceRequest
 from manimux.runtime.rtc import RtcInferenceRequest
 from manimux.types import ActionContext, ObservationSnapshot, RobotState, SensorFrame
 
@@ -242,6 +244,27 @@ def test_adapter_rejects_an_unexpected_action_horizon() -> None:
         )
 
 
+def test_adapter_accepts_aac_selected_short_horizon_when_enabled() -> None:
+    adapter = build_adapter(_robot_config(), _policy_config(allow_short_horizon=True))
+    chunk = adapter.decode_action(
+        _action_steps(7),
+        ActionContext(request_seq=7, observation_time_ns=11, created_time_ns=12),
+    )
+    assert chunk.horizon_steps == 7
+
+
+def test_adapter_unwraps_aac_metadata_without_changing_actions() -> None:
+    adapter = build_adapter(_robot_config(), _policy_config(allow_short_horizon=True))
+    chunk = adapter.decode_action(
+        {
+            "actions": _action_steps(5),
+            "aac": {"chunk_id": 0, "entropy_elbow": 2, "motion_floor": 5},
+        },
+        ActionContext(request_seq=7, observation_time_ns=11, created_time_ns=12),
+    )
+    assert chunk.horizon_steps == 5
+
+
 def test_adapter_validate_rejects_a_group_order_mismatch() -> None:
     adapter = build_adapter(_robot_config(), _policy_config())
     swapped = RobotConfig(
@@ -319,6 +342,32 @@ def test_normalize_url_rejects_an_unusable_scheme() -> None:
         normalize_url("ftp://host:1")
 
 
+def test_ws_client_preserves_aac_metadata_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = XPolicyLabWsClient(
+        url="ws://127.0.0.1:8500",
+        evaluation_id="evaluation",
+        trial_id="trial",
+    )
+    monkeypatch.setattr(
+        client,
+        "request",
+        lambda *_args, **_kwargs: {
+            "payload": {
+                "actions": [_action_steps(5), _action_steps(5)],
+                "latency_ms": 12.0,
+            }
+        },
+    )
+
+    result = client.infer({}, sampling={"mode": "aac"})
+    assert isinstance(result, dict)
+    assert result["latency_ms"] == 12.0
+    assert len(result["actions"]) == 2
+    assert len(result["actions"][0]) == 5
+
+
 # --------------------------------------------------------------- model wiring
 
 
@@ -345,6 +394,53 @@ def test_model_infer_refuses_an_uninitialised_session() -> None:
     )
     with pytest.raises(RuntimeError, match="session is not initialized"):
         model.infer(request)
+
+
+def test_model_maps_aac_request_to_xpolicy_sampling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import manimux.kinematics
+
+    monkeypatch.setattr(
+        manimux.kinematics,
+        "build_kinematics",
+        lambda *_args, **_kwargs: _LinearKinematics(),
+    )
+    model = build_model(_policy_config(allow_short_horizon=True))
+    model._session_id = "session"
+    captured: dict[str, object] = {}
+
+    class _Client:
+        def infer(self, observation: object, *, sampling: object) -> dict[str, object]:
+            captured["observation"] = observation
+            captured["sampling"] = sampling
+            return {"actions": [_action_steps(30) for _ in range(20)]}
+
+    model._client = _Client()
+    request = AacInferenceRequest(
+        session_id="session",
+        request_seq=1,
+        observation_time_ns=1,
+        deadline_ns=2**62,
+        observation=_snapshot(),
+        instruction="task",
+        aac_num_samples=20,
+        aac_motion_threshold=3.0,
+        aac_ee_stats_path=(
+            "src/manimux/integrations/xpolicylab/norm_stats/yam_60ep_ee_increment.json"
+        ),
+        aac_chunk_id_selector="mean",
+        aac_backward_beta=0.99,
+    )
+    result = model.infer(request)
+
+    assert captured["sampling"] == {
+        "mode": "aac",
+        "num_samples": 20,
+    }
+    assert isinstance(result, dict)
+    assert 2 <= len(result["actions"]) <= 30
+    assert result["aac"]["metric_space"] == "dual_arm_incremental_ee_action_mean"
 
 
 class _LinearKinematics:
@@ -383,7 +479,7 @@ def test_xr1_condition_codec_maps_joint_waypoints_to_native_ee_deltas() -> None:
     np.testing.assert_allclose(actions[:, 20:], 0.0)
 
 
-def test_xpolicylab_xr1_rtc_sends_native_condition_and_preserves_anchor(
+def test_xr1_adapter_encodes_rtc_condition_before_generic_xpolicy_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import manimux.kinematics
@@ -393,7 +489,9 @@ def test_xpolicylab_xr1_rtc_sends_native_condition_and_preserves_anchor(
         "build_kinematics",
         lambda *_args, **_kwargs: _LinearKinematics(),
     )
-    model = build_model(_policy_config(action_codec="xr1_ee_delta", kinematics="yam"))
+    policy = _policy_config(action_codec="xr1_ee_delta", kinematics="yam")
+    model = build_model(policy)
+    adapter = build_xr1_adapter(_robot_config(), policy)
     model._session_id = "session"
     captured: dict[str, object] = {}
 
@@ -409,25 +507,25 @@ def test_xpolicylab_xr1_rtc_sends_native_condition_and_preserves_anchor(
         [snapshot.state.groups["left_arm"], snapshot.state.groups["right_arm"]]
     )
     condition = np.tile(condition, (30, 1))
-    raw = model.infer(
-        RtcInferenceRequest(
-            session_id="session",
-            request_seq=1,
-            observation_time_ns=1,
-            deadline_ns=2**62,
-            observation=snapshot,
-            instruction="task",
-            action_condition=condition,
-            condition_weights=np.ones(30),
-            rtc_beta=5.0,
-        )
+    request = RtcInferenceRequest(
+        session_id="session",
+        request_seq=1,
+        observation_time_ns=1,
+        deadline_ns=2**62,
+        observation=snapshot,
+        instruction="task",
+        action_condition=condition,
+        condition_weights=np.ones(30),
+        rtc_beta=5.0,
     )
+    prepared = adapter.prepare_request(request)
+    raw = model.infer(prepared)
 
     sampling = captured["sampling"]
     assert isinstance(sampling, dict)
     assert sampling["mode"] == "rtc"
     assert sampling["action_condition"].shape == (30, 60)
     np.testing.assert_allclose(sampling["action_condition"], 0.0)
-    assert isinstance(raw, dict)
-    assert raw["actions"].shape == (30, 60)
-    np.testing.assert_allclose(raw["state"], condition[0])
+    assert isinstance(raw, np.ndarray)
+    assert raw.shape == (30, 60)
+    np.testing.assert_allclose(adapter._anchors[1], condition[0])

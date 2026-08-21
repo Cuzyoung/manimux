@@ -21,7 +21,7 @@ from manimux.policies import build_policy_adapter, build_policy_model
 from manimux.robots import build_robot
 from manimux.sensors import build_sensor
 from manimux.sensors.camera_server import CameraServerSensorDriver
-from manimux.types import ActionContext
+from manimux.types import ActionContext, InferenceRequest, ObservationSnapshot, RobotState
 
 pytest.importorskip("mujoco")
 pytest.importorskip("mink")
@@ -122,11 +122,37 @@ def test_known_delta_round_trips_through_forward_kinematics(adapter: XR1YamAdapt
 
 
 def test_adapter_rejects_a_bare_action_matrix(adapter: XR1YamAdapter) -> None:
-    with pytest.raises(TypeError, match="state"):
+    with pytest.raises(ValueError, match="no observation anchor"):
         adapter.decode_action(
             np.zeros((30, ACTION_DIM)),
             ActionContext(request_seq=1, observation_time_ns=0, created_time_ns=0),
         )
+
+
+def test_prepared_request_supplies_anchor_to_bare_action_matrix(
+    adapter: XR1YamAdapter,
+) -> None:
+    request = InferenceRequest(
+        session_id="session",
+        request_seq=10,
+        observation_time_ns=1,
+        deadline_ns=2,
+        observation=ObservationSnapshot(
+            state=RobotState(
+                groups={"left_arm": ANCHOR[:7], "right_arm": ANCHOR[7:]},
+                monotonic_ns=1,
+                sequence=1,
+            )
+        ),
+    )
+    adapter.prepare_request(request)
+    chunk = adapter.decode_action(
+        np.zeros((30, ACTION_DIM)),
+        ActionContext(request_seq=10, observation_time_ns=1, created_time_ns=2),
+    )
+
+    np.testing.assert_allclose(chunk.groups["left_arm"][:, 6], ANCHOR[6])
+    np.testing.assert_allclose(chunk.groups["right_arm"][:, 6], ANCHOR[13])
 
 
 def test_adapter_rejects_wrong_action_width(adapter: XR1YamAdapter) -> None:

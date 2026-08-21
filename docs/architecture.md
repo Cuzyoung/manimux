@@ -1,8 +1,8 @@
 # ManiMux V1 功能架构
 
-状态：Draft v0.2
+状态：V1 runtime contract
 
-日期：2026-08-16
+日期：2026-08-21
 
 范围：单工作站、本地机器人、本地模型、本地数据
 
@@ -37,7 +37,7 @@ manimux run --config configs/my_run.yaml
 ├── edge-agent
 │   ├── RobotDriver / SensorDriver
 │   ├── Observation Builder
-│   ├── Action Timeline + Controller + Safety
+│   ├── InferenceStrategy + Action Timeline + Executor + Safety
 │   ├── local Recorder
 │   └── built-in Viewer publisher/control client
 │
@@ -85,6 +85,9 @@ all streams ── best-effort copy ──► local Recorder / Viewer
 ```
 
 Edge Agent 内部可以有多个 thread/process，但 controller loop 不能等待其他组件。
+普通异步 chunk、ACT Temporal Ensembling 和 RTC 共用这一条控制循环；它们只替换
+`InferenceStrategy`，不会复制 Robot、Sensor、Timeline、Executor、Safety、Recorder、
+Viewer 或退出清理逻辑。
 
 ### 2.3 Policy Worker
 
@@ -154,6 +157,7 @@ PolicyAdapter 隔离模型与机器人组合的特殊语义：
 ```python
 class PolicyAdapter(Protocol):
     def build_observation(self, snapshot: ObservationSnapshot) -> object: ...
+    def prepare_request(self, request: InferenceRequest) -> InferenceRequest: ...
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk: ...
     def validate(self, robot: RobotConfig, policy: PolicyConfig) -> None: ...
 ```
@@ -164,6 +168,7 @@ class PolicyAdapter(Protocol):
 - 模型 state 与 action normalization；
 - joint/group order；
 - relative/absolute 与 joint/EE action 解释；
+- RTC condition 从 canonical joint 空间到模型 native action 空间的编码；
 - gripper 语义；
 - 输出 shape、finite value 和基础 continuity 校验。
 
@@ -186,8 +191,31 @@ YAM state/cameras
   模型原生 action 解码；
 - ManiMux RTC 根据真实执行进度生成 condition 和 soft mask；支持 RTC 的 XPolicy 模型
   adapter 把它注入模型采样过程，不支持时明确失败；
+- XPolicy `HELLO_ACK` 声明 `default/rtc/aac` sampling capability，PolicyWorker 在机器人连接前
+  将它交给 Runtime 做兼容检查；
 - `XPolicyLab/` submodule 只固定源码版本。模型仍在独立环境运行，ManiMux 通过
   WebSocket 发出一次完整推理请求，不把模型依赖装进 runtime 环境。
+
+### 3.4 InferenceStrategy
+
+Runtime 只有一条控制循环。InferenceStrategy 只负责三个决定：
+
+```python
+build_submission(...) -> InferenceRequest | None
+prepare_chunk(...) -> ActionChunk
+commit_settings(...) -> anchor + blend_steps
+on_plan_accepted(...) -> strategy state
+```
+
+- `DefaultChunkStrategy` 在 Timeline 剩余时间低于阈值时请求普通 chunk；
+- `ACTTemporalEnsembleStrategy` 按 policy step 周期请求 chunk，并按官方 ACT 公式合并
+  同一绝对时刻的重叠预测；
+- `RtcInferenceStrategy` 根据 `H/s/d` 选择推理时机，并构造 condition 与 soft mask；
+- `AacInferenceStrategy` 等待上一段自适应 chunk 结束，再请求 XPolicy 的多样本 hook；
+- 所有 strategy 的结果都必须先成为 canonical `joint_position` ActionChunk，才能进入 Timeline；
+- 新算法应新增 strategy，而不是复制一份 EdgeRuntime。
+- strategy 与其它插件一样支持内置名、Python entry point 和 `module:factory`；第三方算法
+  不需要修改 `build_runtime()`。
 
 ## 4. 一个配置文件
 

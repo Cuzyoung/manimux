@@ -6,6 +6,7 @@ import uuid
 import numpy as np
 
 from manimux.config import PolicyConfig, RobotConfig
+from manimux.policies.capabilities import PolicyCapabilities
 from manimux.types import ActionChunk, ActionContext, InferenceRequest, ObservationSnapshot
 
 
@@ -59,6 +60,9 @@ class FakePolicyModel:
             dt_ns=self._action_dt_ns,
             groups=groups,
         )
+
+    def capabilities(self) -> PolicyCapabilities:
+        return PolicyCapabilities(sampling_modes=frozenset({"default", "rtc"}))
 
     def close(self) -> None:
         self._session_id = None

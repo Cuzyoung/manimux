@@ -9,6 +9,7 @@ from typing import Any
 
 from manimux.config import PolicyConfig
 from manimux.policies import build_policy_model
+from manimux.policies.capabilities import PolicyCapabilities
 from manimux.types import InferenceRequest, InferenceResponse
 
 
@@ -38,7 +39,17 @@ def _worker_main(
     except Exception as exc:
         _put_latest(startup_queue, ("error", f"{type(exc).__name__}:{exc}"))
         return
-    _put_latest(startup_queue, ("ready", None))
+    try:
+        capability_method = getattr(model, "capabilities", None)
+        capabilities = (
+            capability_method() if callable(capability_method) else PolicyCapabilities()
+        )
+        if not isinstance(capabilities, PolicyCapabilities):
+            raise TypeError("model capabilities have an invalid type")
+    except Exception as exc:
+        _put_latest(startup_queue, ("error", f"capability_error:{type(exc).__name__}:{exc}"))
+        return
+    _put_latest(startup_queue, ("ready", capabilities))
     try:
         while True:
             request = request_queue.get()
@@ -109,6 +120,7 @@ class PolicyWorkerClient:
             daemon=True,
         )
         self._started = False
+        self._capabilities = PolicyCapabilities()
 
     def start(self) -> None:
         if self._started:
@@ -125,6 +137,10 @@ class PolicyWorkerClient:
         if status != "ready":
             self.close()
             raise RuntimeError(f"policy worker failed during startup: {detail}")
+        if not isinstance(detail, PolicyCapabilities):
+            self.close()
+            raise RuntimeError("policy worker returned invalid capabilities")
+        self._capabilities = detail
 
     def submit_latest(self, request: InferenceRequest) -> None:
         if not self._started or not self._process.is_alive():
@@ -145,6 +161,10 @@ class PolicyWorkerClient:
     @property
     def is_alive(self) -> bool:
         return self._started and self._process.is_alive()
+
+    @property
+    def capabilities(self) -> PolicyCapabilities:
+        return self._capabilities
 
     def close(self) -> None:
         if not self._started:
