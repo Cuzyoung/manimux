@@ -26,7 +26,6 @@ export TRANSFORMERS_OFFLINE=1
 export UV_CACHE_DIR=${ROOT}/cache/uv
 export UV_INDEX_URL=${UV_INDEX_URL:-http://nexus.sii.shaipower.online/repository/pypi/simple}
 export UV_INSECURE_HOST=${UV_INSECURE_HOST:-nexus.sii.shaipower.online}
-export PYTORCH_INDEX_URL=${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}
 export TORCH_HOME=${ROOT}/cache/torch
 export XR1_QWEN_VL_CONFIG_SOURCE=${PROCESSOR}
 export WANDB_DIR=${WANDB_DIR:-${ROOT}/runs/wandb}
@@ -71,18 +70,39 @@ install_environment() {
   fi
   command -v uv >/dev/null
   if [[ ! -x "${VENV}/bin/python" ]]; then
-    uv venv --python 3.12 "${VENV}"
+    uv venv --python 3.12 --system-site-packages "${VENV}"
+  elif ! grep -q '^include-system-site-packages = true$' "${VENV}/pyvenv.cfg"; then
+    # The official H100 image already provides its CUDA-matched PyTorch build.
+    # Keep that binary stack and install only XR1's Python-level dependencies.
+    sed -i 's/^include-system-site-packages = false$/include-system-site-packages = true/' \
+      "${VENV}/pyvenv.cfg"
   fi
   export UV_LINK_MODE=copy
   export UV_HTTP_TIMEOUT=${UV_HTTP_TIMEOUT:-600}
   uv pip install --python "${VENV}/bin/python" pip setuptools wheel packaging ninja
   uv pip install --python "${VENV}/bin/python" \
-    torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 \
-    --index-url "${PYTORCH_INDEX_URL}"
-  uv pip install --python "${VENV}/bin/python" \
-    -r "${XR1}/assets/requirements.txt"
-  uv pip install --python "${VENV}/bin/python" flash-attn==2.8.3 --no-build-isolation
+    lightning==2.5.3 deepspeed==0.18.9 transformers==4.57.1 \
+    accelerate==1.11.0 safetensors==0.6.2 liger-kernel==0.6.5 \
+    numpy==2.1.3 Pillow==11.3.0 decord==0.6.0 mmengine==0.10.7 \
+    omegaconf==2.3.0 hydra-core==1.3.2 wandb==0.23.1 tensorboard==2.20.0
   uv pip install --python "${VENV}/bin/python" -e "${WORKSPACE}/XPolicyLab"
+  "${VENV}/bin/python" - <<'PY'
+import decord
+import deepspeed
+import flash_attn
+import lightning
+import mmengine
+import torch
+import transformers
+
+assert torch.cuda.is_available()
+print({
+    "torch": torch.__version__,
+    "cuda": torch.version.cuda,
+    "flash_attn": flash_attn.__version__,
+    "transformers": transformers.__version__,
+})
+PY
 }
 
 prepare_data() {
