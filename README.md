@@ -294,11 +294,11 @@ envs/yam/.venv/bin/manimux serve \
 
 Open `http://localhost:8086`, then operate Viewer in this order:
 
-1. Choose Experiment mode: OFF skips evaluation; ON requires a label after every rollout.
-2. Confirm the task command and optionally enter a layout/condition ID.
-3. Click `Prepare new rollout` and wait for `Connected · PAUSED`.
-4. Click `Start / Resume` to run, then `Finish rollout` to stop and save.
-5. In Experiment mode, select the result and smoothness score, then click `Save evaluation`.
+1. Confirm the task command and, for experiments, enter a layout/condition ID.
+2. Click `Prepare normal rollout`, or `🧪 Prepare experiment rollout` when labels are required.
+3. Wait for `Connected · PAUSED`, then click `Start / Resume`.
+4. Click `Finish rollout` to stop and save the episode.
+5. After an experiment rollout, select the result and smoothness score, then save the evaluation.
 
 These snippets show entry points only. They do not replace checkpoint validation, preflight,
 CAN checks or shutdown procedures. Model setup stays in its runbook; ACT, AAC, PAINT and later

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -8,10 +9,48 @@ import pytest
 from manimux.types import ActionChunk, ActionHorizon, RobotState, SensorFrame
 from manimux.viewer.bridge import ViewerBridge
 from manimux.viewer.client import ViewerClient
-from manimux.viewer.dashboard import _instruction_markdown, _prefill_task, _trajectory_colors
+from manimux.viewer.dashboard import (
+    PolicyViewer,
+    _instruction_markdown,
+    _prefill_task,
+    _trajectory_colors,
+)
 from manimux.viewer.protocol import PolicyPlan, RobotSnapshot, RuntimeEvent
 from manimux.viewer.robots import available_robot_adapters, load_robot_adapter
 from manimux.viewer.robots.yam import DEFAULT_I2RT_ROOT, YamAdapter
+
+
+@pytest.mark.parametrize("experiment_mode", [False, True])
+def test_prepare_button_atomically_selects_rollout_mode(experiment_mode: bool) -> None:
+    viewer = PolicyViewer.__new__(PolicyViewer)
+    viewer.experiment_mode = not experiment_mode
+    viewer.evaluation_saved = True
+    viewer.service_ready = True
+    viewer.new_rollout_requested = False
+    viewer.preparing_rollout = False
+    viewer.paused = False
+    viewer.step_once = False
+    viewer.home_requested = False
+    viewer.finish_requested = False
+    viewer.prepare_normal_btn = SimpleNamespace(disabled=False)
+    viewer.prepare_experiment_btn = SimpleNamespace(disabled=False)
+    viewer.layout_id = SimpleNamespace(disabled=False, value="layout-02")
+    viewer.task = SimpleNamespace(disabled=False, value="fold the towel")
+    viewer.status = SimpleNamespace(content="")
+    viewer.rollout_setup_status = SimpleNamespace(content="")
+
+    viewer._prepare_rollout(experiment_mode=experiment_mode)
+    request = viewer.control_state()
+
+    assert request["new_rollout_requested"] is True
+    assert request["experiment_mode"] is experiment_mode
+    assert request["task_command"] == "fold the towel"
+    assert request["layout_id"] == "layout-02"
+    assert viewer.prepare_normal_btn.disabled
+    assert viewer.prepare_experiment_btn.disabled
+    assert viewer.task.disabled
+    assert viewer.layout_id.disabled
+    assert viewer.control_state()["new_rollout_requested"] is False
 
 
 def test_protocol_is_not_tied_to_yam_dimensions() -> None:

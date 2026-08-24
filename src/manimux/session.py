@@ -32,6 +32,10 @@ ControlFactory = Callable[[], _ControlClient]
 PublisherFactory = Callable[[], _Publisher]
 
 
+def _build_served_runtime(config: ManiMuxConfig, run_dir: Path) -> _Runtime:
+    return build_runtime(config, run_dir, launch_mode="serve")
+
+
 class RuntimeSessionService:
     """Keep one runtime service alive while Viser creates isolated rollouts."""
 
@@ -40,7 +44,7 @@ class RuntimeSessionService:
         config: ManiMuxConfig,
         run_dir: Path,
         *,
-        runtime_factory: RuntimeFactory = build_runtime,
+        runtime_factory: RuntimeFactory | None = None,
         control_factory: ControlFactory = ControlClient,
         publisher_factory: PublisherFactory = ViewerPublisher,
         poll_interval_s: float = 0.1,
@@ -50,7 +54,7 @@ class RuntimeSessionService:
             raise ValueError("manimux serve requires viewer.enabled=true")
         self._config = config
         self._run_dir = run_dir
-        self._runtime_factory = runtime_factory
+        self._runtime_factory = runtime_factory or _build_served_runtime
         self._control_factory = control_factory
         self._publisher_factory = publisher_factory
         self._poll_interval_s = poll_interval_s
@@ -116,12 +120,12 @@ class RuntimeSessionService:
         attempts = 0
         print(f"runtime service ready; run_dir={self._run_dir.resolve()}")
         print(
-            "Viewer flow: choose Experiment mode, then Prepare new rollout -> "
-            "Start / Resume -> Finish rollout"
+            "Viewer flow: Prepare normal/experiment rollout -> Start / Resume -> "
+            "Finish rollout"
         )
         print(
-            "Experiment mode OFF requires no reward; ON requires a human label "
-            "before the next rollout"
+            "Normal rollouts require no reward; experiment rollouts require a human "
+            "label before the next rollout"
         )
         while max_rollout_attempts is None or attempts < max_rollout_attempts:
             request = self._wait_for_rollout_request()

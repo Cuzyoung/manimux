@@ -18,9 +18,10 @@ class RtcRuntime(EdgeRuntime):
         run_dir: Path,
         *,
         strategy: RtcInferenceStrategy | None = None,
+        launch_mode: str = "run",
     ) -> None:
         strategy = strategy or RtcInferenceStrategy(config)
-        super().__init__(config, run_dir, strategy=strategy)
+        super().__init__(config, run_dir, strategy=strategy, launch_mode=launch_mode)
         self._rtc_strategy = strategy
 
     def _execution_horizon(self, horizon: int, delay: int) -> int:

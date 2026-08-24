@@ -102,8 +102,9 @@ class PolicyViewer:
         self.preparing_rollout = False
         self.service_ready = False
         self.experiment_mode = False
-        self.experiment_mode_initialized = False
         self.evaluation_saved = True
+        self.episode_active = False
+        self.launch_mode = "unknown"
         self.last_state_time = 0.0
         self.tails: dict[str, deque[FloatArray]] = {
             group.name: deque(maxlen=300) for group in self.robot.groups
@@ -174,26 +175,23 @@ class PolicyViewer:
     def _build_gui(self) -> None:
         self.status = self.server.gui.add_markdown("🟠 **Waiting for policy executor**")
         self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
-        with self.server.gui.add_folder("🧪 Experiment mode", expand_by_default=True):
-            self.experiment_mode_status = self.server.gui.add_markdown(
-                "⚪ **OFF** · rollout control only; no reward is required."
+        with self.server.gui.add_folder("New rollout", expand_by_default=True):
+            self.rollout_setup_status = self.server.gui.add_markdown(
+                "⚪ Waiting for a ManiMux runtime service."
             )
-            self.enable_experiment_btn = self.server.gui.add_button(
-                "Enable experiment mode", color="red", disabled=True
-            )
-            self.disable_experiment_btn = self.server.gui.add_button(
-                "Experiment mode ON · click to disable",
-                color="green",
-                disabled=True,
-                visible=False,
+            self.task = self.server.gui.add_text(
+                "Task command", "", multiline=True, disabled=True
             )
             self.layout_id = self.server.gui.add_text(
-                "Layout / condition ID", "default", disabled=True
+                "Experiment layout / condition ID", "default", disabled=True
+            )
+            self.prepare_normal_btn = self.server.gui.add_button(
+                "Prepare normal rollout", color="blue", disabled=True
+            )
+            self.prepare_experiment_btn = self.server.gui.add_button(
+                "🧪 Prepare experiment rollout", color="green", disabled=True
             )
         with self.server.gui.add_folder("Policy control", expand_by_default=True):
-            self.prepare_btn = self.server.gui.add_button(
-                "Prepare new rollout", color="blue", disabled=True
-            )
             self.start_btn = self.server.gui.add_button(
                 "Start / Resume", color="blue", disabled=True
             )
@@ -205,7 +203,6 @@ class PolicyViewer:
             )
         with self.server.gui.add_folder("Run", expand_by_default=True):
             self.robot_name = self.server.gui.add_text("Robot", self.robot.label, disabled=True)
-            self.task = self.server.gui.add_text("Task command", "", multiline=True)
             self.policy_name = self.server.gui.add_text("Policy", "waiting", disabled=True)
             self.action_space = self.server.gui.add_text("Action space", "waiting", disabled=True)
             self.chunk_info = self.server.gui.add_text("Chunk", "—", disabled=True)
@@ -283,23 +280,13 @@ class PolicyViewer:
             self.step_once = False
             self.status.content = "🟢 **Connected · RUNNING**"
 
-        @self.enable_experiment_btn.on_click
-        def _enable_experiment(_event: Any) -> None:
-            self._set_experiment_mode(True)
+        @self.prepare_normal_btn.on_click
+        def _prepare_normal(_event: Any) -> None:
+            self._prepare_rollout(experiment_mode=False)
 
-        @self.disable_experiment_btn.on_click
-        def _disable_experiment(_event: Any) -> None:
-            self._set_experiment_mode(False)
-
-        @self.prepare_btn.on_click
-        def _prepare(_event: Any) -> None:
-            self.new_rollout_requested = True
-            self.preparing_rollout = True
-            self.service_ready = False
-            self.paused = True
-            self.prepare_btn.disabled = True
-            self._set_mode_controls_enabled(False)
-            self.status.content = "🟠 **Preparing a new rollout**"
+        @self.prepare_experiment_btn.on_click
+        def _prepare_experiment(_event: Any) -> None:
+            self._prepare_rollout(experiment_mode=True)
 
         @self.pause_btn.on_click
         def _pause(_event: Any) -> None:
@@ -371,20 +358,28 @@ class PolicyViewer:
 
     def _set_experiment_mode(self, enabled: bool) -> None:
         self.experiment_mode = enabled
-        self.experiment_mode_initialized = True
-        self.enable_experiment_btn.visible = not enabled
-        self.disable_experiment_btn.visible = enabled
-        self.layout_id.disabled = not enabled or not self.service_ready
-        self.experiment_mode_status.content = (
-            "🟢 **ON** · every finished rollout requires a human reward."
+        self.rollout_setup_status.content = (
+            "🟢 **Experiment rollout** · a human label is required after Finish."
             if enabled
-            else "⚪ **OFF** · rollout control only; no reward is required."
+            else "🔵 **Normal rollout** · no human label is required."
         )
 
-    def _set_mode_controls_enabled(self, enabled: bool) -> None:
-        self.enable_experiment_btn.disabled = not enabled
-        self.disable_experiment_btn.disabled = not enabled
-        self.layout_id.disabled = not (enabled and self.experiment_mode)
+    def _set_setup_controls_enabled(self, enabled: bool) -> None:
+        allowed = enabled and self.evaluation_saved
+        self.prepare_normal_btn.disabled = not allowed
+        self.prepare_experiment_btn.disabled = not allowed
+        self.layout_id.disabled = not allowed
+        self.task.disabled = not allowed
+
+    def _prepare_rollout(self, *, experiment_mode: bool) -> None:
+        self._set_experiment_mode(experiment_mode)
+        self.new_rollout_requested = True
+        self.preparing_rollout = True
+        self.service_ready = False
+        self.paused = True
+        self._set_setup_controls_enabled(False)
+        kind = "experiment" if experiment_mode else "normal"
+        self.status.content = f"🟠 **Preparing a new {kind} rollout**"
 
     def _set_policy_controls_enabled(self, enabled: bool) -> None:
         for button in (
@@ -397,7 +392,7 @@ class PolicyViewer:
             button.disabled = not enabled or self.observe_only
 
     def _update_prepare_enabled(self) -> None:
-        self.prepare_btn.disabled = not (self.service_ready and self.evaluation_saved)
+        self._set_setup_controls_enabled(self.service_ready)
 
     def _reset_evaluation(self, episode_dir: str) -> None:
         self.current_episode_dir = Path(episode_dir).expanduser() if episode_dir else None
@@ -437,7 +432,6 @@ class PolicyViewer:
             return
         self.evaluation_status.content = f"🟢 Saved `{target}`"
         self.evaluation_saved = True
-        self._set_mode_controls_enabled(self.service_ready)
         self._update_prepare_enabled()
 
     def control_state(self) -> dict[str, Any]:
@@ -668,14 +662,15 @@ class PolicyViewer:
         if event == "episode_started":
             self._reset_plan_overlay()
             self._clear_achieved_tails()
+            self.episode_active = True
+            self.launch_mode = str(metadata.get("launch_mode", "run"))
             self.observe_only = metadata.get("control_mode", "observe") == "observe"
             self.paused = True
             self.service_ready = False
             self.preparing_rollout = False
-            self.prepare_btn.disabled = True
             self._set_experiment_mode(bool(metadata.get("experiment_mode", False)))
             self.layout_id.value = str(metadata.get("layout_id", "")) or "default"
-            self._set_mode_controls_enabled(False)
+            self._set_setup_controls_enabled(False)
             self._set_policy_controls_enabled(True)
             self._set_instruction(str(metadata.get("instruction", self.task.value)))
             self.policy_name.value = str(metadata.get("policy_label", "waiting"))
@@ -692,6 +687,7 @@ class PolicyViewer:
             suffix = f" → switch {planned}" if planned is not None else ""
             self.executor_info.value = f"chunk #{message.get('chunk_id')} pending{suffix}"
         elif event == "episode_finished":
+            self.episode_active = False
             self.executor_info.value = str(metadata.get("reason", "finished"))
             episode_dir = str(metadata.get("episode_dir", ""))
             if episode_dir:
@@ -709,13 +705,23 @@ class PolicyViewer:
                 self.evaluation_status.content = (
                     "🟡 Select the task result and smoothness score, then save."
                 )
-                self.status.content = "⚪ **Rollout finished · awaiting human reward**"
+                self.status.content = (
+                    "⚪ **Rollout finished · awaiting human reward**"
+                    if self.launch_mode == "serve"
+                    else "⚪ **One-shot run finished · awaiting human reward**"
+                )
             else:
                 self.evaluation_status.content = (
                     "⚪ Experiment mode was OFF; no human reward is required."
                 )
-                self.status.content = "⚪ **Rollout finished · no reward required**"
+                self.status.content = (
+                    "⚪ **Rollout finished · preparing for the next rollout**"
+                    if self.launch_mode == "serve"
+                    else "⚪ **One-shot run finished · use `manimux serve` for UI rollouts**"
+                )
         elif event == "runtime_service_ready":
+            first_service_announcement = self.launch_mode != "serve"
+            self.launch_mode = "serve"
             self.policy_name.value = str(metadata.get("policy_label", "waiting"))
             self.runtime_name.value = str(metadata.get("runtime", "waiting"))
             self._set_instruction(str(metadata.get("task", self.task.value)))
@@ -724,14 +730,13 @@ class PolicyViewer:
                 return
             self.preparing_rollout = False
             self.service_ready = True
-            if not self.experiment_mode_initialized:
-                self._set_experiment_mode(
-                    bool(metadata.get("default_experiment_mode", False))
-                )
+            if first_service_announcement:
                 self.layout_id.value = (
                     str(metadata.get("default_layout_id", "")) or "default"
                 )
-            self._set_mode_controls_enabled(self.evaluation_saved)
+            self.rollout_setup_status.content = (
+                "Choose a normal rollout, or an experiment rollout that requires a label."
+            )
             if self.current_episode_dir is None or self.evaluation_saved:
                 self.episode_path.value = str(metadata.get("last_episode_dir", "")) or "ready"
             self._update_prepare_enabled()
@@ -742,10 +747,10 @@ class PolicyViewer:
             elif self.evaluation_saved:
                 self.status.content = "🟡 **Runtime service ready · prepare a rollout**"
         elif event == "episode_failed":
+            self.episode_active = False
             self.preparing_rollout = False
             self.service_ready = True
             self.evaluation_saved = True
-            self._set_mode_controls_enabled(True)
             self._set_policy_controls_enabled(False)
             self._update_prepare_enabled()
             error = str(metadata.get("error", "unknown startup error"))
@@ -881,7 +886,11 @@ def main() -> None:
     print(f"Open http://localhost:{args.port}")
     try:
         while not stop.wait(0.25):
-            if viewer.last_state_time and time.time() - viewer.last_state_time > 2:
+            if (
+                viewer.episode_active
+                and viewer.last_state_time
+                and time.time() - viewer.last_state_time > 2
+            ):
                 viewer.status.content = "🟠 **Executor heartbeat lost**"
     finally:
         viewer.close()

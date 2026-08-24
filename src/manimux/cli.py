@@ -12,6 +12,7 @@ from typing import Literal, cast
 
 from manimux.config import ManiMuxConfig, load_config
 from manimux.runtime import build_runtime
+from manimux.runtime.lock import RuntimeInstanceLock, RuntimeLockError
 from manimux.session import RuntimeSessionService
 
 
@@ -66,12 +67,16 @@ def _create_run_dir(config: ManiMuxConfig, config_path: Path, *, mode: str) -> P
 
 def _run(config_path: Path, executor: str | None = None) -> int:
     config = _load_config(config_path, executor)
-    run_dir = _create_run_dir(config, config_path, mode="run")
     try:
-        result = build_runtime(config, run_dir).run()
+        with _runtime_lock(config, config_path, mode="run"):
+            run_dir = _create_run_dir(config, config_path, mode="run")
+            result = build_runtime(config, run_dir, launch_mode="run").run()
     except KeyboardInterrupt:
         print("interrupted; robot shutdown and partial episode save completed")
         return 130
+    except RuntimeLockError as exc:
+        print(f"runtime not started: {exc}")
+        return 2
     status = "completed" if result.success else "FAULT"
     print(
         f"{status} {result.steps} steps; reason={result.terminal_reason}; "
@@ -83,14 +88,27 @@ def _run(config_path: Path, executor: str | None = None) -> int:
 
 def _serve(config_path: Path, executor: str | None = None) -> int:
     config = _load_config(config_path, executor)
-    run_dir = _create_run_dir(config, config_path, mode="serve")
-    service = RuntimeSessionService(config, run_dir)
     try:
-        service.serve()
+        with _runtime_lock(config, config_path, mode="serve"):
+            run_dir = _create_run_dir(config, config_path, mode="serve")
+            RuntimeSessionService(config, run_dir).serve()
     except KeyboardInterrupt:
         print("runtime service stopped by operator")
         return 130
+    except RuntimeLockError as exc:
+        print(f"runtime service not started: {exc}")
+        return 2
     return 0
+
+
+def _runtime_lock(
+    config: ManiMuxConfig,
+    config_path: Path,
+    *,
+    mode: str,
+) -> RuntimeInstanceLock:
+    identity = config.viewer.robot_adapter.strip() or config.robot.driver
+    return RuntimeInstanceLock(identity, mode=mode, config_path=config_path)
 
 
 def _add_runtime_arguments(parser: argparse.ArgumentParser) -> None:

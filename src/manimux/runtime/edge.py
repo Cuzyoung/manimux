@@ -69,6 +69,7 @@ class EdgeRuntime:
         *,
         clock: Clock | None = None,
         strategy: InferenceStrategy | None = None,
+        launch_mode: str = "run",
     ) -> None:
         self._config = config
         self._run_dir = run_dir
@@ -83,6 +84,7 @@ class EdgeRuntime:
         self._timeline = ActionTimeline(config.robot.group_dims)
         self._executor = self._build_executor()
         self._strategy = strategy or DefaultChunkStrategy(config)
+        self._launch_mode = launch_mode
         limits = (
             config.execution.smooth
             if config.execution.executor == "smooth"
@@ -147,6 +149,7 @@ class EdgeRuntime:
                 "blend_steps": self._config.execution.blend_steps,
                 "experiment_mode": self._config.run.experiment_mode,
                 "layout_id": self._config.run.layout_id,
+                "launch_mode": self._launch_mode,
                 "policy_backend": {},
             },
             video_fps=self._config.recording.video_fps,
@@ -200,6 +203,7 @@ class EdgeRuntime:
                     "policy_label": self._config.viewer.policy_label,
                     "experiment_mode": self._config.run.experiment_mode,
                     "layout_id": self._config.run.layout_id,
+                    "launch_mode": self._launch_mode,
                 },
             )
             next_tick_ns = self._clock.now_ns()
@@ -485,11 +489,12 @@ class EdgeRuntime:
                 next_tick_ns += self._control_dt_ns
                 finished_tick_ns = self._clock.now_ns()
                 if next_tick_ns <= finished_tick_ns:
-                    recorder.event(
-                        "control_overrun",
-                        lag_ns=finished_tick_ns - next_tick_ns,
-                        step=steps,
-                    )
+                    if self._state == RuntimeState.RUNNING:
+                        recorder.event(
+                            "control_overrun",
+                            lag_ns=finished_tick_ns - next_tick_ns,
+                            step=steps,
+                        )
                     next_tick_ns = finished_tick_ns + self._control_dt_ns
                 self._clock.sleep_until_ns(next_tick_ns)
 
@@ -506,6 +511,7 @@ class EdgeRuntime:
                     "episode_id": episode_id,
                     "episode_dir": str(episode_dir.resolve()),
                     "reason": terminal_reason,
+                    "launch_mode": self._launch_mode,
                 },
             )
             completed = True
