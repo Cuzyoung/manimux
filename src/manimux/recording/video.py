@@ -53,12 +53,16 @@ class AsyncVideoRecorder:
         self._thread: threading.Thread | None = None
         if self._enabled:
             self._video_dir.mkdir(parents=True, exist_ok=True)
-            self._thread = threading.Thread(
-                target=self._run,
-                name="manimux-video-recorder",
-                daemon=True,
-            )
-            self._thread.start()
+
+    def _start(self) -> None:
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(
+            target=self._run,
+            name="manimux-video-recorder",
+            daemon=True,
+        )
+        self._thread.start()
 
     @staticmethod
     def _safe_camera_name(name: str) -> str:
@@ -68,6 +72,7 @@ class AsyncVideoRecorder:
     def submit(self, frames: dict[str, SensorFrame]) -> None:
         if not self._enabled or not frames:
             return
+        self._start()
         capture_ns = min(frame.capture_monotonic_ns for frame in frames.values())
         if self._next_sample_ns is not None and capture_ns < self._next_sample_ns:
             return
@@ -89,11 +94,12 @@ class AsyncVideoRecorder:
             self._dropped_bundles += 1
 
     def _run(self) -> None:
-        import cv2
-
         writers: dict[str, Any] = {}
-        video_writer_fourcc: Any = getattr(cv2, "VideoWriter_fourcc")
         try:
+            import cv2
+
+            cv2_module: Any = cv2
+            video_writer_fourcc = cv2_module.VideoWriter_fourcc
             while True:
                 bundle = self._queue.get()
                 if bundle is None:
@@ -126,14 +132,14 @@ class AsyncVideoRecorder:
     def close(self) -> VideoRecordingSummary:
         if not self._enabled:
             return VideoRecordingSummary(False, 0, 0, None)
-        assert self._thread is not None
-        while self._thread.is_alive():
-            try:
-                self._queue.put(None, timeout=0.1)
-                break
-            except queue.Full:
-                continue
-        self._thread.join()
+        if self._thread is not None:
+            while self._thread.is_alive():
+                try:
+                    self._queue.put(None, timeout=0.1)
+                    break
+                except queue.Full:
+                    continue
+            self._thread.join()
         index = {
             "schema": "manimux-video-v1",
             "fps": self._fps,

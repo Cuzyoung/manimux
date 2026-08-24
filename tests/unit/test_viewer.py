@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -30,7 +31,7 @@ def test_prepare_button_atomically_selects_rollout_mode(experiment_mode: bool) -
     viewer.new_rollout_requested = False
     viewer.preparing_rollout = False
     viewer.paused = False
-    viewer.step_once = False
+    viewer.rollout_started = False
     viewer.home_requested = False
     viewer.finish_requested = False
     viewer.prepare_normal_btn = SimpleNamespace(disabled=False, visible=True)
@@ -41,6 +42,7 @@ def test_prepare_button_atomically_selects_rollout_mode(experiment_mode: bool) -
     viewer.rollout_setup_status = SimpleNamespace(content="")
     viewer.new_rollout_folder = SimpleNamespace(visible=True)
     viewer.policy_control_folder = SimpleNamespace(visible=False)
+    viewer.recovery_folder = SimpleNamespace(visible=False)
     viewer.evaluation_folder = SimpleNamespace(visible=False)
     viewer.overlay_folder = SimpleNamespace(visible=False)
     viewer.run_folder = SimpleNamespace(visible=True)
@@ -64,22 +66,23 @@ def test_prepare_button_atomically_selects_rollout_mode(experiment_mode: bool) -
 @pytest.mark.parametrize(
     ("stage", "expected"),
     [
-        ("waiting", (True, False, False, False, False)),
-        ("setup", (True, False, False, False, True)),
-        ("preparing", (True, False, False, False, True)),
-        ("control", (False, True, False, True, True)),
-        ("evaluation", (False, False, True, False, True)),
-        ("complete", (False, False, False, False, True)),
+        ("waiting", (True, False, False, False, False, False)),
+        ("setup", (True, False, False, False, False, True)),
+        ("preparing", (True, False, False, False, False, True)),
+        ("control", (False, True, True, False, True, True)),
+        ("evaluation", (False, False, False, True, False, True)),
+        ("complete", (False, False, False, False, False, True)),
     ],
 )
 def test_viewer_stage_exposes_only_the_current_action_area(
-    stage: str, expected: tuple[bool, bool, bool, bool, bool]
+    stage: str, expected: tuple[bool, bool, bool, bool, bool, bool]
 ) -> None:
     viewer = PolicyViewer.__new__(PolicyViewer)
-    handles = [SimpleNamespace(visible=False) for _ in range(5)]
+    handles = [SimpleNamespace(visible=False) for _ in range(6)]
     (
         viewer.new_rollout_folder,
         viewer.policy_control_folder,
+        viewer.recovery_folder,
         viewer.evaluation_folder,
         viewer.overlay_folder,
         viewer.run_folder,
@@ -90,17 +93,125 @@ def test_viewer_stage_exposes_only_the_current_action_area(
     assert tuple(handle.visible for handle in handles) == expected
 
 
-def test_camera_panel_is_screen_fixed_and_keeps_three_named_tiles() -> None:
-    html = _camera_panel_html({"top": "TOP", "left": "LEFT", "right": "RIGHT"})
+def test_camera_panel_is_screen_fixed_and_targets_stable_image_handles() -> None:
+    html = _camera_panel_html()
 
     assert "position: fixed" in html
-    assert "data:image/jpeg;base64,TOP" in html
-    assert "data:image/jpeg;base64,LEFT" in html
-    assert "data:image/jpeg;base64,RIGHT" in html
-    assert "grid-template-columns: 1fr 1fr" in html
-    assert "width: clamp(300px, 26vw, 460px)" in html
+    assert "manimux-camera-anchor" in html
+    assert "data:image/jpeg;base64" not in html
+    assert "--manimux-camera-width: clamp(300px, 26vw, 460px)" in html
     assert "aspect-ratio: 16 / 9" in html
     assert "object-fit: cover" in html
+
+
+def _service_ready_viewer() -> tuple[PolicyViewer, list[str]]:
+    viewer = PolicyViewer.__new__(PolicyViewer)
+    viewer.service_id = "/sessions/old"
+    viewer.launch_mode = "serve"
+    viewer.episode_active = True
+    viewer.episode_finalized = False
+    viewer.evaluation_saved = False
+    viewer.experiment_mode = True
+    viewer.current_episode_dir = None
+    viewer.paused = False
+    viewer.rollout_started = True
+    viewer.home_requested = True
+    viewer.finish_requested = True
+    viewer.new_rollout_requested = True
+    viewer.last_state_time = 1.0
+    viewer.last_service_time = 1.0
+    viewer.preparing_rollout = False
+    viewer.service_ready = False
+    viewer.policy_name = SimpleNamespace(value="old policy")
+    viewer.runtime_name = SimpleNamespace(value="rtc")
+    viewer.layout_id = SimpleNamespace(value="old-layout")
+    viewer.rollout_setup_status = SimpleNamespace(content="")
+    viewer.episode_path = SimpleNamespace(value="old episode")
+    viewer.executor_info = SimpleNamespace(value="managed")
+    viewer.evaluation_status = SimpleNamespace(content="")
+    viewer.prepare_normal_btn = SimpleNamespace(visible=False)
+    viewer.prepare_experiment_btn = SimpleNamespace(visible=False)
+    viewer.status = SimpleNamespace(content="")
+    viewer.task = SimpleNamespace(value="old task")
+    stages: list[str] = []
+    viewer._set_instruction = lambda _instruction: None  # type: ignore[method-assign]
+    viewer._set_policy_controls_enabled = lambda _enabled: None  # type: ignore[method-assign]
+    viewer._set_setup_controls_enabled = lambda _enabled: None  # type: ignore[method-assign]
+    viewer._set_evaluation_enabled = lambda _enabled: None  # type: ignore[method-assign]
+    viewer._update_prepare_enabled = lambda: None  # type: ignore[method-assign]
+    viewer._set_stage = stages.append  # type: ignore[method-assign]
+    return viewer, stages
+
+
+def test_new_runtime_service_resets_an_unfinalized_rollout() -> None:
+    viewer, stages = _service_ready_viewer()
+
+    viewer._update_event(
+        {
+            "event": "runtime_service_ready",
+            "metadata": {
+                "run_dir": "/sessions/new",
+                "task": "pick the ball",
+                "runtime": "rtc",
+                "policy_label": "Pi05",
+                "default_layout_id": "default",
+            },
+        }
+    )
+
+    assert viewer.service_id == "/sessions/new"
+    assert not viewer.episode_active
+    assert not viewer.episode_finalized
+    assert viewer.evaluation_saved
+    assert viewer.current_episode_dir is None
+    assert viewer.last_state_time == 0.0
+    assert not viewer.rollout_started
+    assert not viewer.home_requested
+    assert not viewer.finish_requested
+    assert not viewer.new_rollout_requested
+    assert stages[-1] == "setup"
+    assert "prepare a rollout" in viewer.status.content
+
+
+def test_new_runtime_service_also_resets_a_finalized_unlabeled_rollout() -> None:
+    viewer, stages = _service_ready_viewer()
+    episode_dir = Path("/sessions/old/rollout-001")
+    viewer.episode_active = False
+    viewer.episode_finalized = True
+    viewer.current_episode_dir = episode_dir
+
+    viewer._update_event(
+        {
+            "event": "runtime_service_ready",
+            "metadata": {
+                "run_dir": "/sessions/new",
+                "task": "pick the ball",
+                "runtime": "rtc",
+                "policy_label": "Pi05",
+                "default_layout_id": "default",
+            },
+        }
+    )
+
+    assert viewer.current_episode_dir is None
+    assert viewer.evaluation_saved
+    assert stages[-1] == "setup"
+
+
+def test_runtime_heartbeat_loss_fails_closed_without_deleting_episode_state() -> None:
+    viewer, stages = _service_ready_viewer()
+    episode_dir = Path("/sessions/old/rollout-001.partial")
+    viewer.current_episode_dir = episode_dir
+    viewer.service_ready = True
+
+    viewer._mark_runtime_unavailable()
+
+    assert not viewer.service_ready
+    assert not viewer.episode_active
+    assert viewer.paused
+    assert viewer.current_episode_dir == episode_dir
+    assert stages[-1] == "waiting"
+    assert "Runtime unavailable" in viewer.status.content
 
 
 def test_protocol_is_not_tied_to_yam_dimensions() -> None:

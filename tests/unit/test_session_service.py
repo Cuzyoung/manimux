@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from manimux.cli import _create_run_dir, build_parser
+from manimux.cli import _create_run_dir, _handle_termination, build_parser
 from manimux.config import load_config
 from manimux.runtime import RunResult
 from manimux.runtime.edge import _next_rollout_id
@@ -96,6 +96,15 @@ def test_cli_keeps_run_and_adds_serve() -> None:
     parser = build_parser()
     assert parser.parse_args(["run", "--config", "configs/mock.yaml"]).command == "run"
     assert parser.parse_args(["serve", "--config", "configs/mock.yaml"]).command == "serve"
+
+
+def test_sigterm_uses_keyboard_interrupt_cleanup_path() -> None:
+    try:
+        _handle_termination(15, None)
+    except KeyboardInterrupt:
+        pass
+    else:
+        raise AssertionError("SIGTERM handler did not request orderly shutdown")
 
 
 def test_rollout_ids_are_readable_and_include_partial_attempts(tmp_path: Path) -> None:

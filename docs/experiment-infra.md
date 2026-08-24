@@ -1,5 +1,9 @@
 # Experiment Infrastructure
 
+Operator-facing screenshots, button meanings and the complete state flow are in the
+[Viewer visual tutorial](viewer-tutorial.html). This document keeps the experiment data contract and
+fair-comparison rules.
+
 This document defines the operational contract for repeated real-robot evaluation. Model loading,
 camera services and hardware preflight remain in each model runbook; the experiment layer does not
 start or modify them.
@@ -36,19 +40,19 @@ clicked is copied into that rollout config and sent to the policy.
 
 After the model server, camera server, Viewer and `manimux serve` are independently ready:
 
-1. Select Experiment mode ON or OFF.
-2. Confirm the task command; in experiment mode, fill the layout or condition ID.
-3. Click `Prepare new rollout`.
-4. Wait for `PAUSED`, inspect the physical setup, then click `Start / Resume`.
-5. Click `Finish rollout` after success, failure or timeout.
+1. Confirm the task command; for an experiment rollout, fill the layout or condition ID.
+2. Click `Prepare normal rollout` or `Prepare experiment rollout`.
+3. Wait for `PAUSED`, inspect the physical setup, then click `Start rollout`.
+4. Use `Pause / Hold` only when execution must stop without ending the rollout.
+5. Click `Finish & Home` after success, failure or timeout.
 6. Wait for Recorder finalization and the robot's configured shutdown/home sequence.
 7. If experiment mode is ON, select `success`, `failure` or `invalid`, add the smoothness score and
    failure tags, then click `Save evaluation`.
 8. Prepare the next rollout only after the service reports ready.
 
-`Pause` holds the current commanded position; it does not return home. `Home` requests the configured
-home path. `Finish rollout` finalizes the episode and then follows the runtime's configured shutdown
-sequence.
+`Pause / Hold` holds the current commanded position; it does not return home. The advanced recovery
+control can request the configured home path without ending the rollout. `Finish & Home` finalizes
+the episode and then follows the runtime's configured shutdown sequence.
 
 ## 4. Evidence contract
 

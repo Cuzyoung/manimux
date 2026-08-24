@@ -12,7 +12,6 @@ from manimux.types import ActionChunk, ActionHorizon, RobotState, SensorFrame
 @dataclass(frozen=True, slots=True)
 class ViewerControl:
     paused: bool
-    step_once: bool = False
     home_requested: bool = False
     finish_requested: bool = False
 
@@ -84,7 +83,6 @@ class ViewerBridge:
         state = self._controls.poll()
         return ViewerControl(
             paused=bool(state.get("paused", True)),
-            step_once=bool(state.get("step_once", False)),
             home_requested=bool(state.get("home_requested", False)),
             finish_requested=bool(state.get("finish_requested", False)),
         )

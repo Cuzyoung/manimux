@@ -55,7 +55,7 @@ for c in can_left can_right; do printf '%s: ' "$c"; ip -details link show "$c" |
 ```执行后机械臂会按配置的
 默认配置使用 `100 Hz` 控制环，并用 `start_duration_s=3.0` 移动到起始姿态，
 随后保持 `PAUSED`；在 Viewer 确认轨迹后再点
-`Start / Resume`。
+`Start rollout`；暂停后使用 `Resume rollout`。
 
 ```bash
 cd /home/ubuntu/manimux

@@ -42,6 +42,17 @@ class SensorConfig(StrictModel):
     options: dict[str, object] = Field(default_factory=dict)
 
 
+class ExpectedBackendConfig(StrictModel):
+    server: str | None = None
+    model: dict[str, object] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ExpectedBackendConfig:
+        if self.server is None and not self.model:
+            raise ValueError("policy.expected_backend must declare server or model identity")
+        return self
+
+
 class PolicyConfig(StrictModel):
     worker: str
     adapter: str
@@ -52,6 +63,7 @@ class PolicyConfig(StrictModel):
     horizon_steps: int = Field(default=20, gt=1)
     inference_delay_s: float = Field(default=0.04, ge=0)
     startup_timeout_s: float = Field(default=30.0, gt=0)
+    expected_backend: ExpectedBackendConfig | None = None
     options: dict[str, object] = Field(default_factory=dict)
 
     @property

@@ -33,6 +33,19 @@ policy:
   timeout_s: 5.0
   horizon_steps: 50
   inference_delay_s: 0.0
+  expected_backend:
+    server: xpolicylab_policy_server
+    model:
+      policy_family: pi05
+      task_name: pick_the_red_ball_up_and_place_it_into_the_box
+      checkpoint_variant: pi05_yam_pick_red_ball_box_step_1000
+      checkpoint_source: local_pi05_base_finetune_step_1000
+      norm_stats_source: checkpoint_matched_yam_pick_red_ball_box_v1
+      train_config_name: pi05_yam
+      model_root: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/pi05-yam-pick-red-ball-box-b384/1000
+      norm_stats_path: /home/ubuntu/manimux/checkpoints/finetuned/ziyang/pi05-yam-pick-red-ball-box-b384/1000/assets/yam_pick_red_ball_box_v1
+      action_horizon: 50
+      num_steps: 10
   startup_timeout_s: 60.0
   options:
     server: ws://127.0.0.1:8500

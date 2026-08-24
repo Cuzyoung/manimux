@@ -227,7 +227,7 @@ Pi05 × 5 data budgets × {Default, E1 最佳算法} × 2 tasks
 ## 11. 统一 Experiment UI
 
 最终使用一个 Viser UI 管理实验上下文、运行状态、episode 标注和结果查看。当前 Viewer 已有
-Start/Pause/Home/Finish、相机、预测轨迹和 achieved trail；在此基础上增量扩展，不新建一套模型专属 UI。
+Start/Resume、Pause/Hold、Finish & Home、相机、预测轨迹和 achieved trail；在此基础上增量扩展，不新建一套模型专属 UI。
 
 ### 11.1 页面结构
 

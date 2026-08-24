@@ -273,8 +273,9 @@ server 和 `manimux-viewer`，再启动一次 `serve`。Viser 显示 service rea
 
 1. 选择 Experiment mode，确认 task；正式实验再填写 layout ID。
 2. 点击 `Prepare new rollout`；ManiMux 创建全新 episode、连接机器人并移动到 start pose。
-3. 等待页面显示 `PAUSED`，确认真机后点击 `Start / Resume`。
-4. 完成或失败后点击 `Finish rollout`；等待 Recorder 落盘和机器人 Home。
+3. 等待页面显示 `PAUSED`，确认真机后点击 `Start rollout`。
+4. 需要保持当前位置时点击 `Pause / Hold`，随后使用 `Resume rollout` 继续。
+5. 完成或失败后点击 `Finish & Home`；等待 Recorder 落盘和机器人 Home。
 5. 实验模式 ON 时填写并保存人工评测；service 回到 idle 后点击下一次 `Prepare new rollout`。
 
 每条正式 config 以 10Hz 异步保存各相机 MP4；编码不会阻塞控制环。结束后检查

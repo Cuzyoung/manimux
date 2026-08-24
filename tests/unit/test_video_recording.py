@@ -27,6 +27,17 @@ def test_video_recording_can_be_disabled(tmp_path) -> None:
     assert not (tmp_path / "videos").exists()
 
 
+def test_video_thread_starts_only_after_first_frame(tmp_path) -> None:
+    recorder = AsyncVideoRecorder(tmp_path, fps=10, codec="mp4v", queue_size=2)
+
+    assert recorder._thread is None
+
+    recorder.submit({"front camera": _frame(0, 1)})
+    assert recorder._thread is not None
+
+    recorder.close()
+
+
 def test_video_recording_writes_mp4_and_timestamp_index(tmp_path) -> None:
     recorder = AsyncVideoRecorder(tmp_path, fps=10, codec="mp4v", queue_size=4)
     recorder.submit({"front camera": _frame(0, 1)})

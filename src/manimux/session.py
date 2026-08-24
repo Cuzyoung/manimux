@@ -120,8 +120,8 @@ class RuntimeSessionService:
         attempts = 0
         print(f"runtime service ready; run_dir={self._run_dir.resolve()}")
         print(
-            "Viewer flow: Prepare normal/experiment rollout -> Start / Resume -> "
-            "Finish rollout"
+            "Viewer flow: Prepare normal/experiment rollout -> Start rollout -> "
+            "Finish & Home"
         )
         print(
             "Normal rollouts require no reward; experiment rollouts require a human "

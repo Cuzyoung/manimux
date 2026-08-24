@@ -59,6 +59,36 @@ def _next_rollout_id(run_dir: Path) -> str:
     return f"rollout-{highest + 1:03d}"
 
 
+def _metadata_mismatches(
+    expected: dict[str, object],
+    actual: dict[str, object],
+    *,
+    path: str = "backend",
+) -> list[str]:
+    mismatches: list[str] = []
+    for key, expected_value in expected.items():
+        field_path = f"{path}.{key}"
+        if key not in actual:
+            mismatches.append(f"{field_path} is missing (expected {expected_value!r})")
+            continue
+        actual_value = actual[key]
+        if isinstance(expected_value, dict):
+            if not isinstance(actual_value, dict):
+                mismatches.append(
+                    f"{field_path} expected a mapping, got {type(actual_value).__name__}"
+                )
+                continue
+            mismatches.extend(
+                _metadata_mismatches(expected_value, actual_value, path=field_path)
+            )
+            continue
+        if actual_value != expected_value:
+            mismatches.append(
+                f"{field_path} expected {expected_value!r}, got {actual_value!r}"
+            )
+    return mismatches
+
+
 class EdgeRuntime:
     """One real-robot control loop with a replaceable inference strategy."""
 
@@ -127,6 +157,14 @@ class EdgeRuntime:
                 f"execution strategy {self._strategy.name!r} requires sampling modes "
                 f"{sorted(missing)} that the policy server does not advertise"
             )
+        expected = self._config.policy.expected_backend
+        if expected is None:
+            return
+        expected_metadata = expected.model_dump(mode="python", exclude_none=True)
+        mismatches = _metadata_mismatches(expected_metadata, capabilities.backend_metadata)
+        if mismatches:
+            details = "; ".join(mismatches)
+            raise RuntimeError(f"policy backend identity mismatch: {details}")
 
     def run(self) -> RunResult:  # noqa: C901 - the safety-critical loop stays linear
         started_wall = time.perf_counter()
@@ -246,7 +284,7 @@ class EdgeRuntime:
                     continue
                 self._state = (
                     RuntimeState.RUNNING
-                    if viewer_control.step_once or not viewer_control.paused
+                    if not viewer_control.paused
                     else RuntimeState.PAUSED
                 )
 

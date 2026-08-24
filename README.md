@@ -66,6 +66,9 @@ uv run manimux-viewer --robot yam --demo --port 8086
 Open `http://localhost:8086`. The `--demo` process is a standalone visualization demo, not a live
 view of the mock runtime above.
 
+For the live rollout state machine, button meanings, experiment labels and recovery flow, open the
+[Viewer visual tutorial](docs/viewer-tutorial.html).
+
 ### Try Three Safe Changes
 
 Copy the config first so the repository baseline stays unchanged:
@@ -206,32 +209,12 @@ Status: ✅ running · 🧪 experimental · 🚧 not deployable yet · 🔌 infr
 | ✅ | GR00T N1.7 + YAM | 16 × 14 absolute joint positions | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
 | ✅ | XR-1 + YAM | `30×60` EE delta → `30×14` joints | `configs/xiaomi-xr1/yam/` | [Runbook](docs/xiaomi-xr1-yam-runbook.md) |
 | ✅ | LingBot-VLA2 + YAM | `50×14` joints; limited base capability | `configs/lingbot-vla2/yam/` | [Runbook](docs/lingbot-vla2-yam-runbook.md) |
+| 🧪 | Cosmos3 DROID | `32×8` single-arm absolute joints; offline only | `XPolicyLab/policy/Cosmos3/` | [Offline runbook](docs/cosmos3-offline-runbook.md) |
 | 🔌 | XPolicy bridge | Observation/action wire contract | `configs/xpolicylab/yam/` | [Runbook](docs/xpolicylab-runbook.md) |
 
-OpenPI Pi05 has completed the real three-camera, YAM normalization, XPolicy model-server,
-official 10-step flow sampling, default ManiMux and Pi-guided RTC paths on dual YAM. RTC ran with
-measured `d=3-5` steps and no post-start chunk gap. The checkpoint produced task-related motion,
-but remained hesitant in this scene and has no established success rate; that policy-quality
-result is separate from the completed inference infrastructure. GR00T has also completed GPU,
-XPolicy WebSocket, default ManiMux, three-camera, dual-YAM and Recorder execution; its failed pick
-rollouts are policy-quality results. XPolicy XR-1 and LingBot-VLA2 have also completed their
-default ManiMux hardware paths using `server/base.yaml` with the shared `infra/manimux.yaml`.
-Here ✅ means GPU, XPolicy, cameras, scheduling, dual-arm execution and Recorder are connected;
-it does not establish YAM task success for a base checkpoint, and projection statistics are not
-evidence of YAM post-training.
-
-The local `pi05_base`-initialized red-ball fine-tune at step 1000 has a separate 50-step contract,
-checkpoint-matched `yam_pick_red_ball_box_v1` stats, and verified offline GPU, XPolicy WebSocket,
-three-camera, ManiMux and dual-YAM execution. It reproduces the low-quality 20-episode demonstration
-trajectory but does not yet complete the task reliably; this is a policy-quality result, not an
-infrastructure gap.
-
-XR-1 has completed a real 5B GPU forward, XPolicy WebSocket, ManiMux, camera,
-dual-YAM and Recorder end-to-end startup, confirming that the robot executed
-model output. In the first base rollout the right arm was comparatively normal
-while the left arm made persistently abnormal large motions. The infrastructure
-path is therefore connected, but the YAM action-semantics gate remains failed;
-this was neither startup-pose motion nor evidence of YAM zero-shot capability.
+Here ✅ means the GPU/server, camera, adapter, scheduling, robot and Recorder path has been exercised;
+it does not claim task success or YAM post-training quality. Model-specific checkpoints, action
+contracts, known failures and evidence stay in the linked runbooks.
 
 ## Inference Algorithm Roadmap
 
@@ -296,9 +279,10 @@ Open `http://localhost:8086`, then operate Viewer in this order:
 
 1. Confirm the task command and, for experiments, enter a layout/condition ID.
 2. Click `Prepare normal rollout`, or `🧪 Prepare experiment rollout` when labels are required.
-3. Wait for `Connected · PAUSED`, then click `Start / Resume`.
-4. Click `Finish rollout` to stop and save the episode.
-5. After an experiment rollout, select the result and smoothness score, then save the evaluation.
+3. Wait for `Connected · PAUSED`, then click `Start rollout`.
+4. Use `Pause / Hold` only when execution must stop without ending the rollout.
+5. Click `Finish & Home` to stop, save the episode, and run the configured home path.
+6. After an experiment rollout, select the result and smoothness score, then save the evaluation.
 
 Viewer shows only the controls for the current stage. The main viewport keeps a top/left/right
 camera wall beside the robot digital twin, so live images do not require sidebar scrolling.
@@ -343,12 +327,13 @@ copied per model. See [Architecture](docs/architecture.md) for the complete cont
 
 - [Real-robot experiment design](docs/experiment-design.md)
 - [Experiment infrastructure and Viewer workflow](docs/experiment-infra.md)
-- [Program progress](docs/program-progress.md)
+- [Viewer visual tutorial](docs/viewer-tutorial.html)
 - [XPolicyLab integration](docs/xpolicylab-runbook.md)
 - [MolmoAct2](docs/molmoact-yam-runbook.md) · [ABC](docs/abc-yam-runbook.md)
 - [Pi05](docs/pi05-yam-runbook.md) · [GR00T](docs/gr00t-yam-runbook.md) · [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md)
 - [LingBot-VLA2](docs/lingbot-vla2-yam-runbook.md) · [CAN bus](docs/can-bus.md)
-- [Architecture](docs/architecture.md) · [Development conventions](AGENT.md)
+- [Cosmos3 offline](docs/cosmos3-offline-runbook.md) · [ManiUniCon simulation](docs/maniunicon-sim.md)
+- [Architecture](docs/architecture.md)
 
 ## Safety
 

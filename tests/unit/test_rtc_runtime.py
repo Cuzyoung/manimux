@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from manimux.config import load_config
+from manimux.config import ManiMuxConfig, load_config
 from manimux.policies.capabilities import PolicyCapabilities
 from manimux.runtime import build_runtime
 from manimux.runtime.edge import EdgeRuntime
@@ -209,6 +209,64 @@ def test_rtc_capability_is_checked_before_robot_connection(tmp_path: Path) -> No
 
     runtime._worker = _DefaultOnlyWorker()
     with pytest.raises(RuntimeError, match="does not advertise"):
+        runtime._validate_policy_capabilities()
+
+
+def test_policy_backend_identity_accepts_matching_metadata(tmp_path: Path) -> None:
+    config = load_config("configs/mock.yaml")
+    payload = config.model_dump(mode="python")
+    payload["policy"]["expected_backend"] = {
+        "server": "xpolicylab_policy_server",
+        "model": {
+            "checkpoint_variant": "pi05-step-1000",
+            "task_name": "pick_red_ball",
+        },
+    }
+    runtime = build_runtime(ManiMuxConfig.model_validate(payload), tmp_path)
+
+    class _MatchingWorker:
+        capabilities = PolicyCapabilities(
+            backend_metadata={
+                "server": "xpolicylab_policy_server",
+                "server_revision": "allowed-extra-field",
+                "model": {
+                    "checkpoint_variant": "pi05-step-1000",
+                    "task_name": "pick_red_ball",
+                    "model_root": "/checkpoints/pi05-step-1000",
+                },
+            }
+        )
+
+    runtime._worker = _MatchingWorker()
+    runtime._validate_policy_capabilities()
+
+
+def test_policy_backend_identity_rejects_a_different_checkpoint(tmp_path: Path) -> None:
+    config = load_config("configs/mock.yaml")
+    payload = config.model_dump(mode="python")
+    payload["policy"]["expected_backend"] = {
+        "model": {
+            "checkpoint_variant": "pi05-step-1000",
+            "task_name": "pick_red_ball",
+        }
+    }
+    runtime = build_runtime(ManiMuxConfig.model_validate(payload), tmp_path)
+
+    class _WrongWorker:
+        capabilities = PolicyCapabilities(
+            backend_metadata={
+                "model": {
+                    "checkpoint_variant": "pi05-base",
+                    "task_name": "pick_place",
+                }
+            }
+        )
+
+    runtime._worker = _WrongWorker()
+    with pytest.raises(
+        RuntimeError,
+        match=r"backend\.model\.checkpoint_variant expected 'pi05-step-1000'",
+    ):
         runtime._validate_policy_capabilities()
 
 

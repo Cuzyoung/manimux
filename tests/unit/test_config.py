@@ -38,6 +38,15 @@ def test_unknown_config_field_fails() -> None:
         )
 
 
+def test_expected_backend_requires_a_stable_identity_field() -> None:
+    config = load_config(Path("configs/mock.yaml"))
+    payload = config.model_dump(mode="python")
+    payload["policy"]["expected_backend"] = {}
+
+    with pytest.raises(ValidationError, match="must declare server or model identity"):
+        ManiMuxConfig.model_validate(payload)
+
+
 def test_all_infra_configs_load() -> None:
     for path in sorted(Path("configs").glob("*/yam/infra/*.yaml")):
         load_config(path)

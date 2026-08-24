@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import multiprocessing as mp
+import signal
 import subprocess
 import uuid
 from datetime import UTC, datetime
@@ -14,6 +15,12 @@ from manimux.config import ManiMuxConfig, load_config
 from manimux.runtime import build_runtime
 from manimux.runtime.lock import RuntimeInstanceLock, RuntimeLockError
 from manimux.session import RuntimeSessionService
+
+
+def _handle_termination(_signum: int, _frame: object) -> None:
+    """Route SIGTERM through the same orderly shutdown path as Ctrl-C."""
+
+    raise KeyboardInterrupt
 
 
 def _git_sha(workdir: Path | None = None) -> str | None:
@@ -130,6 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     mp.freeze_support()
+    signal.signal(signal.SIGTERM, _handle_termination)
     args = build_parser().parse_args(argv)
     if args.command == "run":
         return _run(args.config, args.executor)

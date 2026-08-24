@@ -235,6 +235,9 @@ envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
 envs/yam/.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
 ```
 
+Viewer 的完整按钮流程、实验打标和故障恢复见
+[可视化使用教程](docs/viewer-tutorial.html)。
+
 ### 原生模型示例：MolmoAct2
 
 ```bash
@@ -292,12 +295,13 @@ Safety、Recorder 与 Viewer 协议不随模型复制。完整接口见
 
 ## 文档
 
-- [项目总进度](docs/program-progress.md)
+- [Viewer 可视化使用教程](docs/viewer-tutorial.html)
 - [XPolicyLab 集成](docs/xpolicylab-runbook.md)
 - [MolmoAct2](docs/molmoact-yam-runbook.md) · [ABC](docs/abc-yam-runbook.md)
 - [Pi05](docs/pi05-yam-runbook.md) · [GR00T](docs/gr00t-yam-runbook.md) · [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md)
 - [LingBot-VLA2](docs/lingbot-vla2-yam-runbook.md) · [CAN 总线](docs/can-bus.md)
-- [架构](docs/architecture.md) · [开发约定](AGENT.md)
+- [Cosmos3 离线](docs/cosmos3-offline-runbook.md) · [ManiUniCon 仿真](docs/maniunicon-sim.md)
+- [架构](docs/architecture.md)
 
 ## 安全
 

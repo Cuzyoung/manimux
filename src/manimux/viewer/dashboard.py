@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import io
 import signal
 import threading
 import time
@@ -12,6 +14,7 @@ from typing import Any, Literal, cast
 
 import numpy as np
 import viser
+from PIL import Image
 
 from manimux.evaluation import write_manual_evaluation
 from manimux.types import FloatArray, UInt8Array
@@ -68,46 +71,79 @@ def _prefill_task(current: str, incoming: str) -> str:
     return incoming.strip() if not current.strip() else current
 
 
-def _camera_panel_html(frames_jpeg: dict[str, str]) -> str:
-    """Render a screen-fixed camera column without placing images in 3D space."""
+def _camera_panel_html() -> str:
+    """Place stable Viser image handles in a fixed screen-space camera panel."""
 
-    def tile(name: str) -> str:
-        payload = frames_jpeg.get(name)
-        body = (
-            f'<img src="data:image/jpeg;base64,{payload}" alt="{name} camera" />'
-            if payload
-            else f'<div class="manimux-camera-placeholder">Waiting for {name} camera</div>'
-        )
-        return (
-            '<div class="manimux-camera-tile">'
-            f'<span class="manimux-camera-label">{name}</span>{body}</div>'
-        )
-
-    return f"""
+    return """
 <style>
-  .manimux-camera-panel {{
+  :root {
+    --manimux-camera-width: clamp(300px, 26vw, 460px);
+    --manimux-camera-inner: calc(var(--manimux-camera-width) - 20px);
+    --manimux-camera-top-height: clamp(157.5px, calc(14.625vw - 11.25px), 247.5px);
+    --manimux-camera-small-width: clamp(136px, calc(13vw - 14px), 216px);
+  }
+  .manimux-camera-panel {
     position: fixed; left: 16px; top: 64px;
-    width: clamp(300px, 26vw, 460px); z-index: 4;
-    display: grid; grid-template-rows: auto auto; gap: 8px;
+    width: var(--manimux-camera-width);
+    height: clamp(262px, calc(21.9375vw + 8.875px), 397px);
+    z-index: 4;
     padding: 10px; box-sizing: border-box; pointer-events: none;
     border: 1px solid rgba(128, 138, 156, 0.35); border-radius: 12px;
     background: rgba(18, 23, 32, 0.92); box-shadow: 0 8px 28px rgba(0,0,0,0.18);
-  }}
-  .manimux-camera-bottom {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }}
-  .manimux-camera-tile {{ position: relative; aspect-ratio: 16 / 9; overflow: hidden;
-    border-radius: 8px; background: #0e131c; }}
-  .manimux-camera-tile img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
-  .manimux-camera-label {{ position: absolute; left: 10px; top: 10px; z-index: 1;
+  }
+  .manimux-camera-label { position: fixed; z-index: 7;
     padding: 3px 9px; border-radius: 999px; color: white; background: rgba(8,12,18,0.78);
-    font: 600 12px/1.4 system-ui, sans-serif; text-transform: uppercase; }}
-  .manimux-camera-placeholder {{ height: 100%; display: grid; place-items: center;
-    color: #a5aebe; font: 500 13px system-ui, sans-serif; }}
-  @media (max-width: 900px) {{ .manimux-camera-panel {{ display: none; }} }}
+    font: 600 12px/1.4 system-ui, sans-serif; text-transform: uppercase; }
+  .manimux-camera-label-top { left: 26px; top: 74px; }
+  .manimux-camera-label-left { left: 26px;
+    top: calc(82px + var(--manimux-camera-top-height)); }
+  .manimux-camera-label-right {
+    left: calc(34px + var(--manimux-camera-small-width));
+    top: calc(82px + var(--manimux-camera-top-height)); }
+
+  div:has(> .manimux-camera-anchor) + div,
+  div:has(> .manimux-camera-anchor) + div + div,
+  div:has(> .manimux-camera-anchor) + div + div + div {
+    position: fixed; z-index: 5; margin: 0; padding: 0 !important;
+    overflow: hidden; border-radius: 8px; background: #0e131c;
+    pointer-events: auto;
+  }
+  div:has(> .manimux-camera-anchor) + div {
+    left: 26px; top: 74px; width: var(--manimux-camera-inner);
+    height: var(--manimux-camera-top-height);
+  }
+  div:has(> .manimux-camera-anchor) + div + div {
+    left: 26px; top: calc(82px + var(--manimux-camera-top-height));
+    width: var(--manimux-camera-small-width); aspect-ratio: 16 / 9;
+  }
+  div:has(> .manimux-camera-anchor) + div + div + div {
+    left: calc(34px + var(--manimux-camera-small-width));
+    top: calc(82px + var(--manimux-camera-top-height));
+    width: var(--manimux-camera-small-width); aspect-ratio: 16 / 9;
+  }
+  div:has(> .manimux-camera-anchor) + div > div,
+  div:has(> .manimux-camera-anchor) + div + div > div,
+  div:has(> .manimux-camera-anchor) + div + div + div > div {
+    width: 100%; height: 100%;
+  }
+  div:has(> .manimux-camera-anchor) + div img,
+  div:has(> .manimux-camera-anchor) + div + div img,
+  div:has(> .manimux-camera-anchor) + div + div + div img {
+    width: 100%; height: 100% !important; max-width: none !important;
+    object-fit: cover; display: block;
+  }
+  @media (max-width: 900px) {
+    .manimux-camera-panel, .manimux-camera-label,
+    div:has(> .manimux-camera-anchor) + div,
+    div:has(> .manimux-camera-anchor) + div + div,
+    div:has(> .manimux-camera-anchor) + div + div + div { display: none; }
+  }
 </style>
-<section class="manimux-camera-panel">
-  {tile("top")}
-  <div class="manimux-camera-bottom">{tile("left")}{tile("right")}</div>
-</section>
+<div class="manimux-camera-anchor"></div>
+<section class="manimux-camera-panel"></section>
+<span class="manimux-camera-label manimux-camera-label-top">top</span>
+<span class="manimux-camera-label manimux-camera-label-left">left</span>
+<span class="manimux-camera-label manimux-camera-label-right">right</span>
 """
 
 
@@ -136,7 +172,7 @@ class PolicyViewer:
         self.lock = threading.RLock()
         self.running = True
         self.paused = True
-        self.step_once = False
+        self.rollout_started = False
         self.finish_requested = False
         self.home_requested = False
         self.new_rollout_requested = False
@@ -146,6 +182,8 @@ class PolicyViewer:
         self.evaluation_saved = True
         self.episode_active = False
         self.launch_mode = "unknown"
+        self.service_id = ""
+        self.last_service_time = 0.0
         self.last_state_time = 0.0
         self.tails: dict[str, deque[FloatArray]] = {
             group.name: deque(maxlen=300) for group in self.robot.groups
@@ -165,7 +203,6 @@ class PolicyViewer:
         self.observe_only = False
         self.current_episode_dir: Path | None = None
         self.episode_finalized = False
-        self.camera_jpegs: dict[str, str] = {}
         self._build_scene()
         self._build_gui()
         self.receiver = ViewerReceiver(bridge_endpoint, self.on_message)
@@ -177,6 +214,10 @@ class PolicyViewer:
 
     def _build_scene(self) -> None:
         self.server.scene.set_up_direction("+z")
+        self.server.initial_camera.position = (1.45, -1.8, 1.25)
+        self.server.initial_camera.look_at = (0.25, 0.0, 0.28)
+        self.server.initial_camera.up = (0.0, 0.0, 1.0)
+        self.server.initial_camera.fov = np.deg2rad(55.0)
         self.server.scene.add_grid(
             "/floor",
             width=2.0,
@@ -214,7 +255,18 @@ class PolicyViewer:
                 )
 
     def _build_gui(self) -> None:
-        self.camera_panel = self.server.gui.add_html(_camera_panel_html({}))
+        self.camera_panel = self.server.gui.add_html(_camera_panel_html())
+        placeholder = np.zeros((90, 160, 3), dtype=np.uint8)
+        with self.server.gui.add_folder(None):
+            self.camera_images = {
+                slot: self.server.gui.add_image(
+                    placeholder,
+                    label=None,
+                    format="jpeg",
+                    jpeg_quality=70,
+                )
+                for slot in ("top", "left", "right")
+            }
         self.status = self.server.gui.add_markdown("🟠 **Waiting for policy executor**")
         self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
         self.new_rollout_folder = self.server.gui.add_folder(
@@ -241,13 +293,20 @@ class PolicyViewer:
         )
         with self.policy_control_folder:
             self.start_btn = self.server.gui.add_button(
-                "Start / Resume", color="blue", disabled=True
+                "Start rollout", color="blue", disabled=True
             )
-            self.pause_btn = self.server.gui.add_button("Pause", color="gray", disabled=True)
-            self.home_btn = self.server.gui.add_button("Home", color="gray", disabled=True)
-            self.step_btn = self.server.gui.add_button("Step once", color="gray", disabled=True)
+            self.pause_btn = self.server.gui.add_button(
+                "Pause / Hold", color="gray", disabled=True
+            )
             self.finish_btn = self.server.gui.add_button(
-                "Finish rollout", color="red", disabled=True
+                "Finish & Home", color="red", disabled=True
+            )
+        self.recovery_folder = self.server.gui.add_folder(
+            "Advanced recovery", expand_by_default=False
+        )
+        with self.recovery_folder:
+            self.home_btn = self.server.gui.add_button(
+                "Return Home (keep rollout open)", color="gray", disabled=True
             )
         self.run_folder = self.server.gui.add_folder("Live run", expand_by_default=True)
         with self.run_folder:
@@ -332,7 +391,8 @@ class PolicyViewer:
         @self.start_btn.on_click
         def _start(_event: Any) -> None:
             self.paused = False
-            self.step_once = False
+            self.rollout_started = True
+            self._set_policy_controls_enabled(True)
             self.status.content = "🟢 **Connected · RUNNING**"
 
         @self.prepare_normal_btn.on_click
@@ -346,13 +406,8 @@ class PolicyViewer:
         @self.pause_btn.on_click
         def _pause(_event: Any) -> None:
             self.paused = True
+            self._set_policy_controls_enabled(True)
             self.status.content = "🟡 **Connected · PAUSED**"
-
-        @self.step_btn.on_click
-        def _step(_event: Any) -> None:
-            self.paused = True
-            self.step_once = True
-            self.status.content = "🟡 **Single step requested**"
 
         @self.home_btn.on_click
         def _home(_event: Any) -> None:
@@ -363,7 +418,7 @@ class PolicyViewer:
         @self.finish_btn.on_click
         def _finish(_event: Any) -> None:
             self.finish_requested = True
-            self.finish_btn.disabled = True
+            self._set_policy_controls_enabled(False)
             self.status.content = "🟠 **Finishing rollout and saving episode**"
 
         @self.clear_btn.on_click
@@ -405,6 +460,7 @@ class PolicyViewer:
 
         self.new_rollout_folder.visible = stage in {"waiting", "setup", "preparing"}
         self.policy_control_folder.visible = stage == "control"
+        self.recovery_folder.visible = stage == "control"
         self.evaluation_folder.visible = stage == "evaluation"
         self.overlay_folder.visible = stage == "control"
         self.run_folder.visible = stage not in {"waiting"}
@@ -449,14 +505,12 @@ class PolicyViewer:
         self.status.content = f"🟠 **Preparing a new {kind} rollout**"
 
     def _set_policy_controls_enabled(self, enabled: bool) -> None:
-        for button in (
-            self.start_btn,
-            self.pause_btn,
-            self.home_btn,
-            self.step_btn,
-            self.finish_btn,
-        ):
-            button.disabled = not enabled or self.observe_only
+        allowed = enabled and not self.observe_only
+        self.start_btn.label = "Resume rollout" if self.rollout_started else "Start rollout"
+        self.start_btn.disabled = not allowed or not self.paused
+        self.pause_btn.disabled = not allowed or self.paused
+        self.home_btn.disabled = not allowed or not self.paused
+        self.finish_btn.disabled = not allowed
 
     def _update_prepare_enabled(self) -> None:
         self._set_setup_controls_enabled(self.service_ready)
@@ -474,6 +528,44 @@ class PolicyViewer:
             handle.value = False
         self._set_evaluation_enabled(False)
         self.evaluation_status.content = "⚪ Finish the rollout before saving an evaluation."
+
+    def _reset_for_new_service(self) -> None:
+        """Make a new ``manimux serve`` instance a hard workflow boundary."""
+
+        self.paused = True
+        self.rollout_started = False
+        self.home_requested = False
+        self.finish_requested = False
+        self.new_rollout_requested = False
+        self.preparing_rollout = False
+        self.episode_active = False
+        self.current_episode_dir = None
+        self.episode_finalized = False
+        self.evaluation_saved = True
+        self.last_state_time = 0.0
+        self.executor_info.value = "service idle"
+        self.evaluation_status.content = "⚪ No completed rollout is awaiting evaluation."
+        self._set_policy_controls_enabled(False)
+        self._set_evaluation_enabled(False)
+
+    def _mark_runtime_unavailable(self) -> None:
+        """Fail closed when either the idle service or active executor disappears."""
+
+        if not self.service_ready and not self.episode_active:
+            return
+        self.paused = True
+        self.rollout_started = False
+        self.home_requested = False
+        self.finish_requested = False
+        self.new_rollout_requested = False
+        self.preparing_rollout = False
+        self.service_ready = False
+        self.episode_active = False
+        self._set_policy_controls_enabled(False)
+        self._set_setup_controls_enabled(False)
+        self._set_stage("waiting")
+        self.rollout_setup_status.content = "⚪ Waiting for a ManiMux runtime service."
+        self.status.content = "🟠 **Runtime unavailable · waiting for service**"
 
     def _save_manual_evaluation(self) -> None:
         if not self.episode_finalized or self.current_episode_dir is None:
@@ -505,7 +597,6 @@ class PolicyViewer:
     def control_state(self) -> dict[str, Any]:
         state = {
             "paused": self.paused,
-            "step_once": self.step_once,
             "home_requested": self.home_requested,
             "finish_requested": self.finish_requested,
             "new_rollout_requested": self.new_rollout_requested,
@@ -513,11 +604,15 @@ class PolicyViewer:
             "experiment_mode": self.experiment_mode,
             "layout_id": self.layout_id.value.strip(),
         }
-        self.step_once = False
         self.home_requested = False
         self.finish_requested = False
         self.new_rollout_requested = False
         return state
+
+    @staticmethod
+    def _image(payload: str) -> UInt8Array:
+        raw = base64.b64decode(payload)
+        return np.array(Image.open(io.BytesIO(raw)).convert("RGB"), copy=True)
 
     def _matches_selected_robot(self, message: dict[str, Any]) -> bool:
         robot_name = str(message.get("robot", ""))
@@ -710,9 +805,8 @@ class PolicyViewer:
             self._update_group(self.robot.group(group_name), configuration)
         for source_name, payload in message.get("cameras_jpeg", {}).items():
             slot = self.robot.camera_slot(source_name)
-            self.camera_jpegs[slot] = str(payload)
-        if message.get("cameras_jpeg"):
-            self.camera_panel.content = _camera_panel_html(self.camera_jpegs)
+            if slot in self.camera_images:
+                self.camera_images[slot].image = self._image(str(payload))
 
     def _update_event(self, message: dict[str, Any]) -> None:
         event = str(message.get("event", "unknown"))
@@ -722,16 +816,20 @@ class PolicyViewer:
             self._clear_achieved_tails()
             self.episode_active = True
             self.launch_mode = str(metadata.get("launch_mode", "run"))
+            incoming_service_id = str(metadata.get("run_dir", ""))
+            if incoming_service_id:
+                self.service_id = incoming_service_id
             self.observe_only = metadata.get("control_mode", "observe") == "observe"
             self.paused = True
+            self.rollout_started = False
             self.service_ready = False
             self.preparing_rollout = False
             self._set_experiment_mode(bool(metadata.get("experiment_mode", False)))
             self.rollout_setup_status.content = (
-                "🟢 **Experiment rollout ready** · press Start / Resume below; "
+                "🟢 **Experiment rollout ready** · press Start rollout below; "
                 "a label is required after Finish."
                 if self.experiment_mode
-                else "🔵 **Normal rollout ready** · press Start / Resume below; "
+                else "🔵 **Normal rollout ready** · press Start rollout below; "
                 "Finish saves the episode."
             )
             self.prepare_normal_btn.visible = False
@@ -748,7 +846,7 @@ class PolicyViewer:
             self.status.content = (
                 "🔵 **Connected · OBSERVE ONLY**"
                 if self.observe_only
-                else "🟡 **Connected · PAUSED · press Start / Resume**"
+                else "🟡 **Connected · PAUSED · press Start rollout**"
             )
         elif event == "inference_submitted":
             planned = metadata.get("planned_switch_step")
@@ -764,6 +862,7 @@ class PolicyViewer:
             self.episode_finalized = self.current_episode_dir is not None
             self.evaluation_saved = not self.experiment_mode
             self.paused = True
+            self.rollout_started = False
             self._set_policy_controls_enabled(False)
             self._set_evaluation_enabled(self.episode_finalized and self.experiment_mode)
             self._set_stage("evaluation" if self.experiment_mode else "complete")
@@ -789,7 +888,14 @@ class PolicyViewer:
                     else "⚪ **One-shot run finished · use `manimux serve` for UI rollouts**"
                 )
         elif event == "runtime_service_ready":
-            first_service_announcement = self.launch_mode != "serve"
+            self.last_service_time = time.time()
+            incoming_service_id = str(metadata.get("run_dir", ""))
+            new_service = bool(incoming_service_id and incoming_service_id != self.service_id)
+            first_service_announcement = self.launch_mode != "serve" or new_service
+            if new_service:
+                self._reset_for_new_service()
+            if incoming_service_id:
+                self.service_id = incoming_service_id
             self.launch_mode = "serve"
             self.policy_name.value = str(metadata.get("policy_label", "waiting"))
             self.runtime_name.value = str(metadata.get("runtime", "waiting"))
@@ -961,12 +1067,17 @@ def main() -> None:
     print(f"Open http://localhost:{args.port}")
     try:
         while not stop.wait(0.25):
+            now = time.time()
             if (
                 viewer.episode_active
                 and viewer.last_state_time
-                and time.time() - viewer.last_state_time > 2
+                and now - viewer.last_state_time > 2
+            ) or (
+                viewer.service_ready
+                and viewer.last_service_time
+                and now - viewer.last_service_time > 3
             ):
-                viewer.status.content = "🟠 **Executor heartbeat lost**"
+                viewer._mark_runtime_unavailable()
     finally:
         viewer.close()
 

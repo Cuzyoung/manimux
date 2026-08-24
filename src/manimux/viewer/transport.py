@@ -108,7 +108,6 @@ class ControlClient:
         self._connect()
         return {
             "paused": True,
-            "step_once": False,
             "home_requested": False,
             "finish_requested": False,
         }

@@ -77,6 +77,7 @@ Beginner 先从全 mock 配置理解七个顶层区域。
 | `timeout_s` | 一次推理请求的 deadline；响应晚于 deadline 会被丢弃。 |
 | `horizon_steps` | 每个 action chunk 的点数。`20` 点、间隔 `0.05 s`，首末点覆盖 `(20-1)×0.05=0.95 s`。 |
 | `inference_delay_s` | fake model 专用的模拟推理耗时；调大它可以观察异步推理和过期响应。 |
+| `expected_backend` | 可选的 policy-server 身份契约。声明稳定的 `server` 和/或 `model` 元数据；worker 握手后、机器人连接前按递归子集严格匹配，防止端口上部署了错误 checkpoint。 |
 
 ### `execution`：什么时候推理、怎样执行
 
@@ -94,6 +95,11 @@ Beginner 先从全 mock 配置理解七个顶层区域。
 在自适应短 chunk 执行完后同步请求下一组候选；`runtime: paint` 使用论文的异步 `s/d`
 prefix contract。这些 strategy 若配置
 默认 strategy 的调度字段会直接校验失败，避免出现“写了参数但实际没生效”。
+
+`policy.expected_backend` 不应锁定每次进程都会变化的 `server_instance_id`，通常只声明
+`server: xpolicylab_policy_server`，以及 `model` 下的 `policy_family`、`task_name`、
+`checkpoint_variant`、checkpoint/norm-stats 来源与解析后的路径。实际握手可以包含更多字段；
+config 声明的每个字段必须存在且完全相等，否则 rollout 在 `RobotDriver.connect()` 之前失败。
 
 `execution.temporal_ensemble` 仅在 `runtime: act_temporal_ensemble` 时生效：
 
