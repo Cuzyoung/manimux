@@ -361,6 +361,10 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
 envs/yam/.venv/bin/manimux run --config configs/pi05/yam/infra/manimux.yaml
 ```
 
+`manimux run` remains the one-episode CLI. For repeated Viewer-controlled evaluation with the same
+validated config, start `manimux serve --config <experiment.yaml>` once; Viser then prepares,
+starts, finishes and labels each isolated episode without restarting the model server.
+
 These snippets show entry points only. They do not replace checkpoint validation, preflight,
 CAN checks or shutdown procedures. Model setup stays in its runbook; ACT, AAC, PAINT and later
 strategy commands stay in the linked method documentation in the algorithm list.

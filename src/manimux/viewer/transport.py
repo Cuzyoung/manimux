@@ -57,7 +57,7 @@ class ViewerReceiver:
 class ControlServer:
     """Serve dashboard controls to one or more policy executors."""
 
-    def __init__(self, endpoint: str, callback: Callable[[], dict[str, bool]]) -> None:
+    def __init__(self, endpoint: str, callback: Callable[[], dict[str, Any]]) -> None:
         self._context: zmq.Context[zmq.Socket[bytes]] = zmq.Context.instance()
         self._socket: zmq.Socket[bytes] = self._context.socket(zmq.REP)
         self._socket.setsockopt(zmq.LINGER, 0)

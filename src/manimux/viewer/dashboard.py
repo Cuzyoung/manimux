@@ -17,6 +17,7 @@ import viser
 from PIL import Image
 
 from manimux.evaluation import write_manual_evaluation
+from manimux.types import FloatArray, UInt8Array
 
 from .protocol import PolicyPlan, RobotSnapshot
 from .robots import available_robot_adapters, load_robot_adapter
@@ -36,7 +37,7 @@ _TRAJECTORY_COLOR_STOPS = np.asarray(
 )
 
 
-def _trajectory_colors(point_count: int) -> np.ndarray:
+def _trajectory_colors(point_count: int) -> UInt8Array:
     """Return deep-to-light purple from the current pose into the future."""
 
     if point_count <= 0:
@@ -97,12 +98,16 @@ class PolicyViewer:
         self.step_once = False
         self.finish_requested = False
         self.home_requested = False
+        self.new_rollout_requested = False
+        self.preparing_rollout = False
+        self.service_ready = False
+        self.evaluation_saved = True
         self.last_state_time = 0.0
-        self.tails: dict[str, deque[np.ndarray]] = {
+        self.tails: dict[str, deque[FloatArray]] = {
             group.name: deque(maxlen=300) for group in self.robot.groups
         }
         self.robot_handles: dict[str, Any] = {}
-        self.plan_actions: dict[str, np.ndarray] = {}
+        self.plan_actions: dict[str, FloatArray] = {}
         self.plan_chunk_id: int | None = None
         self.plan_start_index = 0
         self.plan_history_serial = 0
@@ -168,11 +173,18 @@ class PolicyViewer:
         self.status = self.server.gui.add_markdown("🟠 **Waiting for policy executor**")
         self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
         with self.server.gui.add_folder("Policy control", expand_by_default=True):
-            self.start_btn = self.server.gui.add_button("Start / Resume", color="blue")
-            self.pause_btn = self.server.gui.add_button("Pause", color="gray")
-            self.home_btn = self.server.gui.add_button("Home", color="gray")
-            self.step_btn = self.server.gui.add_button("Step once", color="gray")
-            self.finish_btn = self.server.gui.add_button("Finish rollout & exit", color="red")
+            self.prepare_btn = self.server.gui.add_button(
+                "Prepare new rollout", color="blue", disabled=True
+            )
+            self.start_btn = self.server.gui.add_button(
+                "Start / Resume", color="blue", disabled=True
+            )
+            self.pause_btn = self.server.gui.add_button("Pause", color="gray", disabled=True)
+            self.home_btn = self.server.gui.add_button("Home", color="gray", disabled=True)
+            self.step_btn = self.server.gui.add_button("Step once", color="gray", disabled=True)
+            self.finish_btn = self.server.gui.add_button(
+                "Finish rollout", color="red", disabled=True
+            )
         with self.server.gui.add_folder("Run", expand_by_default=True):
             self.robot_name = self.server.gui.add_text("Robot", self.robot.label, disabled=True)
             self.task = self.server.gui.add_text("Task command", "", multiline=True)
@@ -253,6 +265,15 @@ class PolicyViewer:
             self.step_once = False
             self.status.content = "🟢 **Connected · RUNNING**"
 
+        @self.prepare_btn.on_click
+        def _prepare(_event: Any) -> None:
+            self.new_rollout_requested = True
+            self.preparing_rollout = True
+            self.service_ready = False
+            self.paused = True
+            self.prepare_btn.disabled = True
+            self.status.content = "🟠 **Preparing a new rollout**"
+
         @self.pause_btn.on_click
         def _pause(_event: Any) -> None:
             self.paused = True
@@ -273,6 +294,8 @@ class PolicyViewer:
         @self.finish_btn.on_click
         def _finish(_event: Any) -> None:
             self.finish_requested = True
+            self.finish_btn.disabled = True
+            self.status.content = "🟠 **Finishing rollout and saving episode**"
 
         @self.clear_btn.on_click
         def _clear(_event: Any) -> None:
@@ -319,9 +342,23 @@ class PolicyViewer:
             handle.disabled = not enabled
         self.save_evaluation_btn.disabled = not enabled
 
+    def _set_policy_controls_enabled(self, enabled: bool) -> None:
+        for button in (
+            self.start_btn,
+            self.pause_btn,
+            self.home_btn,
+            self.step_btn,
+            self.finish_btn,
+        ):
+            button.disabled = not enabled or self.observe_only
+
+    def _update_prepare_enabled(self) -> None:
+        self.prepare_btn.disabled = not (self.service_ready and self.evaluation_saved)
+
     def _reset_evaluation(self, episode_dir: str) -> None:
         self.current_episode_dir = Path(episode_dir).expanduser() if episode_dir else None
         self.episode_finalized = False
+        self.evaluation_saved = False
         self.episode_path.value = episode_dir or "not published"
         self.task_result.value = "unlabeled"
         self.smoothness_score.value = "3"
@@ -355,6 +392,8 @@ class PolicyViewer:
             self.evaluation_status.content = f"🔴 Evaluation was not saved: {exc}"
             return
         self.evaluation_status.content = f"🟢 Saved `{target}`"
+        self.evaluation_saved = True
+        self._update_prepare_enabled()
 
     def control_state(self) -> dict[str, Any]:
         state = {
@@ -362,14 +401,17 @@ class PolicyViewer:
             "step_once": self.step_once,
             "home_requested": self.home_requested,
             "finish_requested": self.finish_requested,
+            "new_rollout_requested": self.new_rollout_requested,
             "task_command": self.task.value.strip(),
         }
         self.step_once = False
         self.home_requested = False
+        self.finish_requested = False
+        self.new_rollout_requested = False
         return state
 
     @staticmethod
-    def _image(payload: str) -> np.ndarray:
+    def _image(payload: str) -> UInt8Array:
         raw = base64.b64decode(payload)
         return np.asarray(Image.open(io.BytesIO(raw)).convert("RGB"))
 
@@ -434,7 +476,7 @@ class PolicyViewer:
             else:
                 self._draw_plan(group, group_actions[start_index:])
 
-    def _draw_plan(self, group: RobotGroup, actions: np.ndarray) -> None:
+    def _draw_plan(self, group: RobotGroup, actions: FloatArray) -> None:
         root = f"{self._root(group)}/predicted_ee"
         if len(actions) < 2:
             for handle in self.current_plan_handles[group.name]:
@@ -581,14 +623,10 @@ class PolicyViewer:
             self._clear_achieved_tails()
             self.observe_only = metadata.get("control_mode", "observe") == "observe"
             self.paused = True
-            for button in (
-                self.start_btn,
-                self.pause_btn,
-                self.home_btn,
-                self.step_btn,
-                self.finish_btn,
-            ):
-                button.disabled = self.observe_only
+            self.service_ready = False
+            self.preparing_rollout = False
+            self.prepare_btn.disabled = True
+            self._set_policy_controls_enabled(True)
             self._set_instruction(str(metadata.get("instruction", self.task.value)))
             self.policy_name.value = str(metadata.get("policy_label", "waiting"))
             self.runtime_name.value = str(metadata.get("runtime", "waiting"))
@@ -610,6 +648,9 @@ class PolicyViewer:
                 self.current_episode_dir = Path(episode_dir).expanduser()
                 self.episode_path.value = episode_dir
             self.episode_finalized = self.current_episode_dir is not None
+            self.evaluation_saved = False
+            self.paused = True
+            self._set_policy_controls_enabled(False)
             self._set_evaluation_enabled(self.episode_finalized)
             self.evaluation_status.content = (
                 "🟡 Select the task result and smoothness score, then save."
@@ -617,8 +658,34 @@ class PolicyViewer:
                 else "🔴 Runtime did not publish an episode path."
             )
             self.status.content = "⚪ **Episode finished · awaiting evaluation**"
+        elif event == "runtime_service_ready":
+            self.policy_name.value = str(metadata.get("policy_label", "waiting"))
+            self.runtime_name.value = str(metadata.get("runtime", "waiting"))
+            self._set_instruction(str(metadata.get("task", self.task.value)))
+            last_error = str(metadata.get("last_error", ""))
+            if self.preparing_rollout and not last_error:
+                return
+            self.preparing_rollout = False
+            self.service_ready = True
+            if self.current_episode_dir is None or self.evaluation_saved:
+                self.episode_path.value = str(metadata.get("last_episode_dir", "")) or "ready"
+            self._update_prepare_enabled()
+            if last_error:
+                self.status.content = (
+                    f"🔴 **Last rollout failed · service idle**  \\n`{last_error}`"
+                )
+            elif self.evaluation_saved:
+                self.status.content = "🟡 **Runtime service ready · prepare a rollout**"
+        elif event == "episode_failed":
+            self.preparing_rollout = False
+            self.service_ready = True
+            self.evaluation_saved = True
+            self._set_policy_controls_enabled(False)
+            self._update_prepare_enabled()
+            error = str(metadata.get("error", "unknown startup error"))
+            self.status.content = f"🔴 **Rollout failed before execution**  \\n`{error}`"
 
-    def _update_group(self, group: RobotGroup, configuration: np.ndarray) -> None:
+    def _update_group(self, group: RobotGroup, configuration: FloatArray) -> None:
         robot_handle = self.robot_handles.get(group.name)
         if robot_handle is not None:
             robot_handle.update_cfg(self.robot.visual_configuration(group.name, configuration))
@@ -639,7 +706,7 @@ class PolicyViewer:
         self.tails[group.name].append(position)
         self._draw_tail(group, np.asarray(self.tails[group.name]))
 
-    def _draw_tail(self, group: RobotGroup, points: np.ndarray) -> None:
+    def _draw_tail(self, group: RobotGroup, points: FloatArray) -> None:
         name = f"{self._root(group)}/achieved_tail"
         if len(points) < 2:
             self.server.scene.add_line_segments(

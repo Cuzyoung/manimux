@@ -242,10 +242,10 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
 ```
 
-RTC 使用独立 infra 配置：
+RTC 使用独立 infra 配置。重复评测时启动一次长期 session service：
 
 ```bash
-envs/yam/.venv/bin/manimux run \
+envs/yam/.venv/bin/manimux serve \
   --config configs/pi05/yam/infra/rtc-pick-red-ball-box-step1000.yaml
 ```
 
@@ -264,9 +264,28 @@ Viser 在 episode 正常落盘后开放 `Task result`、`Smoothness (1-5)`、fai
 保存到 `episode-*/evaluation/manual-v1.json`。这里的 task result 与 `result.json` 中表示 runtime
 正常收尾的 `success` 完全分开。
 
+`serve` 不加载模型、不启动相机，也不替代 Viewer。用户先分别启动 camera server、Pi05 model
+server 和 `manimux-viewer`，再启动一次 `serve`。Viser 显示 service ready 后：
+
+1. 点击 `Prepare new rollout`；ManiMux 创建全新 episode、连接机器人并移动到 start pose。
+2. 等待页面显示 `PAUSED`，确认真机后点击 `Start / Resume`。
+3. 完成或失败后点击 `Finish rollout`；等待 Recorder 落盘和机器人 Home。
+4. 填写并保存人工评测；service 回到 idle 后点击下一次 `Prepare new rollout`。
+
+每条 episode 都创建新的 worker session，并重置 Timeline、RTC delay history、Executor、Recorder 和
+Viewer trail；不会继承上一条 rollout 的推理状态。camera/model/viewer/service 进程保持运行。
+
+只需要单条 rollout 或用于脚本兼容时，原 CLI 入口仍保留：
+
+```bash
+envs/yam/.venv/bin/manimux run \
+  --config configs/pi05/yam/infra/rtc-pick-red-ball-box-step1000.yaml
+```
+
 ## 停止
 
-在 runtime 前台按一次 `Ctrl-C`，等待 3.5 秒回 Home 并退出；随后再停止相机和模型服务。
+单次 `run` 在前台按一次 `Ctrl-C`，等待 Home 并退出。长期 `serve` 应先在 Viser 完成当前
+rollout；回到 service idle 后，再在 serve 终端按 `Ctrl-C`。随后才停止 Viewer、模型和相机。
 不要使用模糊 `pkill`。
 
 ## Pi05 base + RTC

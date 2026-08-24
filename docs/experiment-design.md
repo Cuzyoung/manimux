@@ -263,14 +263,16 @@ Start/Pause/Home/Finish、相机、预测轨迹和 achieved trail；在此基础
 
 ### 11.2 分阶段实现
 
-1. **UI V1：标注与结果浏览**。运行仍由现有 config/CLI 启动；episode 结束后 UI 立即标注。
-2. **UI V2：实验队列**。用户仍在终端部署 camera、model server 和 ManiMux Runtime；UI 只读取
-   已启动 Runtime 发布的 config/episode metadata，并提示 matched block 的下一格实验。
+1. **UI V1：多-rollout 控制、标注与结果浏览**。用户启动一次 `manimux serve --config ...`；
+   Viser 负责 Prepare、Start、Finish、人工标注和下一条 episode。
+2. **UI V2：实验队列**。用户仍在终端部署 camera、model server 和 ManiMux service；UI 只读取
+   service 发布的 config/episode metadata，并提示 matched block 的下一格实验。
 3. **UI V3：结果审阅**。在同一个 Viewer 中浏览 episode、视频、人工标签、自动指标和 PRM，不增加
    camera/model/runtime 的网页启动器。
 
 Viser 永远不下载模型、不启动 Policy Server、不切换 checkpoint，也不任意修改真机 config。保存路径
-由 `manimux run --config ...` 决定，UI 只显示路径并向已经结束的 episode 写 evaluation sidecar。
+由 `manimux serve --config ...` 决定，UI 只显示路径并向已经结束的 episode 写 evaluation sidecar。
+原 `manimux run` 继续作为单 episode CLI 使用。
 
 ## 12. Episode 评测数据契约
 

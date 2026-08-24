@@ -1,0 +1,161 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from manimux.cli import build_parser
+from manimux.config import load_config
+from manimux.runtime import RunResult
+from manimux.session import RuntimeSessionService
+
+
+class _FakeControl:
+    def __init__(self, states: list[dict[str, Any]]) -> None:
+        self._states = iter(states)
+        self.closed = False
+
+    def poll(self) -> dict[str, Any]:
+        return next(self._states, {"new_rollout_requested": True})
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakePublisher:
+    def __init__(self, messages: list[dict[str, Any]]) -> None:
+        self._messages = messages
+        self.closed = False
+
+    def publish(self, message: Any) -> None:
+        self._messages.append(message.to_wire())
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeRuntime:
+    def __init__(self, result: RunResult) -> None:
+        self._result = result
+        self.run_count = 0
+
+    def run(self) -> RunResult:
+        self.run_count += 1
+        return self._result
+
+
+class _FailingRuntime:
+    def run(self) -> RunResult:
+        raise RuntimeError("model unavailable")
+
+
+def test_session_service_waits_for_viewer_then_runs_one_isolated_episode(tmp_path: Path) -> None:
+    config = load_config("configs/mock.yaml")
+    config.viewer.enabled = True
+    run_dir = tmp_path / "run-session"
+    run_dir.mkdir()
+    episode_dir = run_dir / "episode-one"
+    episode_dir.mkdir()
+    runtime = _FakeRuntime(
+        RunResult(
+            episode_dir=episode_dir,
+            steps=10,
+            accepted_plans=2,
+            rejected_plans=0,
+            success=True,
+            terminal_reason="viewer_finish_requested",
+        )
+    )
+    controls: list[_FakeControl] = []
+    messages: list[dict[str, Any]] = []
+
+    def control_factory() -> _FakeControl:
+        control = _FakeControl([{}, {"new_rollout_requested": True}])
+        controls.append(control)
+        return control
+
+    service = RuntimeSessionService(
+        config,
+        run_dir,
+        runtime_factory=lambda _config, _run_dir: runtime,
+        control_factory=control_factory,
+        publisher_factory=lambda: _FakePublisher(messages),
+        poll_interval_s=0,
+        announcement_interval_s=0,
+    )
+
+    service.serve(max_rollout_attempts=1)
+
+    assert runtime.run_count == 1
+    assert controls[0].closed
+    assert any(message["event"] == "runtime_service_ready" for message in messages)
+
+
+def test_cli_keeps_run_and_adds_serve() -> None:
+    parser = build_parser()
+    assert parser.parse_args(["run", "--config", "configs/mock.yaml"]).command == "run"
+    assert parser.parse_args(["serve", "--config", "configs/mock.yaml"]).command == "serve"
+
+
+def test_session_service_builds_a_fresh_runtime_for_every_episode(tmp_path: Path) -> None:
+    config = load_config("configs/mock.yaml")
+    config.viewer.enabled = True
+    run_dir = tmp_path / "run-session"
+    run_dir.mkdir()
+    runtimes: list[_FakeRuntime] = []
+
+    def runtime_factory(_config, _run_dir) -> _FakeRuntime:
+        index = len(runtimes)
+        episode_dir = run_dir / f"episode-{index}"
+        episode_dir.mkdir()
+        runtime = _FakeRuntime(
+            RunResult(episode_dir, 1, 1, 0, True, "viewer_finish_requested")
+        )
+        runtimes.append(runtime)
+        return runtime
+
+    service = RuntimeSessionService(
+        config,
+        run_dir,
+        runtime_factory=runtime_factory,
+        control_factory=lambda: _FakeControl([{"new_rollout_requested": True}]),
+        publisher_factory=lambda: _FakePublisher([]),
+        poll_interval_s=0,
+    )
+
+    service.serve(max_rollout_attempts=2)
+
+    assert len(runtimes) == 2
+    assert runtimes[0] is not runtimes[1]
+    assert [runtime.run_count for runtime in runtimes] == [1, 1]
+
+
+def test_session_service_survives_one_failed_rollout_attempt(tmp_path: Path) -> None:
+    config = load_config("configs/mock.yaml")
+    config.viewer.enabled = True
+    run_dir = tmp_path / "run-session"
+    run_dir.mkdir()
+    messages: list[dict[str, Any]] = []
+    factory_calls = 0
+
+    def runtime_factory(_config, _run_dir):
+        nonlocal factory_calls
+        factory_calls += 1
+        if factory_calls == 1:
+            return _FailingRuntime()
+        episode_dir = run_dir / "episode-success"
+        episode_dir.mkdir()
+        return _FakeRuntime(RunResult(episode_dir, 1, 1, 0, True, "completed"))
+
+    service = RuntimeSessionService(
+        config,
+        run_dir,
+        runtime_factory=runtime_factory,
+        control_factory=lambda: _FakeControl([{"new_rollout_requested": True}]),
+        publisher_factory=lambda: _FakePublisher(messages),
+        poll_interval_s=0,
+    )
+
+    service.serve(max_rollout_attempts=2)
+
+    assert factory_calls == 2
+    assert any(message["event"] == "episode_failed" for message in messages)
