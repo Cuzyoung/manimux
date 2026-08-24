@@ -332,54 +332,42 @@ git submodule update --init --recursive
 
 The core development environment uses `./.venv`, the YAM runtime uses `envs/yam/.venv`, and model
 servers use isolated environments. Follow [the environment guide](envs/README.md) and one model
-runbook for CUDA, Torch, checkpoints and first startup; do not assemble a hardware command from
-README snippets.
+runbook for CUDA, Torch, checkpoints, preflight and safe shutdown.
 
-### Shared YAM Services
+### Real-Robot Quick Start: Pi05 + YAM
 
-The camera service and viewer are model-independent and start once per experiment stack:
+Open four terminals in the repository root and run one command in each:
 
 ```bash
+# Terminal 1: camera
 envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
+```
+
+```bash
+# Terminal 2: Viewer
 envs/yam/.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
 ```
 
-### Native Example: MolmoAct2
-
 ```bash
-envs/yam/.venv/bin/manimux-molmoact-server --host 127.0.0.1 --port 8202
-envs/yam/.venv/bin/manimux run --config configs/molmoact2/yam/infra/manimux.yaml
-```
-
-### XPolicy Example: Pi05-YAM
-
-```bash
+# Terminal 3: policy server
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   scripts/pi05_yam_server.py \
-  --config configs/pi05/yam/server/finetune.yaml
-
-envs/yam/.venv/bin/manimux run --config configs/pi05/yam/infra/manimux.yaml
+  --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
 ```
 
-Use `manimux run` for one terminal-controlled rollout. Use the persistent server when Viewer should
-control multiple rollouts:
-
 ```bash
+# Terminal 4: ManiMux runtime service
 envs/yam/.venv/bin/manimux serve \
   --config configs/pi05/yam/infra/rtc-pick-red-ball-box-step1000.yaml
 ```
 
-The model server, camera server and Viewer still start independently. In Viewer, choose the prominent
-**Experiment mode** switch before `Prepare new rollout`:
+Open `http://localhost:8086`, then operate Viewer in this order:
 
-- **OFF** — deployment/debug mode; no reward is required.
-- **ON** — formal collection mode; each finalized rollout requires a human result and smoothness
-  label before the next rollout.
-
-Viewer follows `Prepare -> Start -> Finish -> Evaluate (experiment mode only)`. The task text present
-at Prepare time is sent to the policy. Sessions use readable `session-*/rollout-001` paths and can
-store synchronized camera videos, policy/infra/committed plans and explicit
-`evaluation/human-label.json` sidecars. See [Experiment infrastructure](docs/experiment-infra.md).
+1. Choose Experiment mode: OFF skips evaluation; ON requires a label after every rollout.
+2. Confirm the task command and optionally enter a layout/condition ID.
+3. Click `Prepare new rollout` and wait for `Connected · PAUSED`.
+4. Click `Start / Resume` to run, then `Finish rollout` to stop and save.
+5. In Experiment mode, select the result and smoothness score, then click `Save evaluation`.
 
 These snippets show entry points only. They do not replace checkpoint validation, preflight,
 CAN checks or shutdown procedures. Model setup stays in its runbook; ACT, AAC, PAINT and later
