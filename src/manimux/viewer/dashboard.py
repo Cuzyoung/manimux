@@ -101,6 +101,8 @@ class PolicyViewer:
         self.new_rollout_requested = False
         self.preparing_rollout = False
         self.service_ready = False
+        self.experiment_mode = False
+        self.experiment_mode_initialized = False
         self.evaluation_saved = True
         self.last_state_time = 0.0
         self.tails: dict[str, deque[FloatArray]] = {
@@ -172,6 +174,22 @@ class PolicyViewer:
     def _build_gui(self) -> None:
         self.status = self.server.gui.add_markdown("🟠 **Waiting for policy executor**")
         self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
+        with self.server.gui.add_folder("🧪 Experiment mode", expand_by_default=True):
+            self.experiment_mode_status = self.server.gui.add_markdown(
+                "⚪ **OFF** · rollout control only; no reward is required."
+            )
+            self.enable_experiment_btn = self.server.gui.add_button(
+                "Enable experiment mode", color="red", disabled=True
+            )
+            self.disable_experiment_btn = self.server.gui.add_button(
+                "Experiment mode ON · click to disable",
+                color="green",
+                disabled=True,
+                visible=False,
+            )
+            self.layout_id = self.server.gui.add_text(
+                "Layout / condition ID", "default", disabled=True
+            )
         with self.server.gui.add_folder("Policy control", expand_by_default=True):
             self.prepare_btn = self.server.gui.add_button(
                 "Prepare new rollout", color="blue", disabled=True
@@ -265,6 +283,14 @@ class PolicyViewer:
             self.step_once = False
             self.status.content = "🟢 **Connected · RUNNING**"
 
+        @self.enable_experiment_btn.on_click
+        def _enable_experiment(_event: Any) -> None:
+            self._set_experiment_mode(True)
+
+        @self.disable_experiment_btn.on_click
+        def _disable_experiment(_event: Any) -> None:
+            self._set_experiment_mode(False)
+
         @self.prepare_btn.on_click
         def _prepare(_event: Any) -> None:
             self.new_rollout_requested = True
@@ -272,6 +298,7 @@ class PolicyViewer:
             self.service_ready = False
             self.paused = True
             self.prepare_btn.disabled = True
+            self._set_mode_controls_enabled(False)
             self.status.content = "🟠 **Preparing a new rollout**"
 
         @self.pause_btn.on_click
@@ -342,6 +369,23 @@ class PolicyViewer:
             handle.disabled = not enabled
         self.save_evaluation_btn.disabled = not enabled
 
+    def _set_experiment_mode(self, enabled: bool) -> None:
+        self.experiment_mode = enabled
+        self.experiment_mode_initialized = True
+        self.enable_experiment_btn.visible = not enabled
+        self.disable_experiment_btn.visible = enabled
+        self.layout_id.disabled = not enabled or not self.service_ready
+        self.experiment_mode_status.content = (
+            "🟢 **ON** · every finished rollout requires a human reward."
+            if enabled
+            else "⚪ **OFF** · rollout control only; no reward is required."
+        )
+
+    def _set_mode_controls_enabled(self, enabled: bool) -> None:
+        self.enable_experiment_btn.disabled = not enabled
+        self.disable_experiment_btn.disabled = not enabled
+        self.layout_id.disabled = not (enabled and self.experiment_mode)
+
     def _set_policy_controls_enabled(self, enabled: bool) -> None:
         for button in (
             self.start_btn,
@@ -358,7 +402,7 @@ class PolicyViewer:
     def _reset_evaluation(self, episode_dir: str) -> None:
         self.current_episode_dir = Path(episode_dir).expanduser() if episode_dir else None
         self.episode_finalized = False
-        self.evaluation_saved = False
+        self.evaluation_saved = not self.experiment_mode
         self.episode_path.value = episode_dir or "not published"
         self.task_result.value = "unlabeled"
         self.smoothness_score.value = "3"
@@ -393,6 +437,7 @@ class PolicyViewer:
             return
         self.evaluation_status.content = f"🟢 Saved `{target}`"
         self.evaluation_saved = True
+        self._set_mode_controls_enabled(self.service_ready)
         self._update_prepare_enabled()
 
     def control_state(self) -> dict[str, Any]:
@@ -403,6 +448,8 @@ class PolicyViewer:
             "finish_requested": self.finish_requested,
             "new_rollout_requested": self.new_rollout_requested,
             "task_command": self.task.value.strip(),
+            "experiment_mode": self.experiment_mode,
+            "layout_id": self.layout_id.value.strip(),
         }
         self.step_once = False
         self.home_requested = False
@@ -626,6 +673,9 @@ class PolicyViewer:
             self.service_ready = False
             self.preparing_rollout = False
             self.prepare_btn.disabled = True
+            self._set_experiment_mode(bool(metadata.get("experiment_mode", False)))
+            self.layout_id.value = str(metadata.get("layout_id", "")) or "default"
+            self._set_mode_controls_enabled(False)
             self._set_policy_controls_enabled(True)
             self._set_instruction(str(metadata.get("instruction", self.task.value)))
             self.policy_name.value = str(metadata.get("policy_label", "waiting"))
@@ -648,16 +698,23 @@ class PolicyViewer:
                 self.current_episode_dir = Path(episode_dir).expanduser()
                 self.episode_path.value = episode_dir
             self.episode_finalized = self.current_episode_dir is not None
-            self.evaluation_saved = False
+            self.evaluation_saved = not self.experiment_mode
             self.paused = True
             self._set_policy_controls_enabled(False)
-            self._set_evaluation_enabled(self.episode_finalized)
-            self.evaluation_status.content = (
-                "🟡 Select the task result and smoothness score, then save."
-                if self.episode_finalized
-                else "🔴 Runtime did not publish an episode path."
-            )
-            self.status.content = "⚪ **Episode finished · awaiting evaluation**"
+            self._set_evaluation_enabled(self.episode_finalized and self.experiment_mode)
+            if not self.episode_finalized:
+                self.evaluation_status.content = "🔴 Runtime did not publish a rollout path."
+                self.status.content = "🔴 **Rollout finished without a saved path**"
+            elif self.experiment_mode:
+                self.evaluation_status.content = (
+                    "🟡 Select the task result and smoothness score, then save."
+                )
+                self.status.content = "⚪ **Rollout finished · awaiting human reward**"
+            else:
+                self.evaluation_status.content = (
+                    "⚪ Experiment mode was OFF; no human reward is required."
+                )
+                self.status.content = "⚪ **Rollout finished · no reward required**"
         elif event == "runtime_service_ready":
             self.policy_name.value = str(metadata.get("policy_label", "waiting"))
             self.runtime_name.value = str(metadata.get("runtime", "waiting"))
@@ -667,6 +724,14 @@ class PolicyViewer:
                 return
             self.preparing_rollout = False
             self.service_ready = True
+            if not self.experiment_mode_initialized:
+                self._set_experiment_mode(
+                    bool(metadata.get("default_experiment_mode", False))
+                )
+                self.layout_id.value = (
+                    str(metadata.get("default_layout_id", "")) or "default"
+                )
+            self._set_mode_controls_enabled(self.evaluation_saved)
             if self.current_episode_dir is None or self.evaluation_saved:
                 self.episode_path.value = str(metadata.get("last_episode_dir", "")) or "ready"
             self._update_prepare_enabled()
@@ -680,6 +745,7 @@ class PolicyViewer:
             self.preparing_rollout = False
             self.service_ready = True
             self.evaluation_saved = True
+            self._set_mode_controls_enabled(True)
             self._set_policy_controls_enabled(False)
             self._update_prepare_enabled()
             error = str(metadata.get("error", "unknown startup error"))

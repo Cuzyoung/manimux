@@ -150,3 +150,15 @@ class ActionHorizon:
 
 def copy_group_vector(groups: GroupVector) -> GroupVector:
     return {name: value.copy() for name, value in groups.items()}
+
+
+def copy_action_chunk(chunk: ActionChunk) -> ActionChunk:
+    return ActionChunk(
+        plan_id=chunk.plan_id,
+        request_seq=chunk.request_seq,
+        observation_time_ns=chunk.observation_time_ns,
+        created_time_ns=chunk.created_time_ns,
+        action_space=chunk.action_space,
+        dt_ns=chunk.dt_ns,
+        groups={name: values.copy() for name, values in chunk.groups.items()},
+    )

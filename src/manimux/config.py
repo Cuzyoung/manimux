@@ -15,6 +15,8 @@ class RunConfig(StrictModel):
     task: str
     output_dir: Path = Path("./data")
     max_steps: int = Field(default=500, gt=0)
+    experiment_mode: bool = False
+    layout_id: str = ""
 
 
 class RobotConfig(StrictModel):
@@ -233,6 +235,9 @@ class ViewerConfig(StrictModel):
 
 class RecordingConfig(StrictModel):
     enabled: Literal[True] = True
+    video_fps: float = Field(default=0.0, ge=0.0)
+    video_codec: str = Field(default="mp4v", min_length=4, max_length=4)
+    video_queue_size: int = Field(default=8, gt=0)
 
 
 class ManiMuxConfig(StrictModel):

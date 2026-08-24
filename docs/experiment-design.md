@@ -260,6 +260,10 @@ Viser 永远不下载模型、不启动 Policy Server、不切换 checkpoint，�
 由 `manimux serve --config ...` 决定，UI 只显示路径并向已经结束的 episode 写 evaluation sidecar。
 原 `manimux run` 继续作为单 episode CLI 使用。
 
+当前 V1 已支持显式实验模式开关。OFF 用于普通部署与 debug，不要求 reward；ON 用于正式采集，
+每条 finalized rollout 必须保存人工标签后才能 Prepare 下一条。task command 和 layout ID 在 Prepare
+时冻结到该 rollout。完整操作与数据契约见 [experiment infrastructure](experiment-infra.md)。
+
 ## 12. Episode 评测数据契约
 
 当前 `result.json.success` 表示 runtime 生命周期正常结束，不是任务成功。不能覆盖或重新解释它。
@@ -269,14 +273,22 @@ Viser 永远不下载模型、不启动 Policy Server、不切换 checkpoint，�
 session-*/
   session-manifest.json          # config snapshot、config SHA256、git SHA
   rollout-001/
-  meta.json
-  data.zarr
-  events.jsonl
-  result.json                    # runtime lifecycle
-  evaluation/
-    human-label.json             # success、smoothness、tags、reviewer
-    automatic-metrics.json       # pilot 后冻结，当前不生成
-    prm-v1.json                  # 可选离线 PRM 结果
+    meta.json                    # task、layout、algorithm、Policy Server fingerprint
+    data.zarr/
+      ticks/                     # state、reference、executor output、command
+      plans/000000/
+        canonical_raw/           # canonical policy chunk before strategy
+        infra_output/            # chunk after inference strategy
+        committed/               # final Timeline horizon
+    videos/
+      <camera>.mp4
+      index.json                 # timestamps、drops、encoder error
+    events.jsonl
+    result.json                  # runtime lifecycle
+    evaluation/
+      human-label.json           # experiment mode ON 时由操作者保存
+      automatic-metrics.json     # pilot 后冻结，当前不生成
+      prm-v1.json                # 可选离线 PRM 结果
 ```
 
 当前 `human-label.json`：
@@ -338,6 +350,8 @@ processed progress curve。可参考 [PRM-as-a-Judge](https://github.com/Yuheng2
 - [ ] 定义 5 个红球任务 layout seeds，随机化 40 条 pilot 的运行顺序。
 - [x] 实现 Viewer 的 post-rollout `success / smoothness / tags` 标注面板。
 - [x] 实现 rollout human-label sidecar writer。
+- [x] 实现实验模式 ON/OFF、task/layout 冻结和 reward gating。
+- [x] 保存 canonical raw、infra output、committed horizon 与异步多相机视频证据。
 - [ ] 根据 pilot 数据提出候选指标，并用人工标签验证相关性和失效案例。
 - [ ] 再冻结插架、开放容器运输和动态恢复三个正式 task protocol。
 - [ ] 只把 E1/E2 中有信息量的方法扩展到更多 Policy 和数据量。

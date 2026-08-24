@@ -153,6 +153,45 @@ def test_session_service_builds_a_fresh_runtime_for_every_episode(tmp_path: Path
     assert [runtime.run_count for runtime in runtimes] == [1, 1]
 
 
+def test_viewer_request_selects_task_and_experiment_metadata(tmp_path: Path) -> None:
+    config = load_config("configs/mock.yaml")
+    config.viewer.enabled = True
+    run_dir = tmp_path / "session"
+    run_dir.mkdir()
+    captured = []
+
+    def runtime_factory(rollout_config, _run_dir):
+        captured.append(rollout_config)
+        episode_dir = run_dir / "rollout-001"
+        episode_dir.mkdir()
+        return _FakeRuntime(RunResult(episode_dir, 1, 1, 0, True, "completed"))
+
+    service = RuntimeSessionService(
+        config,
+        run_dir,
+        runtime_factory=runtime_factory,
+        control_factory=lambda: _FakeControl(
+            [
+                {
+                    "new_rollout_requested": True,
+                    "task_command": "fold the towel",
+                    "experiment_mode": True,
+                    "layout_id": "layout-03",
+                }
+            ]
+        ),
+        publisher_factory=lambda: _FakePublisher([]),
+        poll_interval_s=0,
+    )
+
+    service.serve(max_rollout_attempts=1)
+
+    assert captured[0].run.task == "fold the towel"
+    assert captured[0].run.experiment_mode is True
+    assert captured[0].run.layout_id == "layout-03"
+    assert config.run.task != "fold the towel"
+
+
 def test_session_service_survives_one_failed_rollout_attempt(tmp_path: Path) -> None:
     config = load_config("configs/mock.yaml")
     config.viewer.enabled = True

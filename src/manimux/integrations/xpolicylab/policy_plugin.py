@@ -338,7 +338,12 @@ class XPolicyLabWsPolicyModel:
             if client is None
             else getattr(client, "sampling_modes", frozenset({"default"}))
         )
-        return PolicyCapabilities(sampling_modes=modes)
+        metadata = (
+            {}
+            if client is None
+            else getattr(client, "backend_metadata", {})
+        )
+        return PolicyCapabilities(sampling_modes=modes, backend_metadata=dict(metadata))
 
 
 class XPolicyLabAdapter:

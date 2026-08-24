@@ -8,7 +8,16 @@ from typing import TextIO
 import numpy as np
 import zarr
 
-from manimux.types import ActionChunk, GroupVector, RobotState
+from manimux.types import (
+    ActionChunk,
+    ActionHorizon,
+    GroupVector,
+    RobotState,
+    SensorFrame,
+    copy_action_chunk,
+)
+
+from .video import AsyncVideoRecorder
 
 
 @dataclass(slots=True)
@@ -23,6 +32,13 @@ class _TickRecord:
     camera_times_ns: dict[str, int]
 
 
+@dataclass(slots=True)
+class _PlanRecord:
+    canonical_raw: ActionChunk
+    infra_output: ActionChunk
+    committed: ActionHorizon
+
+
 class EpisodeRecorder:
     """Milestone-0 local recorder: stream events, buffer numeric tick data, finalize Zarr."""
 
@@ -32,16 +48,28 @@ class EpisodeRecorder:
         episode_id: str,
         group_dims: dict[str, int],
         metadata: dict[str, object],
+        *,
+        video_fps: float = 0.0,
+        video_codec: str = "mp4v",
+        video_queue_size: int = 8,
     ) -> None:
         self._partial_dir = run_dir / f"{episode_id}.partial"
         self._final_dir = run_dir / episode_id
         self._partial_dir.mkdir(parents=True, exist_ok=False)
         self._group_dims = dict(group_dims)
         self._ticks: list[_TickRecord] = []
-        self._plans: list[ActionChunk] = []
+        self._plans: list[_PlanRecord] = []
         self._events_path = self._partial_dir / "events.jsonl"
         self._events: TextIO = self._events_path.open("a", encoding="utf-8")
-        self._write_json(self._partial_dir / "meta.json", metadata)
+        self._metadata = dict(metadata)
+        self._metadata_path = self._partial_dir / "meta.json"
+        self._video = AsyncVideoRecorder(
+            self._partial_dir,
+            fps=video_fps,
+            codec=video_codec,
+            queue_size=video_queue_size,
+        )
+        self._write_json(self._metadata_path, self._metadata)
         self.event("episode_started", episode_id=episode_id)
 
     @property
@@ -59,8 +87,33 @@ class EpisodeRecorder:
         self._events.write(json.dumps(payload, sort_keys=True) + "\n")
         self._events.flush()
 
-    def record_plan(self, chunk: ActionChunk) -> None:
-        self._plans.append(chunk)
+    def update_metadata(self, **fields: object) -> None:
+        self._metadata.update(fields)
+        self._write_json(self._metadata_path, self._metadata)
+
+    @staticmethod
+    def _copy_horizon(horizon: ActionHorizon) -> ActionHorizon:
+        return ActionHorizon(
+            start_time_ns=horizon.start_time_ns,
+            dt_ns=horizon.dt_ns,
+            plan_id=horizon.plan_id,
+            groups={name: values.copy() for name, values in horizon.groups.items()},
+        )
+
+    def record_plan(
+        self,
+        *,
+        canonical_raw: ActionChunk,
+        infra_output: ActionChunk,
+        committed: ActionHorizon,
+    ) -> None:
+        self._plans.append(
+            _PlanRecord(
+                canonical_raw=copy_action_chunk(canonical_raw),
+                infra_output=copy_action_chunk(infra_output),
+                committed=self._copy_horizon(committed),
+            )
+        )
 
     def record_tick(
         self,
@@ -73,6 +126,7 @@ class EpisodeRecorder:
         plan_id: str | None,
         inference_ms: float | None,
         camera_times_ns: dict[str, int],
+        frames: dict[str, SensorFrame] | None = None,
     ) -> None:
         self._ticks.append(
             _TickRecord(
@@ -86,6 +140,7 @@ class EpisodeRecorder:
                 camera_times_ns=dict(camera_times_ns),
             )
         )
+        self._video.submit(frames or {})
 
     def _write_zarr(self) -> None:
         root = zarr.open_group(str(self._partial_dir / "data.zarr"), mode="w")
@@ -127,20 +182,39 @@ class EpisodeRecorder:
             )
 
         plans = root.create_group("plans")
-        for index, chunk in enumerate(self._plans):
+        for index, record in enumerate(self._plans):
             plan = plans.create_group(f"{index:06d}")
             plan.attrs.update(
                 {
-                    "plan_id": chunk.plan_id,
-                    "request_seq": chunk.request_seq,
-                    "observation_time_ns": chunk.observation_time_ns,
-                    "created_time_ns": chunk.created_time_ns,
-                    "action_space": chunk.action_space,
-                    "dt_ns": chunk.dt_ns,
+                    "plan_id": record.infra_output.plan_id,
+                    "request_seq": record.infra_output.request_seq,
                 }
             )
-            for name, plan_values in chunk.groups.items():
-                plan.create_dataset(name, data=plan_values)
+            for stage_name, chunk in (
+                ("canonical_raw", record.canonical_raw),
+                ("infra_output", record.infra_output),
+            ):
+                stage = plan.create_group(stage_name)
+                stage.attrs.update(
+                    {
+                        "observation_time_ns": chunk.observation_time_ns,
+                        "created_time_ns": chunk.created_time_ns,
+                        "action_space": chunk.action_space,
+                        "dt_ns": chunk.dt_ns,
+                    }
+                )
+                for name, plan_values in chunk.groups.items():
+                    stage.create_dataset(name, data=plan_values)
+            committed = plan.create_group("committed")
+            committed.attrs.update(
+                {
+                    "start_time_ns": record.committed.start_time_ns,
+                    "dt_ns": record.committed.dt_ns,
+                    "plan_id": record.committed.plan_id,
+                }
+            )
+            for name, plan_values in record.committed.groups.items():
+                committed.create_dataset(name, data=plan_values)
 
     def finish(
         self,
@@ -157,6 +231,7 @@ class EpisodeRecorder:
             steps=steps,
         )
         self._events.close()
+        video = self._video.close()
         self._write_zarr()
         self._write_json(
             self._partial_dir / "result.json",
@@ -165,6 +240,12 @@ class EpisodeRecorder:
                 "terminal_reason": terminal_reason,
                 "steps": steps,
                 "wall_time_s": wall_time_s,
+                "video_recording": {
+                    "enabled": video.enabled,
+                    "frames_written": video.frames_written,
+                    "dropped_bundles": video.dropped_bundles,
+                    "error": video.error,
+                },
             },
         )
         self._partial_dir.rename(self._final_dir)
@@ -175,6 +256,7 @@ class EpisodeRecorder:
             return
         self.event("episode_aborted", terminal_reason=reason)
         self._events.close()
+        video = self._video.close()
         self._write_zarr()
         self._write_json(
             self._partial_dir / "result.json",
@@ -183,5 +265,11 @@ class EpisodeRecorder:
                 "terminal_reason": reason,
                 "steps": len(self._ticks),
                 "incomplete": True,
+                "video_recording": {
+                    "enabled": video.enabled,
+                    "frames_written": video.frames_written,
+                    "dropped_bundles": video.dropped_bundles,
+                    "error": video.error,
+                },
             },
         )

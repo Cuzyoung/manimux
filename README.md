@@ -361,11 +361,25 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
 envs/yam/.venv/bin/manimux run --config configs/pi05/yam/infra/manimux.yaml
 ```
 
-`manimux run` remains the one-rollout CLI. For repeated Viewer-controlled evaluation with the same
-validated config, start `manimux serve --config <experiment.yaml>` once; Viser then prepares,
-starts, finishes and labels each isolated rollout without restarting the model server. New sessions
-use readable `session-*/rollout-001` paths, and human annotations are written explicitly as
-`evaluation/human-label.json`.
+Use `manimux run` for one terminal-controlled rollout. Use the persistent server when Viewer should
+control multiple rollouts:
+
+```bash
+envs/yam/.venv/bin/manimux serve \
+  --config configs/pi05/yam/infra/rtc-pick-red-ball-box-step1000.yaml
+```
+
+The model server, camera server and Viewer still start independently. In Viewer, choose the prominent
+**Experiment mode** switch before `Prepare new rollout`:
+
+- **OFF** — deployment/debug mode; no reward is required.
+- **ON** — formal collection mode; each finalized rollout requires a human result and smoothness
+  label before the next rollout.
+
+Viewer follows `Prepare -> Start -> Finish -> Evaluate (experiment mode only)`. The task text present
+at Prepare time is sent to the policy. Sessions use readable `session-*/rollout-001` paths and can
+store synchronized camera videos, policy/infra/committed plans and explicit
+`evaluation/human-label.json` sidecars. See [Experiment infrastructure](docs/experiment-infra.md).
 
 These snippets show entry points only. They do not replace checkpoint validation, preflight,
 CAN checks or shutdown procedures. Model setup stays in its runbook; ACT, AAC, PAINT and later
@@ -406,6 +420,7 @@ copied per model. See [Architecture](docs/architecture.md) for the complete cont
 ## Documentation
 
 - [Real-robot experiment design](docs/experiment-design.md)
+- [Experiment infrastructure and Viewer workflow](docs/experiment-infra.md)
 - [Program progress](docs/program-progress.md)
 - [XPolicyLab integration](docs/xpolicylab-runbook.md)
 - [MolmoAct2](docs/molmoact-yam-runbook.md) · [ABC](docs/abc-yam-runbook.md)

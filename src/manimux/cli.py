@@ -15,10 +15,11 @@ from manimux.runtime import build_runtime
 from manimux.session import RuntimeSessionService
 
 
-def _git_sha() -> str | None:
+def _git_sha(workdir: Path | None = None) -> str | None:
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
+            cwd=workdir,
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip()
@@ -42,13 +43,15 @@ def _create_run_dir(config: ManiMuxConfig, config_path: Path, *, mode: str) -> P
     run_dir.mkdir(parents=True, exist_ok=False)
     resolved_config = config_path.expanduser().resolve()
     config_sha256 = hashlib.sha256(resolved_config.read_bytes()).hexdigest()
+    repository_root = Path(__file__).resolve().parents[2]
     with (run_dir / "session-manifest.json").open("w", encoding="utf-8") as handle:
         json.dump(
             {
                 "session_id": run_id,
                 "mode": mode,
                 "created_at": datetime.now(UTC).isoformat(),
-                "git_sha": _git_sha(),
+                "git_sha": _git_sha(repository_root),
+                "xpolicylab_git_sha": _git_sha(repository_root / "XPolicyLab"),
                 "config_path": str(resolved_config),
                 "config_sha256": config_sha256,
                 "config": config.model_dump(mode="json"),
@@ -101,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser("run", help="run one local robot-policy session")
     _add_runtime_arguments(run_parser)
     serve_parser = subparsers.add_parser(
-        "serve", help="keep one experiment session available for Viewer-controlled rollouts"
+        "serve", help="keep one runtime service available for Viewer-controlled rollouts"
     )
     _add_runtime_arguments(serve_parser)
     return parser

@@ -7,6 +7,8 @@ integration like this actually goes wrong.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -401,6 +403,25 @@ def test_ws_client_preserves_dvac_metadata_envelope(
 def test_model_is_constructible_without_a_server() -> None:
     model = build_model(_policy_config())
     assert model is not None
+
+
+def test_model_capabilities_preserve_policy_server_fingerprint() -> None:
+    model = build_model(_policy_config())
+    model._client = SimpleNamespace(  # type: ignore[attr-defined]
+        sampling_modes=frozenset({"default", "rtc"}),
+        backend_metadata={
+            "server_revision": "xpolicy-sha",
+            "model": {"model_root": "/checkpoints/pi05-step-1000"},
+        },
+    )
+
+    capabilities = model.capabilities()
+
+    assert capabilities.sampling_modes == frozenset({"default", "rtc"})
+    assert capabilities.backend_metadata["server_revision"] == "xpolicy-sha"
+    assert capabilities.backend_metadata["model"] == {
+        "model_root": "/checkpoints/pi05-step-1000"
+    }
 
 
 def test_model_rejects_an_empty_server_option() -> None:

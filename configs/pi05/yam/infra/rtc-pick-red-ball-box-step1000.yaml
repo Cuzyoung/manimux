@@ -71,3 +71,4 @@ viewer:
 
 recording:
   enabled: true
+  video_fps: 10.0

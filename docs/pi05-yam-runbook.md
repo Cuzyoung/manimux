@@ -264,13 +264,22 @@ Viser 在 episode 正常落盘后开放 `Task result`、`Smoothness (1-5)`、fai
 保存到 `rollout-*/evaluation/human-label.json`。这里的 task result 与 `result.json` 中表示 runtime
 正常收尾的 `success` 完全分开。
 
+Viewer 顶部先选择 `Experiment mode`：OFF 只控制 rollout，不要求 reward；ON 用于正式采集，
+必须填写人工评测后才能开始下一条。正式实验同时填写可读的 `Layout / condition ID`。Prepare
+时页面中的 task command 会真实发送给 Pi05，不只是显示文本。
+
 `serve` 不加载模型、不启动相机，也不替代 Viewer。用户先分别启动 camera server、Pi05 model
 server 和 `manimux-viewer`，再启动一次 `serve`。Viser 显示 service ready 后：
 
-1. 点击 `Prepare new rollout`；ManiMux 创建全新 episode、连接机器人并移动到 start pose。
-2. 等待页面显示 `PAUSED`，确认真机后点击 `Start / Resume`。
-3. 完成或失败后点击 `Finish rollout`；等待 Recorder 落盘和机器人 Home。
-4. 填写并保存人工评测；service 回到 idle 后点击下一次 `Prepare new rollout`。
+1. 选择 Experiment mode，确认 task；正式实验再填写 layout ID。
+2. 点击 `Prepare new rollout`；ManiMux 创建全新 episode、连接机器人并移动到 start pose。
+3. 等待页面显示 `PAUSED`，确认真机后点击 `Start / Resume`。
+4. 完成或失败后点击 `Finish rollout`；等待 Recorder 落盘和机器人 Home。
+5. 实验模式 ON 时填写并保存人工评测；service 回到 idle 后点击下一次 `Prepare new rollout`。
+
+每条正式 config 以 10Hz 异步保存各相机 MP4；编码不会阻塞控制环。结束后检查
+`videos/index.json` 的 `dropped_bundles` 和 `error`。完整证据目录见
+[experiment infrastructure](experiment-infra.md)。
 
 每条 episode 都创建新的 worker session，并重置 Timeline、RTC delay history、Executor、Recorder 和
 Viewer trail；不会继承上一条 rollout 的推理状态。camera/model/viewer/service 进程保持运行。

@@ -140,6 +140,7 @@ class XPolicyLabWsClient:
         self._conn: Any | None = None
         self._step = 0
         self._sampling_modes = frozenset({"default"})
+        self._backend_metadata: dict[str, object] = {}
 
     @property
     def url(self) -> str:
@@ -152,6 +153,10 @@ class XPolicyLabWsClient:
     @property
     def sampling_modes(self) -> frozenset[str]:
         return self._sampling_modes
+
+    @property
+    def backend_metadata(self) -> dict[str, object]:
+        return dict(self._backend_metadata)
 
     def connect(self) -> None:
         """Open the socket and complete the ``hello`` handshake."""
@@ -176,6 +181,14 @@ class XPolicyLabWsClient:
             modes = capabilities.get("sampling_modes") if isinstance(capabilities, dict) else None
             if isinstance(modes, list) and modes and all(isinstance(mode, str) for mode in modes):
                 self._sampling_modes = frozenset(modes)
+            if isinstance(payload, dict):
+                model_metadata = payload.get("model_metadata")
+                self._backend_metadata = {
+                    "server": payload.get("server"),
+                    "server_instance_id": payload.get("server_instance_id"),
+                    "server_revision": payload.get("server_revision"),
+                    "model": model_metadata if isinstance(model_metadata, dict) else {},
+                }
         except Exception:
             self.close()
             raise

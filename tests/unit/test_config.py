@@ -62,6 +62,14 @@ def test_recording_cannot_be_silently_disabled() -> None:
         ManiMuxConfig.model_validate(payload)
 
 
+def test_experiment_and_video_recording_defaults_are_opt_in() -> None:
+    config = load_config(Path("configs/mock.yaml"))
+
+    assert not config.run.experiment_mode
+    assert config.run.layout_id == ""
+    assert config.recording.video_fps == 0
+
+
 def test_unknown_inference_strategy_fails_before_runtime_construction(tmp_path: Path) -> None:
     config = load_config(Path("configs/mock.yaml"))
     config.execution.runtime = "missing_strategy"

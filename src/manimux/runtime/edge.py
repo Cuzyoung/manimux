@@ -31,6 +31,7 @@ from manimux.types import (
     ObservationSnapshot,
     RobotCommand,
     SensorFrame,
+    copy_action_chunk,
     copy_group_vector,
 )
 from manimux.viewer import ViewerBridge
@@ -144,7 +145,13 @@ class EdgeRuntime:
                 "action_dt_s": self._config.policy.effective_action_dt_s,
                 "horizon_steps": self._config.policy.horizon_steps,
                 "blend_steps": self._config.execution.blend_steps,
+                "experiment_mode": self._config.run.experiment_mode,
+                "layout_id": self._config.run.layout_id,
+                "policy_backend": {},
             },
+            video_fps=self._config.recording.video_fps,
+            video_codec=self._config.recording.video_codec,
+            video_queue_size=self._config.recording.video_queue_size,
         )
         accepted_plans = 0
         rejected_plans = 0
@@ -166,6 +173,10 @@ class EdgeRuntime:
                 sensor.read()
             self._worker.start()
             self._validate_policy_capabilities()
+            capabilities = getattr(self._worker, "capabilities", PolicyCapabilities())
+            recorder.update_metadata(
+                policy_backend=dict(capabilities.backend_metadata),
+            )
             self._robot.connect()
             robot_connected = True
             initial_state = self._robot.get_state()
@@ -187,6 +198,8 @@ class EdgeRuntime:
                     "runtime": self._strategy.name,
                     "executor": self._config.execution.executor,
                     "policy_label": self._config.viewer.policy_label,
+                    "experiment_mode": self._config.run.experiment_mode,
+                    "layout_id": self._config.run.layout_id,
                 },
             )
             next_tick_ns = self._clock.now_ns()
@@ -288,6 +301,7 @@ class EdgeRuntime:
                                 ),
                             )
                             chunk = None
+                        canonical_raw = None if chunk is None else copy_action_chunk(chunk)
                         if chunk is not None:
                             try:
                                 chunk = prepare_strategy_chunk(
@@ -330,10 +344,16 @@ class EdgeRuntime:
                             if result.accepted:
                                 accepted_plans += 1
                                 last_inference_ms = response.inference_ms
-                                recorder.record_plan(chunk)
                                 committed = self._timeline.active_horizon()
                                 if committed is None:
                                     raise RuntimeError("accepted plan missing committed horizon")
+                                if canonical_raw is None:
+                                    raise RuntimeError("accepted plan missing canonical raw chunk")
+                                recorder.record_plan(
+                                    canonical_raw=canonical_raw,
+                                    infra_output=chunk,
+                                    committed=committed,
+                                )
                                 event_fields = self._strategy.on_plan_accepted(
                                     chunk=chunk,
                                     result=result,
@@ -453,6 +473,7 @@ class EdgeRuntime:
                         camera_times_ns={
                             name: frame.capture_monotonic_ns for name, frame in frames.items()
                         },
+                        frames=frames,
                     )
                     steps += 1
 

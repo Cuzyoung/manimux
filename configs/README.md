@@ -42,8 +42,10 @@ Beginner 先从全 mock 配置理解七个顶层区域。
 | 字段 | 含义 |
 |---|---|
 | `task` | 发送给 policy 的任务指令，同时写入 Recorder 和 Viewer。fake policy 不读取语义，但真实 VLA 会读取。 |
-| `output_dir` | 每次运行创建 `run-<timestamp>-<id>/` 的根目录，resolved config 和 episode 都写在这里。 |
+| `output_dir` | 每次启动创建 `session-<timestamp>-<id>/` 的根目录，config manifest 和 rollout 都写在这里。 |
 | `max_steps` | 最多执行多少个 control tick；mock 中 `120 / 100 Hz ≈ 1.2 s`。 |
+| `experiment_mode` | Viewer 实验模式的默认值。默认 `false`；也可在 `serve` 就绪后、Prepare 之前用显眼按钮切换。 |
+| `layout_id` | 物体摆放或条件编号；正式实验建议显式填写，普通运行可留空。 |
 
 ### `robot`：控制哪具身体
 
@@ -188,6 +190,9 @@ padding。完整审计见 `docs/reproductions/dvac-pi05.md`。
 | 字段 | 含义 |
 |---|---|
 | `enabled` | 当前必须为 `true`。真机运行强制保留 episode、事件和命令 lineage；写 `false` 会在配置校验阶段失败。 |
+| `video_fps` | 每路相机保存 MP4 的目标帧率；`0` 表示关闭。它不改变 policy 或 Viewer 的相机频率。 |
+| `video_codec` | OpenCV 四字符编码，默认 `mp4v`。 |
+| `video_queue_size` | 异步视频队列容量。队列满时丢视频 bundle，不阻塞控制环。 |
 
 ### mock 中没有显式写出的常用字段
 
@@ -209,3 +214,4 @@ padding。完整审计见 `docs/reproductions/dvac-pi05.md`。
 | `execution.dvac` | defaults | 仅 DVAC strategy 使用的 denoising tail、滚动阈值和执行长度边界。 |
 | `viewer.policy_label` | `""` | Viewer 与 Recorder 中显示的模型名称。 |
 | `viewer.camera_hz` | `5.0` | 向 Viewer 发布相机图像的最高频率；不改变 policy 读取相机的频率。 |
+| `recording.video_fps` | `0.0` | 默认不编码视频；正式实验 config 可显式启用。 |

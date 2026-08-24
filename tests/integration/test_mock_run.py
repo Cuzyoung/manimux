@@ -8,6 +8,7 @@ import pytest
 import zarr
 
 from manimux.config import load_config
+from manimux.policies.capabilities import PolicyCapabilities
 from manimux.runtime.edge import EdgeRuntime
 from manimux.types import (
     ActionChunk,
@@ -37,6 +38,13 @@ def test_mock_run_records_async_episode(tmp_path: Path) -> None:
     assert root["ticks/monotonic_ns"].shape == (80,)
     assert root["ticks/state/left_arm"].shape == (80, 6)
     assert len(list(root["plans"].group_keys())) >= 1
+    first_plan = root["plans/000000"]
+    assert set(first_plan.group_keys()) == {"canonical_raw", "infra_output", "committed"}
+    assert first_plan["canonical_raw/left_arm"].shape[1] == 6
+    assert first_plan["infra_output/left_arm"].shape[1] == 6
+    assert first_plan["committed/left_arm"].shape[1] == 6
+    metadata = json.loads((result.episode_dir / "meta.json").read_text(encoding="utf-8"))
+    assert metadata["policy_backend"] == {}
     events = [
         json.loads(line)
         for line in (result.episode_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
@@ -184,6 +192,33 @@ class _AutoRunningViewer:
 
     def close(self) -> None:
         pass
+
+
+class _FingerprintWorker(_HomeTestWorker):
+    capabilities = PolicyCapabilities(
+        backend_metadata={
+            "server_revision": "xpolicy-sha",
+            "model": {"model_root": "/checkpoints/pi05-step-1000"},
+        }
+    )
+
+
+def test_policy_backend_fingerprint_is_written_after_worker_start(tmp_path: Path) -> None:
+    config = load_config("configs/mock.yaml")
+    config.run.max_steps = 1
+    run_dir = tmp_path / "run-policy-fingerprint"
+    run_dir.mkdir()
+    runtime = EdgeRuntime(config, run_dir)
+    runtime._robot = _HomeTestRobot(config.robot.group_dims)
+    runtime._sensors = []
+    runtime._worker = _FingerprintWorker()
+    runtime._viewer = _AutoRunningViewer()
+
+    result = runtime.run()
+
+    metadata = json.loads((result.episode_dir / "meta.json").read_text(encoding="utf-8"))
+    assert metadata["policy_backend"]["server_revision"] == "xpolicy-sha"
+    assert metadata["policy_backend"]["model"]["model_root"].endswith("pi05-step-1000")
 
 
 def test_max_steps_automatically_homes_and_exits(tmp_path: Path) -> None:

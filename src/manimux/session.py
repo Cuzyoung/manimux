@@ -33,7 +33,7 @@ PublisherFactory = Callable[[], _Publisher]
 
 
 class RuntimeSessionService:
-    """Keep one experiment session alive while Viser creates isolated episodes."""
+    """Keep one runtime service alive while Viser creates isolated rollouts."""
 
     def __init__(
         self,
@@ -65,6 +65,8 @@ class RuntimeSessionService:
             "runtime": self._config.execution.runtime,
             "executor": self._config.execution.executor,
             "policy_label": self._config.viewer.policy_label,
+            "default_experiment_mode": self._config.run.experiment_mode,
+            "default_layout_id": self._config.run.layout_id,
             "last_episode_dir": (
                 "" if self._last_episode_dir is None else str(self._last_episode_dir.resolve())
             ),
@@ -85,7 +87,7 @@ class RuntimeSessionService:
         finally:
             publisher.close()
 
-    def _wait_for_rollout_request(self) -> None:
+    def _wait_for_rollout_request(self) -> dict[str, Any]:
         control = self._control_factory()
         publisher = self._publisher_factory()
         last_announcement = float("-inf")
@@ -104,7 +106,7 @@ class RuntimeSessionService:
                     last_announcement = now
                 state = control.poll()
                 if bool(state.get("new_rollout_requested", False)):
-                    return
+                    return state
                 time.sleep(self._poll_interval_s)
         finally:
             control.close()
@@ -113,12 +115,30 @@ class RuntimeSessionService:
     def serve(self, *, max_rollout_attempts: int | None = None) -> None:
         attempts = 0
         print(f"runtime service ready; run_dir={self._run_dir.resolve()}")
+        print(
+            "Viewer flow: choose Experiment mode, then Prepare new rollout -> "
+            "Start / Resume -> Finish rollout"
+        )
+        print(
+            "Experiment mode OFF requires no reward; ON requires a human label "
+            "before the next rollout"
+        )
         while max_rollout_attempts is None or attempts < max_rollout_attempts:
-            self._wait_for_rollout_request()
+            request = self._wait_for_rollout_request()
             attempts += 1
             self._last_error = ""
+            rollout_config = self._config.model_copy(deep=True)
+            task_command = str(request.get("task_command", "")).strip()
+            if task_command:
+                rollout_config.run.task = task_command
+            rollout_config.run.experiment_mode = bool(
+                request.get("experiment_mode", self._config.run.experiment_mode)
+            )
+            rollout_config.run.layout_id = str(
+                request.get("layout_id", self._config.run.layout_id)
+            ).strip()
             try:
-                result = self._runtime_factory(self._config, self._run_dir).run()
+                result = self._runtime_factory(rollout_config, self._run_dir).run()
             except KeyboardInterrupt:
                 raise
             except Exception as exc:  # noqa: BLE001 - keep the session alive after one failed episode
