@@ -98,6 +98,9 @@ def test_camera_panel_is_screen_fixed_and_keeps_three_named_tiles() -> None:
     assert "data:image/jpeg;base64,LEFT" in html
     assert "data:image/jpeg;base64,RIGHT" in html
     assert "grid-template-columns: 1fr 1fr" in html
+    assert "width: clamp(300px, 26vw, 460px)" in html
+    assert "aspect-ratio: 16 / 9" in html
+    assert "object-fit: cover" in html
 
 
 def test_protocol_is_not_tied_to_yam_dimensions() -> None:

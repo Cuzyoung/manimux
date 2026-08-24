@@ -86,17 +86,17 @@ def _camera_panel_html(frames_jpeg: dict[str, str]) -> str:
     return f"""
 <style>
   .manimux-camera-panel {{
-    position: fixed; left: 16px; top: 64px; bottom: 16px;
-    width: clamp(360px, 32vw, 560px); z-index: 4;
-    display: grid; grid-template-rows: 1fr 1fr; gap: 10px;
+    position: fixed; left: 16px; top: 64px;
+    width: clamp(300px, 26vw, 460px); z-index: 4;
+    display: grid; grid-template-rows: auto auto; gap: 8px;
     padding: 10px; box-sizing: border-box; pointer-events: none;
     border: 1px solid rgba(128, 138, 156, 0.35); border-radius: 12px;
     background: rgba(18, 23, 32, 0.92); box-shadow: 0 8px 28px rgba(0,0,0,0.18);
   }}
-  .manimux-camera-bottom {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }}
-  .manimux-camera-tile {{ position: relative; min-height: 0; overflow: hidden;
+  .manimux-camera-bottom {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }}
+  .manimux-camera-tile {{ position: relative; aspect-ratio: 16 / 9; overflow: hidden;
     border-radius: 8px; background: #0e131c; }}
-  .manimux-camera-tile img {{ width: 100%; height: 100%; object-fit: contain; display: block; }}
+  .manimux-camera-tile img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
   .manimux-camera-label {{ position: absolute; left: 10px; top: 10px; z-index: 1;
     padding: 3px 9px; border-radius: 999px; color: white; background: rgba(8,12,18,0.78);
     font: 600 12px/1.4 system-ui, sans-serif; text-transform: uppercase; }}
