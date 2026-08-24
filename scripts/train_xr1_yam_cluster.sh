@@ -80,11 +80,17 @@ install_environment() {
   export UV_LINK_MODE=copy
   export UV_HTTP_TIMEOUT=${UV_HTTP_TIMEOUT:-600}
   uv pip install --python "${VENV}/bin/python" pip setuptools wheel packaging ninja
+  # Nexus mirrors the official PyTorch wheels. Pin the ABI before resolving
+  # higher-level packages so a newer torch cannot invalidate FlashAttention.
+  uv pip install --python "${VENV}/bin/python" \
+    torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0
   uv pip install --python "${VENV}/bin/python" \
     lightning==2.5.3 deepspeed==0.18.9 transformers==4.57.1 \
     accelerate==1.11.0 safetensors==0.6.2 liger-kernel==0.6.5 \
     numpy==2.1.3 Pillow==11.3.0 decord==0.6.0 mmengine==0.10.7 \
     omegaconf==2.3.0 hydra-core==1.3.2 wandb==0.23.1 tensorboard==2.20.0
+  uv pip install --python "${VENV}/bin/python" \
+    flash-attn==2.8.3 --no-build-isolation
   uv pip install --python "${VENV}/bin/python" -e "${WORKSPACE}/XPolicyLab"
   "${VENV}/bin/python" - <<'PY'
 import decord
