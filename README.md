@@ -251,11 +251,10 @@ main list run from an existing checkpoint without user retraining.
 | 📋 | SGAC | Diffusion-policy sampler + Runtime | Official release is low-dimensional Diffusion Policy/BID; a Pi05 flow port would be a non-official extension | — | [Code](https://github.com/junhyukso/SGAC/tree/b885b0acfca214c30a65e1ae24323d3b98c82e76) |
 | ✅ | DVAC paper reproduction | Pi05 flow sampler + Runtime | Pi05/YAM hardware exercised; trajectory judged more accurate than the preceding method, with synchronous pauses | [Pi05 audit](docs/reproductions/dvac-pi05.md) | [Paper](https://arxiv.org/abs/2606.03847) · official code not located |
 | 📋 | Bidirectional Decoding (BID) | Multi-sample search | Full method also needs a compatible released weak policy | — | [Diffusion](https://github.com/YuejiangLIU/bid_diffusion) · [LeRobot](https://github.com/Jubayer-Hamid/bid_lerobot) |
-| 📋 | A3 Adaptive Action Acceptance | Multi-sample search | Group sampling and conditional re-decoding | — | [Code](https://github.com/INCEPTIONwang/A3) |
 | 📋 | ProbeFlow | Flow solver acceleration | Denoising velocity probes | — | [Paper](https://arxiv.org/abs/2603.17850) · official code not located |
 | 📋 | DiscreteRTC | Discrete-diffusion sampler | Requires a compatible pretrained masked-token policy | — | [Code](https://github.com/outsider86/DiscreteRTC) · [StarVLA](https://github.com/starVLA/starVLA) |
 
-The next candidates are A3 and the remaining training-free methods. Runtime-only methods stay in ManiMux. Denoising, inverse-flow,
+The next candidates are BID, SGAC and the remaining training-free methods. Runtime-only methods stay in ManiMux. Denoising, inverse-flow,
 attention and multi-sample hooks stay beside the official model implementation in XPolicy; they are
 not reimplemented inside the robot control loop.
 
