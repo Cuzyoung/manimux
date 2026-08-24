@@ -22,8 +22,6 @@ class PolicyModel(Protocol):
 class PolicyAdapter(Protocol):
     def build_observation(self, snapshot: ObservationSnapshot) -> ObservationSnapshot: ...
 
-    def prepare_request(self, request: InferenceRequest) -> InferenceRequest: ...
-
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk: ...
 
     def validate(self, robot: RobotConfig, policy: PolicyConfig) -> None: ...
@@ -46,6 +44,7 @@ def prepare_policy_request(
     adapter: PolicyAdapter,
     request: InferenceRequest,
 ) -> InferenceRequest:
+    """Apply an adapter's optional request transformation hook."""
     method = getattr(adapter, "prepare_request", None)
     if not callable(method):
         return request
