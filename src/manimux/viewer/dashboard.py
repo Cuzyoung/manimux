@@ -10,11 +10,11 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import viser
-from PIL import Image
+from PIL import Image, ImageDraw, ImageOps
 
 from manimux.evaluation import write_manual_evaluation
 from manimux.types import FloatArray, UInt8Array
@@ -25,6 +25,8 @@ from .robots.base import RobotAdapter, RobotGroup
 from .transport import ControlServer, ViewerReceiver
 
 MAX_PLAN_HISTORY = 16
+CAMERA_WALL_SIZE = (960, 720)
+ViewerStage = Literal["waiting", "setup", "preparing", "control", "evaluation", "complete"]
 _TRAJECTORY_COLOR_STOPS = np.asarray(
     [
         (67, 20, 133),
@@ -70,6 +72,61 @@ def _prefill_task(current: str, incoming: str) -> str:
     return incoming.strip() if not current.strip() else current
 
 
+def _camera_tile(image: UInt8Array, size: tuple[int, int], label: str) -> Image.Image:
+    """Letterbox one camera image into a labelled wall tile."""
+
+    source = Image.fromarray(image).convert("RGB")
+    fitted = ImageOps.contain(source, size, Image.Resampling.BILINEAR)
+    tile = Image.new("RGB", size, (22, 27, 36))
+    offset = ((size[0] - fitted.width) // 2, (size[1] - fitted.height) // 2)
+    tile.paste(fitted, offset)
+    draw = ImageDraw.Draw(tile)
+    draw.rounded_rectangle((12, 12, 112, 48), radius=8, fill=(12, 16, 24))
+    draw.text((24, 22), label.upper(), fill=(255, 255, 255))
+    return tile
+
+
+def _compose_camera_wall(frames: dict[str, UInt8Array]) -> UInt8Array:
+    """Build a stable top/left/right camera wall for the main viewport."""
+
+    width, height = CAMERA_WALL_SIZE
+    wall = Image.new("RGB", CAMERA_WALL_SIZE, (22, 27, 36))
+    slots = (
+        ("top", (0, 0), (width, height // 2)),
+        ("left", (0, height // 2), (width // 2, height // 2)),
+        ("right", (width // 2, height // 2), (width // 2, height // 2)),
+    )
+    for name, position, size in slots:
+        frame = frames.get(name)
+        if frame is None:
+            placeholder = Image.new("RGB", size, (31, 38, 49))
+            draw = ImageDraw.Draw(placeholder)
+            draw.text((24, 24), f"WAITING FOR {name.upper()} CAMERA", fill=(165, 174, 190))
+            tile = placeholder
+        else:
+            tile = _camera_tile(frame, size, name)
+        wall.paste(tile, position)
+    return np.asarray(wall, dtype=np.uint8)
+
+
+def _billboard_wxyz(
+    position: tuple[float, float, float],
+    camera_position: tuple[float, float, float],
+) -> tuple[float, float, float, float]:
+    """Orient an XY image plane toward the default camera with world-up preserved."""
+
+    from scipy.spatial.transform import Rotation
+
+    normal = np.asarray(camera_position) - np.asarray(position)
+    normal /= np.linalg.norm(normal)
+    world_up = np.asarray((0.0, 0.0, 1.0))
+    local_x = np.cross(normal, world_up)
+    local_x /= np.linalg.norm(local_x)
+    local_y = np.cross(normal, local_x)
+    xyzw = Rotation.from_matrix(np.column_stack((local_x, local_y, normal))).as_quat()
+    return (float(xyzw[3]), float(xyzw[0]), float(xyzw[1]), float(xyzw[2]))
+
+
 class PolicyViewer:
     """Robot-independent dashboard backed by one selected robot adapter."""
 
@@ -92,6 +149,10 @@ class PolicyViewer:
             brand_color=(70, 103, 190),
         )
         self.server.gui.set_panel_label("UNIVERSAL · POLICY VIEWER")
+        self.default_camera_position = (2.2, -2.8, 1.8)
+        self.server.initial_camera.position = self.default_camera_position
+        self.server.initial_camera.look_at = (-0.15, -0.15, 0.35)
+        self.server.initial_camera.up = (0.0, 0.0, 1.0)
         self.lock = threading.RLock()
         self.running = True
         self.paused = True
@@ -124,7 +185,7 @@ class PolicyViewer:
         self.observe_only = False
         self.current_episode_dir: Path | None = None
         self.episode_finalized = False
-        self.camera_images: dict[str, Any] = {}
+        self.camera_frames: dict[str, UInt8Array] = {}
         self._build_scene()
         self._build_gui()
         self.receiver = ViewerReceiver(bridge_endpoint, self.on_message)
@@ -171,11 +232,27 @@ class PolicyViewer:
                     f"[viewer] {group.label} URDF unavailable ({exc}); "
                     "trajectory rendering remains enabled"
                 )
+        wall_position = (-0.52, -0.72, 0.62)
+        self.camera_wall = self.server.scene.add_image(
+            "/camera_wall",
+            _compose_camera_wall({}),
+            render_width=1.0,
+            render_height=0.75,
+            format="jpeg",
+            jpeg_quality=75,
+            cast_shadow=False,
+            receive_shadow=False,
+            position=wall_position,
+            wxyz=_billboard_wxyz(wall_position, self.default_camera_position),
+        )
 
     def _build_gui(self) -> None:
         self.status = self.server.gui.add_markdown("🟠 **Waiting for policy executor**")
         self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
-        with self.server.gui.add_folder("New rollout", expand_by_default=True):
+        self.new_rollout_folder = self.server.gui.add_folder(
+            "① New rollout", expand_by_default=True
+        )
+        with self.new_rollout_folder:
             self.rollout_setup_status = self.server.gui.add_markdown(
                 "⚪ Waiting for a ManiMux runtime service."
             )
@@ -191,7 +268,10 @@ class PolicyViewer:
             self.prepare_experiment_btn = self.server.gui.add_button(
                 "🧪 Prepare experiment rollout", color="green", disabled=True
             )
-        with self.server.gui.add_folder("Policy control", expand_by_default=True):
+        self.policy_control_folder = self.server.gui.add_folder(
+            "② Policy control", expand_by_default=True
+        )
+        with self.policy_control_folder:
             self.start_btn = self.server.gui.add_button(
                 "Start / Resume", color="blue", disabled=True
             )
@@ -201,7 +281,8 @@ class PolicyViewer:
             self.finish_btn = self.server.gui.add_button(
                 "Finish rollout", color="red", disabled=True
             )
-        with self.server.gui.add_folder("Run", expand_by_default=True):
+        self.run_folder = self.server.gui.add_folder("Live run", expand_by_default=True)
+        with self.run_folder:
             self.robot_name = self.server.gui.add_text("Robot", self.robot.label, disabled=True)
             self.policy_name = self.server.gui.add_text("Policy", "waiting", disabled=True)
             self.action_space = self.server.gui.add_text("Action space", "waiting", disabled=True)
@@ -211,7 +292,10 @@ class PolicyViewer:
             self.progress = self.server.gui.add_number("Step", 0, disabled=True)
             self.runtime_name = self.server.gui.add_text("Runtime", "waiting", disabled=True)
             self.episode_path = self.server.gui.add_text("Episode", "waiting", disabled=True)
-        with self.server.gui.add_folder("Post-rollout evaluation", expand_by_default=True):
+        self.evaluation_folder = self.server.gui.add_folder(
+            "③ Post-rollout evaluation", expand_by_default=True
+        )
+        with self.evaluation_folder:
             self.evaluation_status = self.server.gui.add_markdown(
                 "⚪ Finish the rollout before saving an evaluation."
             )
@@ -260,7 +344,10 @@ class PolicyViewer:
             self.save_evaluation_btn = self.server.gui.add_button(
                 "Save evaluation", color="blue", disabled=True
             )
-        with self.server.gui.add_folder("Overlay controls", expand_by_default=True):
+        self.overlay_folder = self.server.gui.add_folder(
+            "Trajectory overlays", expand_by_default=False
+        )
+        with self.overlay_folder:
             self.show_plan = self.server.gui.add_checkbox("Predicted EE trajectory", True)
             self.show_tail = self.server.gui.add_checkbox("Achieved EE trail", True)
             self.show_frames = self.server.gui.add_checkbox("EE coordinate frames", True)
@@ -272,7 +359,7 @@ class PolicyViewer:
             )
             self.clear_history_btn = self.server.gui.add_button("Clear trajectory history")
             self.clear_btn = self.server.gui.add_button("Clear trails")
-        self.images_folder = self.server.gui.add_folder("Images", expand_by_default=True)
+        self._set_stage("waiting")
 
         @self.start_btn.on_click
         def _start(_event: Any) -> None:
@@ -345,6 +432,15 @@ class PolicyViewer:
         self.instruction.content = _instruction_markdown(instruction)
         self.task.value = _prefill_task(self.task.value, instruction)
 
+    def _set_stage(self, stage: ViewerStage) -> None:
+        """Expose only the controls that are actionable in the current stage."""
+
+        self.new_rollout_folder.visible = stage in {"waiting", "setup", "preparing"}
+        self.policy_control_folder.visible = stage == "control"
+        self.evaluation_folder.visible = stage == "evaluation"
+        self.overlay_folder.visible = stage == "control"
+        self.run_folder.visible = stage not in {"waiting"}
+
     def _set_evaluation_enabled(self, enabled: bool) -> None:
         for handle in (
             self.task_result,
@@ -378,6 +474,9 @@ class PolicyViewer:
         self.service_ready = False
         self.paused = True
         self._set_setup_controls_enabled(False)
+        self.prepare_normal_btn.visible = False
+        self.prepare_experiment_btn.visible = False
+        self._set_stage("preparing")
         kind = "experiment" if experiment_mode else "normal"
         self.status.content = f"🟠 **Preparing a new {kind} rollout**"
 
@@ -433,6 +532,7 @@ class PolicyViewer:
         self.evaluation_status.content = f"🟢 Saved `{target}`"
         self.evaluation_saved = True
         self._update_prepare_enabled()
+        self._set_stage("setup" if self.service_ready else "complete")
 
     def control_state(self) -> dict[str, Any]:
         state = {
@@ -644,17 +744,9 @@ class PolicyViewer:
             self._update_group(self.robot.group(group_name), configuration)
         for source_name, payload in message.get("cameras_jpeg", {}).items():
             slot = self.robot.camera_slot(source_name)
-            image = self._image(payload)
-            if slot not in self.camera_images:
-                with self.images_folder:
-                    self.camera_images[slot] = self.server.gui.add_image(
-                        image,
-                        label=slot,
-                        format="jpeg",
-                        jpeg_quality=70,
-                    )
-            else:
-                self.camera_images[slot].image = image
+            self.camera_frames[slot] = self._image(payload)
+        if message.get("cameras_jpeg"):
+            self.camera_wall.image = _compose_camera_wall(self.camera_frames)
 
     def _update_event(self, message: dict[str, Any]) -> None:
         event = str(message.get("event", "unknown"))
@@ -669,9 +761,19 @@ class PolicyViewer:
             self.service_ready = False
             self.preparing_rollout = False
             self._set_experiment_mode(bool(metadata.get("experiment_mode", False)))
+            self.rollout_setup_status.content = (
+                "🟢 **Experiment rollout ready** · press Start / Resume below; "
+                "a label is required after Finish."
+                if self.experiment_mode
+                else "🔵 **Normal rollout ready** · press Start / Resume below; "
+                "Finish saves the episode."
+            )
+            self.prepare_normal_btn.visible = False
+            self.prepare_experiment_btn.visible = False
             self.layout_id.value = str(metadata.get("layout_id", "")) or "default"
             self._set_setup_controls_enabled(False)
             self._set_policy_controls_enabled(True)
+            self._set_stage("control")
             self._set_instruction(str(metadata.get("instruction", self.task.value)))
             self.policy_name.value = str(metadata.get("policy_label", "waiting"))
             self.runtime_name.value = str(metadata.get("runtime", "waiting"))
@@ -698,6 +800,7 @@ class PolicyViewer:
             self.paused = True
             self._set_policy_controls_enabled(False)
             self._set_evaluation_enabled(self.episode_finalized and self.experiment_mode)
+            self._set_stage("evaluation" if self.experiment_mode else "complete")
             if not self.episode_finalized:
                 self.evaluation_status.content = "🔴 Runtime did not publish a rollout path."
                 self.status.content = "🔴 **Rollout finished without a saved path**"
@@ -730,6 +833,8 @@ class PolicyViewer:
                 return
             self.preparing_rollout = False
             self.service_ready = True
+            self.prepare_normal_btn.visible = True
+            self.prepare_experiment_btn.visible = True
             if first_service_announcement:
                 self.layout_id.value = (
                     str(metadata.get("default_layout_id", "")) or "default"
@@ -740,6 +845,7 @@ class PolicyViewer:
             if self.current_episode_dir is None or self.evaluation_saved:
                 self.episode_path.value = str(metadata.get("last_episode_dir", "")) or "ready"
             self._update_prepare_enabled()
+            self._set_stage("setup" if self.evaluation_saved else "evaluation")
             if last_error:
                 self.status.content = (
                     f"🔴 **Last rollout failed · service idle**  \\n`{last_error}`"
@@ -751,8 +857,11 @@ class PolicyViewer:
             self.preparing_rollout = False
             self.service_ready = True
             self.evaluation_saved = True
+            self.prepare_normal_btn.visible = True
+            self.prepare_experiment_btn.visible = True
             self._set_policy_controls_enabled(False)
             self._update_prepare_enabled()
+            self._set_stage("setup")
             error = str(metadata.get("error", "unknown startup error"))
             self.status.content = f"🔴 **Rollout failed before execution**  \\n`{error}`"
 

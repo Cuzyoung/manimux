@@ -11,6 +11,7 @@ from manimux.viewer.bridge import ViewerBridge
 from manimux.viewer.client import ViewerClient
 from manimux.viewer.dashboard import (
     PolicyViewer,
+    _compose_camera_wall,
     _instruction_markdown,
     _prefill_task,
     _trajectory_colors,
@@ -32,12 +33,17 @@ def test_prepare_button_atomically_selects_rollout_mode(experiment_mode: bool) -
     viewer.step_once = False
     viewer.home_requested = False
     viewer.finish_requested = False
-    viewer.prepare_normal_btn = SimpleNamespace(disabled=False)
-    viewer.prepare_experiment_btn = SimpleNamespace(disabled=False)
+    viewer.prepare_normal_btn = SimpleNamespace(disabled=False, visible=True)
+    viewer.prepare_experiment_btn = SimpleNamespace(disabled=False, visible=True)
     viewer.layout_id = SimpleNamespace(disabled=False, value="layout-02")
     viewer.task = SimpleNamespace(disabled=False, value="fold the towel")
     viewer.status = SimpleNamespace(content="")
     viewer.rollout_setup_status = SimpleNamespace(content="")
+    viewer.new_rollout_folder = SimpleNamespace(visible=True)
+    viewer.policy_control_folder = SimpleNamespace(visible=False)
+    viewer.evaluation_folder = SimpleNamespace(visible=False)
+    viewer.overlay_folder = SimpleNamespace(visible=False)
+    viewer.run_folder = SimpleNamespace(visible=True)
 
     viewer._prepare_rollout(experiment_mode=experiment_mode)
     request = viewer.control_state()
@@ -48,9 +54,55 @@ def test_prepare_button_atomically_selects_rollout_mode(experiment_mode: bool) -
     assert request["layout_id"] == "layout-02"
     assert viewer.prepare_normal_btn.disabled
     assert viewer.prepare_experiment_btn.disabled
+    assert not viewer.prepare_normal_btn.visible
+    assert not viewer.prepare_experiment_btn.visible
     assert viewer.task.disabled
     assert viewer.layout_id.disabled
     assert viewer.control_state()["new_rollout_requested"] is False
+
+
+@pytest.mark.parametrize(
+    ("stage", "expected"),
+    [
+        ("waiting", (True, False, False, False, False)),
+        ("setup", (True, False, False, False, True)),
+        ("preparing", (True, False, False, False, True)),
+        ("control", (False, True, False, True, True)),
+        ("evaluation", (False, False, True, False, True)),
+        ("complete", (False, False, False, False, True)),
+    ],
+)
+def test_viewer_stage_exposes_only_the_current_action_area(
+    stage: str, expected: tuple[bool, bool, bool, bool, bool]
+) -> None:
+    viewer = PolicyViewer.__new__(PolicyViewer)
+    handles = [SimpleNamespace(visible=False) for _ in range(5)]
+    (
+        viewer.new_rollout_folder,
+        viewer.policy_control_folder,
+        viewer.evaluation_folder,
+        viewer.overlay_folder,
+        viewer.run_folder,
+    ) = handles
+
+    viewer._set_stage(stage)  # type: ignore[arg-type]
+
+    assert tuple(handle.visible for handle in handles) == expected
+
+
+def test_camera_wall_keeps_top_left_and_right_in_fixed_tiles() -> None:
+    frames = {
+        "top": np.full((360, 960, 3), (255, 0, 0), dtype=np.uint8),
+        "left": np.full((360, 480, 3), (0, 255, 0), dtype=np.uint8),
+        "right": np.full((360, 480, 3), (0, 0, 255), dtype=np.uint8),
+    }
+
+    wall = _compose_camera_wall(frames)
+
+    assert wall.shape == (720, 960, 3)
+    assert tuple(wall[200, 600]) == (255, 0, 0)
+    assert tuple(wall[550, 240]) == (0, 255, 0)
+    assert tuple(wall[550, 720]) == (0, 0, 255)
 
 
 def test_protocol_is_not_tied_to_yam_dimensions() -> None:
