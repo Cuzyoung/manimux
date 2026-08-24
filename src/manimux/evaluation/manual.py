@@ -36,8 +36,8 @@ def write_manual_evaluation(
 
     evaluation_dir = episode_dir / "evaluation"
     evaluation_dir.mkdir(exist_ok=True)
-    target = evaluation_dir / "manual-v1.json"
-    temporary = evaluation_dir / f".manual-v1-{uuid.uuid4().hex}.tmp"
+    target = evaluation_dir / "human-label.json"
+    temporary = evaluation_dir / f".human-label-{uuid.uuid4().hex}.tmp"
     payload = {
         "task_result": task_result,
         "smoothness_score": smoothness_score,
@@ -45,7 +45,7 @@ def write_manual_evaluation(
         "operator_note": operator_note.strip(),
         "reviewer_id": reviewer_id.strip() or "operator",
         "review_mode": review_mode,
-        "evaluator_version": "manual-v1",
+        "label_schema": "human-label-v1",
         "created_at": datetime.now(UTC).isoformat(),
     }
     try:

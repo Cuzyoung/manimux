@@ -106,7 +106,7 @@ joint actions。2026-08-20 又完成了一次真实 YAM rollout：操作者观�
 该 episode 位于：
 
 ```text
-data/run-20260820T061701Z-8cfd2e00/episode-6bcee9a699eb/
+data/archive/pre-campaign-20260824/root-runs/run-20260820T061701Z-8cfd2e00/episode-6bcee9a699eb/
 ```
 
 记录中 143 次推理提交、141 个 plan 接受，常见 stale-prefix 只有 2–3 步，说明 16-step
@@ -257,11 +257,11 @@ envs/yam/.venv/bin/manimux serve \
 每次运行创建：
 
 ```text
-data/experiments/pi05-red-ball-box-step1000/rtc/run-*/episode-*/
+data/experiments/pi05-red-ball-box-step1000/rtc/session-*/rollout-*/
 ```
 
 Viser 在 episode 正常落盘后开放 `Task result`、`Smoothness (1-5)`、failure tags 和 note，
-保存到 `episode-*/evaluation/manual-v1.json`。这里的 task result 与 `result.json` 中表示 runtime
+保存到 `rollout-*/evaluation/human-label.json`。这里的 task result 与 `result.json` 中表示 runtime
 正常收尾的 `success` 完全分开。
 
 `serve` 不加载模型、不启动相机，也不替代 Viewer。用户先分别启动 camera server、Pi05 model

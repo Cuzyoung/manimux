@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import multiprocessing as mp
 import subprocess
@@ -34,18 +35,22 @@ def _load_config(config_path: Path, executor: str | None = None) -> ManiMuxConfi
     return config
 
 
-def _create_run_dir(config: ManiMuxConfig, *, mode: str) -> Path:
+def _create_run_dir(config: ManiMuxConfig, config_path: Path, *, mode: str) -> Path:
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    run_id = f"run-{timestamp}-{uuid.uuid4().hex[:8]}"
+    run_id = f"session-{timestamp}-{uuid.uuid4().hex[:8]}"
     run_dir = config.run.output_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
-    with (run_dir / "run.json").open("w", encoding="utf-8") as handle:
+    resolved_config = config_path.expanduser().resolve()
+    config_sha256 = hashlib.sha256(resolved_config.read_bytes()).hexdigest()
+    with (run_dir / "session-manifest.json").open("w", encoding="utf-8") as handle:
         json.dump(
             {
-                "run_id": run_id,
+                "session_id": run_id,
                 "mode": mode,
                 "created_at": datetime.now(UTC).isoformat(),
                 "git_sha": _git_sha(),
+                "config_path": str(resolved_config),
+                "config_sha256": config_sha256,
                 "config": config.model_dump(mode="json"),
             },
             handle,
@@ -58,7 +63,7 @@ def _create_run_dir(config: ManiMuxConfig, *, mode: str) -> Path:
 
 def _run(config_path: Path, executor: str | None = None) -> int:
     config = _load_config(config_path, executor)
-    run_dir = _create_run_dir(config, mode="run")
+    run_dir = _create_run_dir(config, config_path, mode="run")
     try:
         result = build_runtime(config, run_dir).run()
     except KeyboardInterrupt:
@@ -75,7 +80,7 @@ def _run(config_path: Path, executor: str | None = None) -> int:
 
 def _serve(config_path: Path, executor: str | None = None) -> int:
     config = _load_config(config_path, executor)
-    run_dir = _create_run_dir(config, mode="serve")
+    run_dir = _create_run_dir(config, config_path, mode="serve")
     service = RuntimeSessionService(config, run_dir)
     try:
         service.serve()

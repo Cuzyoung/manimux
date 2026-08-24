@@ -1,6 +1,6 @@
 run:
   task: Pick the red ball up and place it into the box.
-  output_dir: ./data
+  output_dir: ./data/experiments/pi05-red-ball-box-step1000/aac
   max_steps: 16000
 
 robot:

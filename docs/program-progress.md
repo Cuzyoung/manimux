@@ -139,7 +139,7 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 - 默认 ManiMux、真实三相机和双臂 YAM 已完成闭环。完整记录
   `run-20260820T122849Z-b474d665` 执行 `1600` tick / `61.9 s`，接受 `42` 个 chunk、
   记录 `42` 个 plan boundary，无 plan rejection，并正常完成 Recorder 收尾。
-- 该记录的 `manual-v1 success` 表示 rollout 生命周期完整结束，不是 pick 任务成功率；
+- 该历史记录的 runtime success 表示 rollout 生命周期完整结束，不是 pick 任务成功率；
   base checkpoint 的任务能力与 YAM post-training 仍然是独立问题。
 - 官方 sampler 没有原生 RTC API，但公开了 prefix cache 和 `predict_velocity`；XPolicy 已完成
   每个 denoise step 的 VJP soft-mask guidance，不是 chunk splice。

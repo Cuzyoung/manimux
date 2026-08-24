@@ -165,7 +165,6 @@ class EpisodeRecorder:
                 "terminal_reason": terminal_reason,
                 "steps": steps,
                 "wall_time_s": wall_time_s,
-                "evaluator_version": "manual-v1",
             },
         )
         self._partial_dir.rename(self._final_dir)
@@ -184,6 +183,5 @@ class EpisodeRecorder:
                 "terminal_reason": reason,
                 "steps": len(self._ticks),
                 "incomplete": True,
-                "evaluator_version": "manual-v1",
             },
         )

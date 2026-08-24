@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
-from manimux.cli import build_parser
+from manimux.cli import _create_run_dir, build_parser
 from manimux.config import load_config
 from manimux.runtime import RunResult
+from manimux.runtime.edge import _next_rollout_id
 from manimux.session import RuntimeSessionService
 
 
@@ -94,6 +96,28 @@ def test_cli_keeps_run_and_adds_serve() -> None:
     parser = build_parser()
     assert parser.parse_args(["run", "--config", "configs/mock.yaml"]).command == "run"
     assert parser.parse_args(["serve", "--config", "configs/mock.yaml"]).command == "serve"
+
+
+def test_rollout_ids_are_readable_and_include_partial_attempts(tmp_path: Path) -> None:
+    assert _next_rollout_id(tmp_path / "missing") == "rollout-001"
+    assert _next_rollout_id(tmp_path) == "rollout-001"
+    (tmp_path / "rollout-001").mkdir()
+    (tmp_path / "rollout-002.partial").mkdir()
+    assert _next_rollout_id(tmp_path) == "rollout-003"
+
+
+def test_session_manifest_records_config_identity(tmp_path: Path) -> None:
+    config_path = Path("configs/mock.yaml")
+    config = load_config(config_path)
+    config.run.output_dir = tmp_path
+
+    run_dir = _create_run_dir(config, config_path, mode="serve")
+    manifest = json.loads((run_dir / "session-manifest.json").read_text(encoding="utf-8"))
+
+    assert run_dir.name.startswith("session-")
+    assert manifest["session_id"] == run_dir.name
+    assert manifest["config_path"] == str(config_path.resolve())
+    assert len(manifest["config_sha256"]) == 64
 
 
 def test_session_service_builds_a_fresh_runtime_for_every_episode(tmp_path: Path) -> None:

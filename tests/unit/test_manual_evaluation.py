@@ -23,13 +23,14 @@ def test_manual_evaluation_is_written_as_an_episode_sidecar(tmp_path) -> None:
     )
 
     payload = json.loads(target.read_text(encoding="utf-8"))
-    assert target == episode / "evaluation" / "manual-v1.json"
+    assert target == episode / "evaluation" / "human-label.json"
     assert payload["task_result"] == "failure"
     assert payload["smoothness_score"] == 2
     assert payload["failure_tags"] == ["hold_stall", "replay_backtrack"]
     assert payload["operator_note"] == "visible pause"
     assert payload["reviewer_id"] == "Cuzyoung"
     assert payload["review_mode"] == "live"
+    assert payload["label_schema"] == "human-label-v1"
 
 
 def test_manual_evaluation_rejects_incomplete_or_invalid_episodes(tmp_path) -> None:

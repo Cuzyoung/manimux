@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -43,6 +44,18 @@ class RunResult:
     rejected_plans: int
     success: bool
     terminal_reason: str
+
+
+def _next_rollout_id(run_dir: Path) -> str:
+    highest = 0
+    pattern = re.compile(r"^rollout-(\d+)(?:\.partial)?$")
+    if not run_dir.exists():
+        return "rollout-001"
+    for path in run_dir.iterdir():
+        match = pattern.fullmatch(path.name)
+        if match is not None:
+            highest = max(highest, int(match.group(1)))
+    return f"rollout-{highest + 1:03d}"
 
 
 class EdgeRuntime:
@@ -114,7 +127,7 @@ class EdgeRuntime:
 
     def run(self) -> RunResult:  # noqa: C901 - the safety-critical loop stays linear
         started_wall = time.perf_counter()
-        episode_id = f"episode-{uuid.uuid4().hex[:12]}"
+        episode_id = _next_rollout_id(self._run_dir)
         recorder = EpisodeRecorder(
             self._run_dir,
             episode_id,

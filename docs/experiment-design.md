@@ -123,26 +123,11 @@ pilot 方差、置信区间或 sequential comparison 再决定。
 
 操作者可以在 rollout 后立即打分，作为工程反馈；论文主结果优先使用随机化、隐藏方法名的视频复评分。
 
-### 6.3 Chunk Replay Ratio，CRR
+### 6.3 自动运动指标暂不冻结
 
-CRR 是唯一进入主表的自动连续性指标，直接回答“chunk 切换后有多少运动在往回走”。它使用真机
-实测 EE 轨迹，而不是只看模型命令。
-
-对每个 plan boundary，取固定窗口 `T` 内的边界前后 EE 位移：
-
-```text
-u_before = x(t_boundary) - x(t_boundary - T)
-u_after  = x(t_boundary + T) - x(t_boundary)
-
-replay_distance = max(0, -normalize(u_before) · u_after)
-CRR = sum(replay_distance) / sum(norm(u_after))
-```
-
-- `CRR = 0` 表示边界后没有沿刚才方向回放；数值越高，回放越严重。
-- 只统计 `u_before` 超过运动 floor 的边界，避免静止噪声产生随机方向。
-- 左右臂分别计算，并报告 `left / right / mean / max`；夹爪不混入。
-- 第一版使用 EE translation。窗口 `T` 和 motion floor 在 E0 人工扰动实验中校准一次，之后冻结。
-- 所有轨迹先按统一时间网格重采样；不能直接对抖动的原始时间戳求导。
+第一轮 pilot 只固定保存完整轨迹、chunk 边界、命令、真机状态、推理耗时和人工标签，不预先把
+“反向、停顿或高频运动”定义成坏行为。叠衣服等任务可能先夹取、后摇动；同一种运动模式在不同
+任务阶段具有不同语义。自动指标必须先在 matched rollout 上与人工标签和视频逐条对齐，再冻结公式。
 
 ## 7. 诊断量：不进入主排行榜
 
@@ -153,11 +138,12 @@ CRR = sum(replay_distance) / sum(norm(u_after))
 | Policy Seam Error | raw chunk 开头与上一条执行轨迹的差距，判断 Policy 是否先产生接缝 |
 | Infra Intervention Magnitude | committed chunk 与 raw chunk 的差距，判断 Infra 改了多少 |
 | Executed Seam Error | measured state 在边界附近的跳变，判断真机最终承受多少 |
-| Hold Ratio | 任务未结束时低速/静止比例，诊断 AAC、AutoHorizon、DVAC 等同步停顿 |
-| Tracking Error | command 与 measured state 的误差，区分 Infra 与底层机器人跟踪问题 |
+| Boundary-conditioned motion | 检查异常是否稳定集中在 chunk 边界，而不是把任务本身的停顿或反向判错 |
+| Command/state alignment | 必要时解释底层执行是否偏离命令，不预设为主排行榜指标 |
 | Inference Cost | round-trip latency、model evaluations、显存和 gap 次数，表示获得效果的代价 |
 
-这保留了 Chunk Boundary Attribution 的解释能力，但不再把六个高度相关的量全部放进主结果表。
+这些量目前只是候选分析方向，不写入主排行榜。先完成每种算法五次 pilot，再根据轨迹、视频、成功
+标签、人工流畅度和 failure tags 检查哪些量真正对应人看到的问题。
 
 ## 8. 推理算法调参协议
 
@@ -280,18 +266,20 @@ Viser 永远不下载模型、不启动 Policy Server、不切换 checkpoint，�
 评测结果作为 sidecar 原子写入 episode：
 
 ```text
-episode-*/
+session-*/
+  session-manifest.json          # config snapshot、config SHA256、git SHA
+  rollout-001/
   meta.json
   data.zarr
   events.jsonl
   result.json                    # runtime lifecycle
   evaluation/
-    manual-v1.json               # success、smoothness、tags、reviewer
-    metrics-v1.json              # CRR 和诊断量
+    human-label.json             # success、smoothness、tags、reviewer
+    automatic-metrics.json       # pilot 后冻结，当前不生成
     prm-v1.json                  # 可选离线 PRM 结果
 ```
 
-建议最小 `manual-v1.json`：
+当前 `human-label.json`：
 
 ```json
 {
@@ -301,6 +289,7 @@ episode-*/
   "operator_note": "minor seam near placement",
   "reviewer_id": "operator-01",
   "review_mode": "live",
+  "label_schema": "human-label-v1",
   "created_at": "ISO-8601"
 }
 ```
@@ -312,23 +301,23 @@ automatic metrics 和 PRM；缺失值保持空，不猜测为失败或零分。
 
 ### 13.1 Rollout-level Table
 
-| Experiment | Block | Seed | Task | Policy | Checkpoint | Demos | Algorithm | Preset | Valid | Success | HSS | CRR-L | CRR-R | Latency | Failure tag | Episode |
-|---|---|---:|---|---|---|---:|---|---|---|---|---:|---:|---:|---:|---|---|
-| TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Experiment | Block | Seed | Task | Policy | Algorithm | Valid | Success | HSS | Latency | Failure tag | Rollout |
+|---|---|---:|---|---|---|---|---|---:|---:|---|---|
+| TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
 
 ### 13.2 Main Summary Table
 
-| Task | Policy | Demos | Algorithm | Preset | N valid | TSR ↑ | HSS ↑ | CRR mean ↓ | CRR max ↓ | Latency/Cost |
-|---|---|---:|---|---|---:|---:|---:|---:|---:|---:|
-| TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Task | Policy | Demos | Algorithm | Preset | N valid | TSR ↑ | HSS ↑ | Latency/Cost | Learned metric TBD |
+|---|---|---:|---|---|---:|---:|---:|---:|---:|
+| TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
 
 主表必须带置信区间或 bootstrap interval，不只写平均值。失败、invalid 和安全停止分别计数。
 
 ### 13.3 Attribution Table
 
-| Episode | Raw seam | Infra intervention | Executed seam | Hold ratio | Tracking error | 解释 |
-|---|---:|---:|---:|---:|---:|---|
-| TBD | TBD | TBD | TBD | TBD | TBD | Policy / Infra / robot / unclear |
+| Rollout | Raw seam | Infra intervention | Executed seam | Stage/context | 解释 |
+|---|---:|---:|---:|---|---|
+| TBD | TBD | TBD | TBD | TBD | Policy / Infra / robot / unclear |
 
 Attribution Table 只用于解释主结果，不用于事后挑选新的“胜负指标”。
 
@@ -343,13 +332,13 @@ processed progress curve。可参考 [PRM-as-a-Judge](https://github.com/Yuheng2
 
 ## 15. 下一步执行清单
 
-- [ ] 用人工注入的回拉、停顿和边界跳变完成 E0，冻结 CRR 的 `T` 与 motion floor。
+- [ ] 每种算法先跑 5 次 pilot，并保存轨迹、人工标签和视频证据。
 - [ ] 为 Pi05 的 Default、ACT、IT-RTC、PAINT 建立等预算 dev tuning 表。
 - [ ] 冻结四套 `algorithm × Pi05 × YAM` preset 和 config hash。
 - [ ] 定义 5 个红球任务 layout seeds，随机化 40 条 pilot 的运行顺序。
-- [ ] 实现 Viewer 的 post-rollout `success / smoothness / tags` 标注面板。
-- [ ] 实现 episode sidecar writer 和离线 CRR 聚合器。
-- [ ] 运行 E1，确认三个主指标是否稳定且互补。
+- [x] 实现 Viewer 的 post-rollout `success / smoothness / tags` 标注面板。
+- [x] 实现 rollout human-label sidecar writer。
+- [ ] 根据 pilot 数据提出候选指标，并用人工标签验证相关性和失效案例。
 - [ ] 再冻结插架、开放容器运输和动态恢复三个正式 task protocol。
 - [ ] 只把 E1/E2 中有信息量的方法扩展到更多 Policy 和数据量。
 

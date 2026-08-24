@@ -341,7 +341,9 @@ envs/yam/.venv/bin/manimux run \
 
 连接后机械臂按配置用 `3.5 s` 移到起始姿态，结束时用 `3.5 s` 回 Home。正常停止时只在
 runtime 终端按一次 `Ctrl-C`，等待回零和 Recorder 收尾，再依次停止相机、模型服务和
-Viewer。Rollout 保存在 `data/run-*/episode-*`；未完整收尾的记录带 `.partial` 后缀。
+Viewer。新 rollout 保存在 config 指定的 `data/experiments/.../session-*/rollout-*`；未完整收尾的
+记录带 `.partial` 后缀。2026-08-24 之前的探索记录统一归档在
+`data/archive/pre-campaign-20260824/root-runs/`。
 
 30 Hz 是 YAM 对照实验假设，不是从 foundation checkpoint 恢复出的训练频率。任务失败
 首先记录为 base policy 结果，不能据此判定 adapter 或 ManiMux 断路。
@@ -357,7 +359,7 @@ Viewer。Rollout 保存在 `data/run-*/episode-*`；未完整收尾的记录带 
 - runtime 正常结束并完成 Recorder 收尾。
 
 因此默认 LingBot GPU -> XPolicy WS -> ManiMux -> 相机/CAN -> 双臂 YAM -> Recorder
-链路记为已通过。记录里的 `manual-v1 success` 只代表 rollout 生命周期完整结束，不代表
+链路记为已通过。记录里的 runtime success 只代表 rollout 生命周期完整结束，不代表
 完成了 pick 任务，也不改变 foundation checkpoint 缺少 YAM post-training 的事实。
 
 ## Finetune bundle 就绪后的命令

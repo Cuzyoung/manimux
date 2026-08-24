@@ -82,7 +82,9 @@ envs/yam/.venv/bin/manimux run --config configs/molmoact2/yam/infra/manimux.yaml
 正常运行时在 runtime 终端按一次 `Ctrl-C`，等待机械臂回零并退出；随后再停止
 相机、模型服务和 Viewer。
 
-Rollout 默认保存在 `data/run-*/episode-*`；未完整结束的记录保留 `.partial` 后缀。
+新 rollout 保存在 config 指定的 `data/experiments/.../session-*/rollout-*`；未完整结束的记录保留
+`.partial` 后缀。2026-08-24 之前散落在 `data/run-*` 的探索记录已归档到
+`data/archive/pre-campaign-20260824/root-runs/`。
 
 ## Chunk 边界诊断
 
