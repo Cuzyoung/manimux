@@ -191,6 +191,8 @@ class XPolicyLabWsPolicyModel:
         if (condition is None) != (weights is None):
             raise ValueError("RTC action_condition and condition_weights must be provided together")
         aac_num_samples = getattr(request, "aac_num_samples", None)
+        autohorizon = bool(getattr(request, "autohorizon", False))
+        dvac = bool(getattr(request, "dvac", False))
         paint_prefix = getattr(request, "paint_action_prefix", None)
         paint_delay_steps = getattr(request, "paint_delay_steps", None)
         if (paint_prefix is None) != (paint_delay_steps is None):
@@ -198,9 +200,12 @@ class XPolicyLabWsPolicyModel:
                 "PAINT paint_action_prefix and paint_delay_steps must be provided together"
             )
         if paint_prefix is not None:
-            if condition is not None or aac_num_samples is not None:
-                raise ValueError("PAINT cannot be combined with RTC or AAC sampling")
+            if condition is not None or aac_num_samples is not None or autohorizon or dvac:
+                raise ValueError(
+                    "PAINT cannot be combined with RTC, AAC, AutoHorizon, or DVAC sampling"
+                )
             prefix_array = np.asarray(paint_prefix, dtype=np.float32)
+            assert paint_delay_steps is not None
             delay_steps = int(paint_delay_steps)
             expected_width = sum(layout.dim for layout in self._layouts)
             if (
@@ -221,8 +226,8 @@ class XPolicyLabWsPolicyModel:
                 },
             )
         if aac_num_samples is not None:
-            if condition is not None:
-                raise ValueError("AAC and RTC sampling cannot be requested together")
+            if condition is not None or autohorizon or dvac:
+                raise ValueError("AAC cannot be combined with RTC, AutoHorizon, or DVAC sampling")
             result = client.infer(
                 observation,
                 sampling={
@@ -261,6 +266,30 @@ class XPolicyLabWsPolicyModel:
                 backward_beta=float(getattr(request, "aac_backward_beta", 0.99)),
             )
             return {"actions": selected, "aac": selection.metadata()}
+        if autohorizon:
+            if condition is not None or dvac:
+                raise ValueError("AutoHorizon cannot be combined with RTC or DVAC sampling")
+            return client.infer(observation, sampling={"mode": "autohorizon"})
+        if dvac:
+            if condition is not None:
+                raise ValueError("DVAC and RTC sampling cannot be requested together")
+            return client.infer(
+                observation,
+                sampling={
+                    "mode": "dvac",
+                    "tail_steps": int(getattr(request, "dvac_tail_steps", 5)),
+                    "alpha": float(getattr(request, "dvac_alpha", 2.0)),
+                    "rolling_window_size": int(
+                        getattr(request, "dvac_rolling_window_size", 5)
+                    ),
+                    "min_execution_steps": int(
+                        getattr(request, "dvac_min_execution_steps", 1)
+                    ),
+                    "max_execution_steps": int(
+                        getattr(request, "dvac_max_execution_steps", self._horizon_steps)
+                    ),
+                },
+            )
         if condition is None:
             return client.infer(observation, sampling={"mode": "default"})
 

@@ -16,6 +16,8 @@ import yaml
 from manimux.config import load_config
 from manimux.policies import build_policy_adapter, build_policy_model
 from manimux.runtime.aac import AacInferenceRequest
+from manimux.runtime.autohorizon import AutoHorizonInferenceRequest
+from manimux.runtime.dvac import DvacInferenceRequest
 from manimux.runtime.paint import PaintInferenceRequest
 from manimux.types import (
     ActionContext,
@@ -162,6 +164,20 @@ def main() -> int:
             paint_delay_steps=paint.initial_delay_steps,
             paint_execution_steps=paint.execution_steps,
         )
+    elif config.execution.runtime == "autohorizon":
+        request = AutoHorizonInferenceRequest(**request_fields)
+    elif config.execution.runtime == "dvac":
+        dvac = config.execution.dvac
+        request = DvacInferenceRequest(
+            **request_fields,
+            dvac_tail_steps=dvac.tail_steps,
+            dvac_alpha=dvac.alpha,
+            dvac_rolling_window_size=dvac.rolling_window_size,
+            dvac_min_execution_steps=dvac.min_execution_steps,
+            dvac_max_execution_steps=(
+                dvac.max_execution_steps or config.policy.horizon_steps
+            ),
+        )
     else:
         request = InferenceRequest(**request_fields)
 
@@ -223,6 +239,8 @@ def main() -> int:
                 "first_action": packed[0].tolist(),
                 "aac": raw.get("aac") if isinstance(raw, Mapping) else None,
                 "paint": raw.get("paint") if isinstance(raw, Mapping) else None,
+                "autohorizon": raw.get("autohorizon") if isinstance(raw, Mapping) else None,
+                "dvac": raw.get("dvac") if isinstance(raw, Mapping) else None,
             },
             indent=2,
         )

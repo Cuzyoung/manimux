@@ -156,6 +156,18 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 4. **统一验收记录**：每个模型保存同样的 latency、chunk gap、action shape、数值有限性、
    Recorder 输出和真机结果，policy 成功率单独记录。
 
+## Offline Evaluation TODO
+
+1. **PRM-as-a-Judge 独立评测命令**：真机推理完全结束后，由单独进程读取用户指定目录下的
+   全部视频，批量生成 progress curve、episode 指标和汇总报告。
+2. **严格解耦**：评测包不被 ManiMux Runtime、XPolicy、RobotDriver、Safety 或 Recorder
+   导入；模型推理和真机控制不等待评测，也不使用评测结果做在线停止或安全决策。
+3. **只读输入、独立输出**：概念入口为
+   `manimux-eval prm --input <video-dir> --output <report-dir>`；原视频保持不变，评测产物写入
+   独立目录并记录 judge 代码版本、权重版本和配置。
+4. **实现时再冻结契约**：在开始编码前，先按官方 PRM-as-a-Judge 仓库确认视频视角、任务文本、
+   FPS、sidecar metadata 和批量失败处理；当前只记录 roadmap，不接入现有执行链。
+
 ## 完成定义
 
 本轮任务完成时，四个模型都必须满足：

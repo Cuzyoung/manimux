@@ -223,12 +223,26 @@ def _paint_strategy_factory(config: ManiMuxConfig) -> InferenceStrategy:
     return PaintInferenceStrategy(config)
 
 
+def _autohorizon_strategy_factory(config: ManiMuxConfig) -> InferenceStrategy:
+    from manimux.runtime.autohorizon import AutoHorizonInferenceStrategy
+
+    return AutoHorizonInferenceStrategy(config)
+
+
+def _dvac_strategy_factory(config: ManiMuxConfig) -> InferenceStrategy:
+    from manimux.runtime.dvac import DvacInferenceStrategy
+
+    return DvacInferenceStrategy(config)
+
+
 _STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory] = {
     "manimux": DefaultChunkStrategy,
     "rtc": _rtc_strategy_factory,
     "act_temporal_ensemble": _act_temporal_ensemble_factory,
     "aac": _aac_strategy_factory,
     "paint": _paint_strategy_factory,
+    "autohorizon": _autohorizon_strategy_factory,
+    "dvac": _dvac_strategy_factory,
 }
 
 

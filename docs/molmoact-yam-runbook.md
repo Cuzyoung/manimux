@@ -53,7 +53,8 @@ manimux-viewer --robot yam --host 0.0.0.0 --port 8086
 ```bash
 for c in can_left can_right; do printf '%s: ' "$c"; ip -details link show "$c" | grep -o 'ERROR-ACTIVE\|ERROR-PASSIVE\|BUS-OFF'; done
 ```执行后机械臂会按配置的
-`start_duration_s` 移动到起始姿态，然后保持 `PAUSED`；在 Viewer 确认轨迹后再点
+默认配置使用 `100 Hz` 控制环，并用 `start_duration_s=3.0` 移动到起始姿态，
+随后保持 `PAUSED`；在 Viewer 确认轨迹后再点
 `Start / Resume`。
 
 ```bash

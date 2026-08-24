@@ -135,6 +135,28 @@ final forward。禁用 seam blend 是为了避免旧 chunk 在成为下一次 pr
 Timeline 二次改写。若响应
 实际需要丢弃的步数超过 condition 的 `d`，runtime 会拒绝该响应而不是执行未锚定动作。
 
+`runtime: autohorizon` 没有可调 method 参数。XPolicy 按官方默认值读取 Pi05 action expert
+第三个 denoise step 的 self-attention，并返回 `execution_steps`；ManiMux 同步执行完整 chunk
+的这个前缀，耗尽后才请求下一次推理。它要求 `blend_steps: 0`，并且不使用
+`inference_schedule` 或 `refill_threshold_s`。当前 Pi05/YAM 路径是官方算法的 JAX attention
+port；selector 和默认参数固定到 AutoHorizon commit `c7504f1`，与官方 PyTorch 的数值 parity
+仍需单独验证。
+
+`execution.dvac` 仅在 `runtime: dvac` 时生效：
+
+| 字段 | 默认值 | 含义 |
+|---|---:|---|
+| `tail_steps` | `5` | 论文中的 `L`，只统计最后几个 clean-action estimates。 |
+| `alpha` | `2.0` | 阈值 `tau = mean + alpha × std` 的局部标准差倍数。 |
+| `rolling_window_size` | `5` | 论文中的 `m`，保留最近几个 policy call 的方差序列。 |
+| `min_execution_steps` | `1` | 论文中的 `N_min`。 |
+| `max_execution_steps` | policy horizon | 论文中的 `N_max`；按 Equation 7 仅用于没有 threshold crossing 的分支。 |
+
+DVAC 要求 `blend_steps: 0`，同步执行服务器选出的稳定 prefix，耗尽后才重新请求。当前实现
+严格使用论文公式和默认值，但论文没有公开代码，也没有定义空 rolling buffer；Pi05/YAM
+明确采用当前方差自举首请求，并只统计 14 个有效 normalized action 维度，不统计 OpenPI
+padding。完整审计见 `docs/reproductions/dvac-pi05.md`。
+
 `execution.smooth` 仅在 `executor: smooth` 时生效：
 
 | 字段 | 含义 |
@@ -178,11 +200,12 @@ Timeline 二次改写。若响应
 | `policy.options` | `{}` | 具体模型插件自己的地址、相机映射、stats、group order 等参数。 |
 | `robot.config` / `robot.options` | `null` / `{}` | RobotDriver 的外部配置路径和本体专用参数。 |
 | `sensor.options` | `{}` | SensorDriver 专用的 endpoint、camera names 等参数。 |
-| `execution.runtime` | `manimux` | 选择共享 Runtime 内的 strategy；支持内置 `manimux`/`act_temporal_ensemble`/`rtc`/`aac`/`paint`、entry point 或 `module:factory`。 |
+| `execution.runtime` | `manimux` | 选择共享 Runtime 内的 strategy；支持内置 `manimux`/`act_temporal_ensemble`/`rtc`/`aac`/`paint`/`autohorizon`/`dvac`、entry point 或 `module:factory`。 |
 | `execution.inference_schedule` | `deadline` | 仅默认 strategy 使用；`deadline` 允许旧请求到期后提交新请求，`single_inflight` 始终只保留一个未完成请求。 |
 | `execution.rtc` | defaults | 仅 RTC strategy 使用的 delay、最小执行步数和 guidance 参数。 |
 | `execution.temporal_ensemble` | defaults | 仅 ACT strategy 使用的官方指数权重和查询间隔。 |
 | `execution.aac` | defaults | 仅 AAC strategy 使用的多样本数、motion floor 和候选选择参数。 |
 | `execution.paint` | defaults | 仅 PAINT strategy 使用的执行窗口、延迟先验和滚动窗口。 |
+| `execution.dvac` | defaults | 仅 DVAC strategy 使用的 denoising tail、滚动阈值和执行长度边界。 |
 | `viewer.policy_label` | `""` | Viewer 与 Recorder 中显示的模型名称。 |
 | `viewer.camera_hz` | `5.0` | 向 Viewer 发布相机图像的最高频率；不改变 policy 读取相机的频率。 |

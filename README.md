@@ -247,17 +247,15 @@ main list run from an existing checkpoint without user retraining.
 | ✅ | ACT Temporal Ensembling | Runtime | Pi05 step-1000/YAM hardware; operator observed smooth continuous execution | [Method](docs/act-temporal-ensemble.md) | [Pinned ACT source](https://github.com/tonyzhaozh/act/blob/742c753c0d4a5d87076c8f69e5628c79a8cc5488/imitate_episodes.py#L191-L259) · [LeRobot](https://github.com/huggingface/lerobot) |
 | ✅ | Adaptive Action Chunking (AAC) | Pi05/GR00T multi-sample + Runtime | Pi05 step-1000/YAM hardware; functional but visibly pauses at roughly `0.51 s` warmed latency | [Core audit](docs/reproductions/aac.md) · [Pi05 audit](docs/reproductions/aac-pi05.md) | [GR00T server](https://github.com/Adaptive-Action-Chunking/gr00t-multi-sample/tree/11e926b0f34cf6acfcb92c0fe6127a1bdc7b856a) · [official selector](https://github.com/Adaptive-Action-Chunking/robocasa/blob/fed3e6b5eb348160dd0570f326f726758fee9056/robocasa/demos/action_optimization/action_entropy_v2.py) |
 | ✅ | PAINT paper reproduction | Pi05 flow sampler + Runtime | Pi05 step-1000/YAM hardware; operator observed markedly improved continuity | [Pi05 audit and commands](docs/reproductions/paint-pi05.md) | [Paper](https://arxiv.org/abs/2606.19774) · [official repository](https://github.com/htrbao/paint-action-chunking) currently contains documentation only |
-| 🚧 | SEAM | Flow sampler | Next integration; per-Euler-step closed-form correction | — | [Paper](https://arxiv.org/abs/2607.04609) · official code not located |
-| 📋 | SGAC | Diffusion sampler + Runtime | Batched current/history conditioning | — | [Code](https://github.com/junhyukso/SGAC) |
-| 📋 | AutoHorizon | Model introspection + Runtime | Action self-attention trace | — | [Code](https://github.com/hatchetProject/AutoHorizon) |
-| 📋 | DVAC | Flow sampler + Runtime | Clean-action estimates from late denoising steps | — | [Paper](https://arxiv.org/abs/2606.03847) · official code not located |
+| ✅ | AutoHorizon JAX port | Pi05 action-expert introspection + synchronous Runtime | Pi05/YAM hardware exercised; faithful synchronous cadence caused visible inference holds | [Pi05 audit and commands](docs/reproductions/autohorizon-pi05.md) | [Code](https://github.com/hatchetProject/AutoHorizon/tree/c7504f1756109103f2cfcc2e23f1b1a23841c885) |
+| 📋 | SGAC | Diffusion-policy sampler + Runtime | Official release is low-dimensional Diffusion Policy/BID; a Pi05 flow port would be a non-official extension | — | [Code](https://github.com/junhyukso/SGAC/tree/b885b0acfca214c30a65e1ae24323d3b98c82e76) |
+| ✅ | DVAC paper reproduction | Pi05 flow sampler + Runtime | Pi05/YAM hardware exercised; trajectory judged more accurate than the preceding method, with synchronous pauses | [Pi05 audit](docs/reproductions/dvac-pi05.md) | [Paper](https://arxiv.org/abs/2606.03847) · official code not located |
 | 📋 | Bidirectional Decoding (BID) | Multi-sample search | Full method also needs a compatible released weak policy | — | [Diffusion](https://github.com/YuejiangLIU/bid_diffusion) · [LeRobot](https://github.com/Jubayer-Hamid/bid_lerobot) |
 | 📋 | A3 Adaptive Action Acceptance | Multi-sample search | Group sampling and conditional re-decoding | — | [Code](https://github.com/INCEPTIONwang/A3) |
 | 📋 | ProbeFlow | Flow solver acceleration | Denoising velocity probes | — | [Paper](https://arxiv.org/abs/2603.17850) · official code not located |
 | 📋 | DiscreteRTC | Discrete-diffusion sampler | Requires a compatible pretrained masked-token policy | — | [Code](https://github.com/outsider86/DiscreteRTC) · [StarVLA](https://github.com/starVLA/starVLA) |
 
-The active order is SEAM → remaining
-multi-sample methods. Runtime-only methods stay in ManiMux. Denoising, inverse-flow,
+The next candidates are A3 and the remaining training-free methods. Runtime-only methods stay in ManiMux. Denoising, inverse-flow,
 attention and multi-sample hooks stay beside the official model implementation in XPolicy; they are
 not reimplemented inside the robot control loop.
 

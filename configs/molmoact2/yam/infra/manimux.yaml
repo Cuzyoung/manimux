@@ -2,12 +2,13 @@ run:
   task: Pick the red ball up and place it into the box.
   output_dir: ./data
   # 一次 rollout 最多执行的控制步数；达到后自动回 Home 并退出。
-  max_steps: 1600
+  # 100 Hz 下保持约 53 秒的 rollout 时长。
+  max_steps: 5333
 
 robot:
   driver: yam_dual
   config: configs/robots/yam_left.yaml
-  control_hz: 30.0
+  control_hz: 100.0
   group_dims:
     left_arm: 7
     right_arm: 7
@@ -15,8 +16,8 @@ robot:
     right_config: configs/robots/yam_right.yaml
     move_to_start_on_connect: true
     # 初始化和回 Home 的运动时间（秒）：数值越小，运动越快。
-    start_duration_s: 5.0
-    home_duration_s: 5.0
+    start_duration_s: 3.0
+    home_duration_s: 3.0
     home_on_close: true
 
 sensors:
@@ -31,7 +32,7 @@ sensors:
 policy:
   worker: molmoact_http
   adapter: molmoact_yam
-  # 老师原 ManiMux 的时间定义：相邻两个 Policy 点间隔 0.05 秒。
+  # 保留模型 20 Hz 的轨迹语义；Timeline 在 100 Hz 控制环中插值执行。
   action_dt_s: 0.05
   timeout_s: 1.0
   horizon_steps: 30
@@ -55,7 +56,7 @@ execution:
   blend_steps: 8
   smooth:
     cutoff_hz: 8.0
-    # Policy 执行时的关节最高速度（rad/s）。
+    # 这些限制按秒定义，不随控制频率改变。
     max_velocity: 0.25
     # Policy 执行时的关节最大加速度（rad/s^2）。
     max_acceleration: 0.5
@@ -72,7 +73,7 @@ execution:
 viewer:
   enabled: true
   robot_adapter: yam
-  policy_label: MolmoAct
+  policy_label: MolmoAct2
 
 recording:
   enabled: true

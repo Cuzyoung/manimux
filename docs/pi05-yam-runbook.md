@@ -67,7 +67,11 @@ Pi05 上的训练免推理方法由方法文档单独维护：
 
 - ACT temporal ensemble：[`act-temporal-ensemble.md`](act-temporal-ensemble.md)；
 - AAC：[`reproductions/aac-pi05.md`](reproductions/aac-pi05.md)；
-- PAINT：[`reproductions/paint-pi05.md`](reproductions/paint-pi05.md)。
+- PAINT：[`reproductions/paint-pi05.md`](reproductions/paint-pi05.md)；
+- AutoHorizon：[`reproductions/autohorizon-pi05.md`](reproductions/autohorizon-pi05.md)。
+- DVAC：[`reproductions/dvac-pi05.md`](reproductions/dvac-pi05.md)。
+  先用 `scripts/xpolicylab_yam_dvac_probe.py --requests 3` 验证同一 session 内的滚动阈值，
+  再决定是否开放真机命令。
 
 以下章节记录先前 Robocurve 16-step checkpoint 的独立实验，不要与本地 50-step 配置混用。
 

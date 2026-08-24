@@ -23,6 +23,7 @@ from manimux.integrations.xpolicylab.ws_client import XPolicyLabWsClient, normal
 from manimux.integrations.xr1_yam.policy_plugin import build_adapter as build_xr1_adapter
 from manimux.integrations.xr1_yam.policy_plugin import joint_condition_to_xr1_actions
 from manimux.runtime.aac import AacInferenceRequest
+from manimux.runtime.dvac import DvacInferenceRequest
 from manimux.runtime.rtc import RtcInferenceRequest
 from manimux.types import ActionContext, ObservationSnapshot, RobotState, SensorFrame
 
@@ -368,6 +369,32 @@ def test_ws_client_preserves_aac_metadata_envelope(
     assert len(result["actions"][0]) == 5
 
 
+def test_ws_client_preserves_dvac_metadata_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = XPolicyLabWsClient(
+        url="ws://127.0.0.1:8500",
+        evaluation_id="evaluation",
+        trial_id="trial",
+    )
+    monkeypatch.setattr(
+        client,
+        "request",
+        lambda *_args, **_kwargs: {
+            "payload": {
+                "actions": _action_steps(30),
+                "dvac": {"execution_steps": 7, "threshold": 0.01},
+            }
+        },
+    )
+
+    result = client.infer({}, sampling={"mode": "dvac"})
+
+    assert isinstance(result, dict)
+    assert len(result["actions"]) == 30
+    assert result["dvac"]["execution_steps"] == 7
+
+
 # --------------------------------------------------------------- model wiring
 
 
@@ -441,6 +468,48 @@ def test_model_maps_aac_request_to_xpolicy_sampling(
     assert isinstance(result, dict)
     assert 2 <= len(result["actions"]) <= 30
     assert result["aac"]["metric_space"] == "dual_arm_incremental_ee_action_mean"
+
+
+def test_model_maps_dvac_request_to_xpolicy_sampling() -> None:
+    model = build_model(_policy_config())
+    model._session_id = "session"
+    captured: dict[str, object] = {}
+
+    class _Client:
+        def infer(self, observation: object, *, sampling: object) -> dict[str, object]:
+            captured["observation"] = observation
+            captured["sampling"] = sampling
+            return {
+                "actions": _action_steps(30),
+                "dvac": {"execution_steps": 7},
+            }
+
+    model._client = _Client()
+    request = DvacInferenceRequest(
+        session_id="session",
+        request_seq=1,
+        observation_time_ns=1,
+        deadline_ns=2**62,
+        observation=_snapshot(),
+        instruction="task",
+        dvac_tail_steps=5,
+        dvac_alpha=2.0,
+        dvac_rolling_window_size=5,
+        dvac_min_execution_steps=1,
+        dvac_max_execution_steps=30,
+    )
+
+    result = model.infer(request)
+
+    assert captured["sampling"] == {
+        "mode": "dvac",
+        "tail_steps": 5,
+        "alpha": 2.0,
+        "rolling_window_size": 5,
+        "min_execution_steps": 1,
+        "max_execution_steps": 30,
+    }
+    assert result["dvac"]["execution_steps"] == 7
 
 
 class _LinearKinematics:

@@ -122,6 +122,16 @@ class PaintConfig(StrictModel):
     delay_buffer_size: int = Field(default=10, gt=0)
 
 
+class DvacConfig(StrictModel):
+    """Denoising-Variance Adaptive Chunking (arXiv:2606.03847v1)."""
+
+    tail_steps: int = Field(default=5, gt=1)
+    alpha: float = Field(default=2.0, ge=0)
+    rolling_window_size: int = Field(default=5, gt=0)
+    min_execution_steps: int = Field(default=1, gt=0)
+    max_execution_steps: int | None = Field(default=None, gt=0)
+
+
 class ExecutionConfig(StrictModel):
     runtime: str = Field(default="manimux", min_length=1)
     executor: Literal["smooth", "mpc"] = "smooth"
@@ -136,6 +146,7 @@ class ExecutionConfig(StrictModel):
     temporal_ensemble: TemporalEnsembleConfig = TemporalEnsembleConfig()
     aac: AacConfig = AacConfig()
     paint: PaintConfig = PaintConfig()
+    dvac: DvacConfig = DvacConfig()
 
     @model_validator(mode="after")
     def validate_strategy_fields(self) -> ExecutionConfig:
@@ -186,6 +197,30 @@ class ExecutionConfig(StrictModel):
                     "PAINT requires execution.blend_steps=0 so A[s:s+d] is not "
                     "rewritten before it becomes the next prefix condition"
                 )
+        if self.runtime == "autohorizon":
+            ignored = {"inference_schedule", "refill_threshold_s"}.intersection(
+                self.model_fields_set
+            )
+            if ignored:
+                names = ", ".join(sorted(ignored))
+                raise ValueError(f"execution fields are not used by AutoHorizon: {names}")
+            if self.blend_steps != 0:
+                raise ValueError(
+                    "AutoHorizon requires execution.blend_steps=0 so the selected "
+                    "official execution horizon is not rewritten at commit"
+                )
+        if self.runtime == "dvac":
+            ignored = {"inference_schedule", "refill_threshold_s"}.intersection(
+                self.model_fields_set
+            )
+            if ignored:
+                names = ", ".join(sorted(ignored))
+                raise ValueError(f"execution fields are not used by DVAC: {names}")
+            if self.blend_steps != 0:
+                raise ValueError(
+                    "DVAC requires execution.blend_steps=0 so the selected "
+                    "paper execution horizon is not rewritten at commit"
+                )
         return self
 
 
@@ -230,6 +265,14 @@ class ManiMuxConfig(StrictModel):
                 raise ValueError(
                     "PAINT requires initial_delay_steps <= execution_steps "
                     "<= horizon_steps - initial_delay_steps"
+                )
+        if self.execution.runtime == "dvac":
+            dvac = self.execution.dvac
+            maximum = dvac.max_execution_steps or self.policy.horizon_steps
+            if not dvac.min_execution_steps <= maximum <= self.policy.horizon_steps:
+                raise ValueError(
+                    "DVAC requires min_execution_steps <= max_execution_steps "
+                    "<= policy.horizon_steps"
                 )
         return self
 

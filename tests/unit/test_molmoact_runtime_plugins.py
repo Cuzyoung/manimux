@@ -146,8 +146,9 @@ def test_live_config_enables_explicit_start_and_verified_home() -> None:
 
     assert config.robot.options["move_to_start_on_connect"] is True
     assert config.robot.options["home_on_close"] is True
-    assert config.robot.options["start_duration_s"] == 5.0
-    assert config.robot.options["home_duration_s"] == 5.0
+    assert config.robot.control_hz == 100.0
+    assert config.robot.options["start_duration_s"] == 3.0
+    assert config.robot.options["home_duration_s"] == 3.0
     assert config.policy.effective_action_dt_s == pytest.approx(0.05)
 
 
