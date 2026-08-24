@@ -44,6 +44,10 @@ class EpisodeRecorder:
         self._write_json(self._partial_dir / "meta.json", metadata)
         self.event("episode_started", episode_id=episode_id)
 
+    @property
+    def final_dir(self) -> Path:
+        return self._final_dir
+
     @staticmethod
     def _write_json(path: Path, payload: dict[str, object]) -> None:
         with path.open("w", encoding="utf-8") as handle:

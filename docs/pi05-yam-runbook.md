@@ -233,28 +233,36 @@ envs/yam/.venv/bin/python scripts/analyze_chunk_boundaries.py
 
 ## Pi05 YAM finetune + RTC
 
-模型服务仍使用同一个 finetune 配置，不需要启动第二份权重：
+当前 step-1000 红球入盒实验仍使用同一个 finetune 配置，不需要启动第二份权重：
 
 ```bash
 cd /home/ubuntu/manimux
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   scripts/pi05_yam_server.py \
-  --config configs/pi05/yam/server/finetune.yaml
+  --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
 ```
 
 RTC 使用独立 infra 配置：
 
 ```bash
-envs/yam/.venv/bin/manimux run --config configs/pi05/yam/infra/rtc.yaml
+envs/yam/.venv/bin/manimux run \
+  --config configs/pi05/yam/infra/rtc-pick-red-ball-box-step1000.yaml
 ```
 
-它保留普通 ManiMux 基线的 30Hz、16-step checkpoint 契约和 OpenPI 默认 10-step flow
-sampling；当前低速 RTC 对照使用
-`0.20 rad/s`、`0.40 rad/s²`，比 MolmoAct2 的执行包络再慢一档。根据真实 rollout 的约
-2–3 步延迟设置的初始先验为 `initial_delay_steps: 3`；运行时会用 10-step sampling 的真实
-延迟自动更新 `d`。`min_execute_steps: 8`，即 `H=16、s=8`，RTC guidance clip 随
-10-step flow 更新为 `beta: 9.1`。只有 RTC 调度和 Pi-guided denoise condition 发生变化，
-可以直接与 `infra/manimux.yaml` 做 A/B。
+它与 step-1000 Default config 使用相同的 `50 x 14` checkpoint contract、100Hz robot loop、
+30Hz policy points、`0.25 rad/s`、`0.50 rad/s²` 和 3 秒 start/home。RTC pilot 使用
+`min_execute_steps: 20`、`initial_delay_steps: 4`、`beta: 9.1`；运行时会根据真实 round trip
+更新 delay forecast。只有 RTC scheduling 和 Pi-guided denoise condition 发生变化。
+
+每次运行创建：
+
+```text
+data/experiments/pi05-red-ball-box-step1000/rtc/run-*/episode-*/
+```
+
+Viser 在 episode 正常落盘后开放 `Task result`、`Smoothness (1-5)`、failure tags 和 note，
+保存到 `episode-*/evaluation/manual-v1.json`。这里的 task result 与 `result.json` 中表示 runtime
+正常收尾的 `success` 完全分开。
 
 ## 停止
 

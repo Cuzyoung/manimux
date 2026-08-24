@@ -165,9 +165,15 @@ class EdgeRuntime:
             self._viewer.publish_event(
                 "episode_started",
                 metadata={
+                    "episode_id": episode_id,
+                    "episode_dir": str(recorder.final_dir.resolve()),
+                    "run_dir": str(self._run_dir.resolve()),
                     "instruction": self._config.run.task,
                     "max_steps": self._config.run.max_steps,
                     "control_mode": self._strategy.control_mode,
+                    "runtime": self._strategy.name,
+                    "executor": self._config.execution.executor,
+                    "policy_label": self._config.viewer.policy_label,
                 },
             )
             next_tick_ns = self._clock.now_ns()
@@ -458,6 +464,15 @@ class EdgeRuntime:
                 terminal_reason=terminal_reason,
                 steps=steps,
                 wall_time_s=time.perf_counter() - started_wall,
+            )
+            self._viewer.publish_event(
+                "episode_finished",
+                step=steps,
+                metadata={
+                    "episode_id": episode_id,
+                    "episode_dir": str(episode_dir.resolve()),
+                    "reason": terminal_reason,
+                },
             )
             completed = True
             return RunResult(

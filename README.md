@@ -2,7 +2,7 @@
 
 # ManiMux
 
-**Local asynchronous inference and execution infrastructure for real-robot VLAs.**
+**Local asynchronous inference and execution infrastructure for real-robot Policies.**
 
 Models are replaceable; ManiMux owns the control loop, robot, safety, recording and viewer.
 
@@ -399,6 +399,7 @@ copied per model. See [Architecture](docs/architecture.md) for the complete cont
 
 ## Documentation
 
+- [Real-robot experiment design](docs/experiment-design.md)
 - [Program progress](docs/program-progress.md)
 - [XPolicyLab integration](docs/xpolicylab-runbook.md)
 - [MolmoAct2](docs/molmoact-yam-runbook.md) · [ABC](docs/abc-yam-runbook.md)

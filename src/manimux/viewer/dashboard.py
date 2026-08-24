@@ -16,6 +16,8 @@ import numpy as np
 import viser
 from PIL import Image
 
+from manimux.evaluation import write_manual_evaluation
+
 from .protocol import PolicyPlan, RobotSnapshot
 from .robots import available_robot_adapters, load_robot_adapter
 from .robots.base import RobotAdapter, RobotGroup
@@ -91,7 +93,7 @@ class PolicyViewer:
         self.server.gui.set_panel_label("UNIVERSAL · POLICY VIEWER")
         self.lock = threading.RLock()
         self.running = True
-        self.paused = False
+        self.paused = True
         self.step_once = False
         self.finish_requested = False
         self.home_requested = False
@@ -112,6 +114,8 @@ class PolicyViewer:
             group.name: deque() for group in self.robot.groups
         }
         self.observe_only = False
+        self.current_episode_dir: Path | None = None
+        self.episode_finalized = False
         self.camera_images: dict[str, Any] = {}
         self._build_scene()
         self._build_gui()
@@ -178,6 +182,57 @@ class PolicyViewer:
             self.executor_info = self.server.gui.add_text("Executor", "waiting", disabled=True)
             self.latency = self.server.gui.add_text("Inference", "—", disabled=True)
             self.progress = self.server.gui.add_number("Step", 0, disabled=True)
+            self.runtime_name = self.server.gui.add_text("Runtime", "waiting", disabled=True)
+            self.episode_path = self.server.gui.add_text("Episode", "waiting", disabled=True)
+        with self.server.gui.add_folder("Post-rollout evaluation", expand_by_default=True):
+            self.evaluation_status = self.server.gui.add_markdown(
+                "⚪ Finish the rollout before saving an evaluation."
+            )
+            self.task_result = self.server.gui.add_dropdown(
+                "Task result",
+                ("unlabeled", "success", "failure", "invalid"),
+                initial_value="unlabeled",
+                disabled=True,
+            )
+            self.smoothness_score = self.server.gui.add_dropdown(
+                "Smoothness (1-5)",
+                ("1", "2", "3", "4", "5"),
+                initial_value="3",
+                disabled=True,
+            )
+            self.reviewer_id = self.server.gui.add_text(
+                "Reviewer", "operator", disabled=True
+            )
+            self.operator_note = self.server.gui.add_text(
+                "Operator note", "", multiline=True, disabled=True
+            )
+            self.failure_tag_inputs = {
+                "replay_backtrack": self.server.gui.add_checkbox(
+                    "Replay / backtrack", False, disabled=True
+                ),
+                "hold_stall": self.server.gui.add_checkbox(
+                    "Hold / stall", False, disabled=True
+                ),
+                "collision": self.server.gui.add_checkbox(
+                    "Collision", False, disabled=True
+                ),
+                "drop_spill": self.server.gui.add_checkbox(
+                    "Drop / spill", False, disabled=True
+                ),
+                "perception": self.server.gui.add_checkbox(
+                    "Perception error", False, disabled=True
+                ),
+                "policy_semantics": self.server.gui.add_checkbox(
+                    "Policy / task error", False, disabled=True
+                ),
+                "safety_stop": self.server.gui.add_checkbox(
+                    "Safety stop", False, disabled=True
+                ),
+                "other": self.server.gui.add_checkbox("Other", False, disabled=True),
+            }
+            self.save_evaluation_btn = self.server.gui.add_button(
+                "Save evaluation", color="blue", disabled=True
+            )
         with self.server.gui.add_folder("Overlay controls", expand_by_default=True):
             self.show_plan = self.server.gui.add_checkbox("Predicted EE trajectory", True)
             self.show_tail = self.server.gui.add_checkbox("Achieved EE trail", True)
@@ -241,6 +296,10 @@ class PolicyViewer:
         def _clear_history(_event: Any) -> None:
             self._clear_plan_history()
 
+        @self.save_evaluation_btn.on_click
+        def _save_evaluation(_event: Any) -> None:
+            self._save_manual_evaluation()
+
         @self.show_plan.on_update
         def _show_plan(_event: Any) -> None:
             self._refresh_plan_visibility()
@@ -248,6 +307,54 @@ class PolicyViewer:
     def _set_instruction(self, instruction: str) -> None:
         self.instruction.content = _instruction_markdown(instruction)
         self.task.value = _prefill_task(self.task.value, instruction)
+
+    def _set_evaluation_enabled(self, enabled: bool) -> None:
+        for handle in (
+            self.task_result,
+            self.smoothness_score,
+            self.reviewer_id,
+            self.operator_note,
+            *self.failure_tag_inputs.values(),
+        ):
+            handle.disabled = not enabled
+        self.save_evaluation_btn.disabled = not enabled
+
+    def _reset_evaluation(self, episode_dir: str) -> None:
+        self.current_episode_dir = Path(episode_dir).expanduser() if episode_dir else None
+        self.episode_finalized = False
+        self.episode_path.value = episode_dir or "not published"
+        self.task_result.value = "unlabeled"
+        self.smoothness_score.value = "3"
+        self.reviewer_id.value = "operator"
+        self.operator_note.value = ""
+        for handle in self.failure_tag_inputs.values():
+            handle.value = False
+        self._set_evaluation_enabled(False)
+        self.evaluation_status.content = "⚪ Finish the rollout before saving an evaluation."
+
+    def _save_manual_evaluation(self) -> None:
+        if not self.episode_finalized or self.current_episode_dir is None:
+            self.evaluation_status.content = "🔴 Episode is not finalized."
+            return
+        result = str(self.task_result.value)
+        if result == "unlabeled":
+            self.evaluation_status.content = "🔴 Select success, failure, or invalid."
+            return
+        try:
+            target = write_manual_evaluation(
+                self.current_episode_dir,
+                task_result=cast(Any, result),
+                smoothness_score=int(self.smoothness_score.value),
+                failure_tags=[
+                    name for name, handle in self.failure_tag_inputs.items() if handle.value
+                ],
+                operator_note=self.operator_note.value,
+                reviewer_id=self.reviewer_id.value,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            self.evaluation_status.content = f"🔴 Evaluation was not saved: {exc}"
+            return
+        self.evaluation_status.content = f"🟢 Saved `{target}`"
 
     def control_state(self) -> dict[str, Any]:
         state = {
@@ -473,7 +580,7 @@ class PolicyViewer:
             self._reset_plan_overlay()
             self._clear_achieved_tails()
             self.observe_only = metadata.get("control_mode", "observe") == "observe"
-            self.paused = self.observe_only
+            self.paused = True
             for button in (
                 self.start_btn,
                 self.pause_btn,
@@ -483,11 +590,14 @@ class PolicyViewer:
             ):
                 button.disabled = self.observe_only
             self._set_instruction(str(metadata.get("instruction", self.task.value)))
+            self.policy_name.value = str(metadata.get("policy_label", "waiting"))
+            self.runtime_name.value = str(metadata.get("runtime", "waiting"))
+            self._reset_evaluation(str(metadata.get("episode_dir", "")))
             self.executor_info.value = "observe only" if self.observe_only else "managed"
             self.status.content = (
                 "🔵 **Connected · OBSERVE ONLY**"
                 if self.observe_only
-                else "🟢 **Connected · RUNNING**"
+                else "🟡 **Connected · PAUSED · press Start / Resume**"
             )
         elif event == "inference_submitted":
             planned = metadata.get("planned_switch_step")
@@ -495,7 +605,18 @@ class PolicyViewer:
             self.executor_info.value = f"chunk #{message.get('chunk_id')} pending{suffix}"
         elif event == "episode_finished":
             self.executor_info.value = str(metadata.get("reason", "finished"))
-            self.status.content = "⚪ **Episode finished**"
+            episode_dir = str(metadata.get("episode_dir", ""))
+            if episode_dir:
+                self.current_episode_dir = Path(episode_dir).expanduser()
+                self.episode_path.value = episode_dir
+            self.episode_finalized = self.current_episode_dir is not None
+            self._set_evaluation_enabled(self.episode_finalized)
+            self.evaluation_status.content = (
+                "🟡 Select the task result and smoothness score, then save."
+                if self.episode_finalized
+                else "🔴 Runtime did not publish an episode path."
+            )
+            self.status.content = "⚪ **Episode finished · awaiting evaluation**"
 
     def _update_group(self, group: RobotGroup, configuration: np.ndarray) -> None:
         robot_handle = self.robot_handles.get(group.name)
