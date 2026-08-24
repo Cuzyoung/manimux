@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
-import io
 import signal
 import threading
 import time
@@ -14,7 +12,6 @@ from typing import Any, Literal, cast
 
 import numpy as np
 import viser
-from PIL import Image, ImageDraw, ImageOps
 
 from manimux.evaluation import write_manual_evaluation
 from manimux.types import FloatArray, UInt8Array
@@ -25,7 +22,6 @@ from .robots.base import RobotAdapter, RobotGroup
 from .transport import ControlServer, ViewerReceiver
 
 MAX_PLAN_HISTORY = 16
-CAMERA_WALL_SIZE = (960, 720)
 ViewerStage = Literal["waiting", "setup", "preparing", "control", "evaluation", "complete"]
 _TRAJECTORY_COLOR_STOPS = np.asarray(
     [
@@ -72,59 +68,47 @@ def _prefill_task(current: str, incoming: str) -> str:
     return incoming.strip() if not current.strip() else current
 
 
-def _camera_tile(image: UInt8Array, size: tuple[int, int], label: str) -> Image.Image:
-    """Letterbox one camera image into a labelled wall tile."""
+def _camera_panel_html(frames_jpeg: dict[str, str]) -> str:
+    """Render a screen-fixed camera column without placing images in 3D space."""
 
-    source = Image.fromarray(image).convert("RGB")
-    fitted = ImageOps.contain(source, size, Image.Resampling.BILINEAR)
-    tile = Image.new("RGB", size, (22, 27, 36))
-    offset = ((size[0] - fitted.width) // 2, (size[1] - fitted.height) // 2)
-    tile.paste(fitted, offset)
-    draw = ImageDraw.Draw(tile)
-    draw.rounded_rectangle((12, 12, 112, 48), radius=8, fill=(12, 16, 24))
-    draw.text((24, 22), label.upper(), fill=(255, 255, 255))
-    return tile
+    def tile(name: str) -> str:
+        payload = frames_jpeg.get(name)
+        body = (
+            f'<img src="data:image/jpeg;base64,{payload}" alt="{name} camera" />'
+            if payload
+            else f'<div class="manimux-camera-placeholder">Waiting for {name} camera</div>'
+        )
+        return (
+            '<div class="manimux-camera-tile">'
+            f'<span class="manimux-camera-label">{name}</span>{body}</div>'
+        )
 
-
-def _compose_camera_wall(frames: dict[str, UInt8Array]) -> UInt8Array:
-    """Build a stable top/left/right camera wall for the main viewport."""
-
-    width, height = CAMERA_WALL_SIZE
-    wall = Image.new("RGB", CAMERA_WALL_SIZE, (22, 27, 36))
-    slots = (
-        ("top", (0, 0), (width, height // 2)),
-        ("left", (0, height // 2), (width // 2, height // 2)),
-        ("right", (width // 2, height // 2), (width // 2, height // 2)),
-    )
-    for name, position, size in slots:
-        frame = frames.get(name)
-        if frame is None:
-            placeholder = Image.new("RGB", size, (31, 38, 49))
-            draw = ImageDraw.Draw(placeholder)
-            draw.text((24, 24), f"WAITING FOR {name.upper()} CAMERA", fill=(165, 174, 190))
-            tile = placeholder
-        else:
-            tile = _camera_tile(frame, size, name)
-        wall.paste(tile, position)
-    return np.asarray(wall, dtype=np.uint8)
-
-
-def _billboard_wxyz(
-    position: tuple[float, float, float],
-    camera_position: tuple[float, float, float],
-) -> tuple[float, float, float, float]:
-    """Orient an XY image plane toward the default camera with world-up preserved."""
-
-    from scipy.spatial.transform import Rotation
-
-    normal = np.asarray(camera_position) - np.asarray(position)
-    normal /= np.linalg.norm(normal)
-    world_up = np.asarray((0.0, 0.0, 1.0))
-    local_x = np.cross(normal, world_up)
-    local_x /= np.linalg.norm(local_x)
-    local_y = np.cross(normal, local_x)
-    xyzw = Rotation.from_matrix(np.column_stack((local_x, local_y, normal))).as_quat()
-    return (float(xyzw[3]), float(xyzw[0]), float(xyzw[1]), float(xyzw[2]))
+    return f"""
+<style>
+  .manimux-camera-panel {{
+    position: fixed; left: 16px; top: 64px; bottom: 16px;
+    width: clamp(360px, 32vw, 560px); z-index: 4;
+    display: grid; grid-template-rows: 1fr 1fr; gap: 10px;
+    padding: 10px; box-sizing: border-box; pointer-events: none;
+    border: 1px solid rgba(128, 138, 156, 0.35); border-radius: 12px;
+    background: rgba(18, 23, 32, 0.92); box-shadow: 0 8px 28px rgba(0,0,0,0.18);
+  }}
+  .manimux-camera-bottom {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }}
+  .manimux-camera-tile {{ position: relative; min-height: 0; overflow: hidden;
+    border-radius: 8px; background: #0e131c; }}
+  .manimux-camera-tile img {{ width: 100%; height: 100%; object-fit: contain; display: block; }}
+  .manimux-camera-label {{ position: absolute; left: 10px; top: 10px; z-index: 1;
+    padding: 3px 9px; border-radius: 999px; color: white; background: rgba(8,12,18,0.78);
+    font: 600 12px/1.4 system-ui, sans-serif; text-transform: uppercase; }}
+  .manimux-camera-placeholder {{ height: 100%; display: grid; place-items: center;
+    color: #a5aebe; font: 500 13px system-ui, sans-serif; }}
+  @media (max-width: 900px) {{ .manimux-camera-panel {{ display: none; }} }}
+</style>
+<section class="manimux-camera-panel">
+  {tile("top")}
+  <div class="manimux-camera-bottom">{tile("left")}{tile("right")}</div>
+</section>
+"""
 
 
 class PolicyViewer:
@@ -149,10 +133,6 @@ class PolicyViewer:
             brand_color=(70, 103, 190),
         )
         self.server.gui.set_panel_label("UNIVERSAL · POLICY VIEWER")
-        self.default_camera_position = (2.2, -2.8, 1.8)
-        self.server.initial_camera.position = self.default_camera_position
-        self.server.initial_camera.look_at = (-0.15, -0.15, 0.35)
-        self.server.initial_camera.up = (0.0, 0.0, 1.0)
         self.lock = threading.RLock()
         self.running = True
         self.paused = True
@@ -185,7 +165,7 @@ class PolicyViewer:
         self.observe_only = False
         self.current_episode_dir: Path | None = None
         self.episode_finalized = False
-        self.camera_frames: dict[str, UInt8Array] = {}
+        self.camera_jpegs: dict[str, str] = {}
         self._build_scene()
         self._build_gui()
         self.receiver = ViewerReceiver(bridge_endpoint, self.on_message)
@@ -232,21 +212,9 @@ class PolicyViewer:
                     f"[viewer] {group.label} URDF unavailable ({exc}); "
                     "trajectory rendering remains enabled"
                 )
-        wall_position = (-0.52, -0.72, 0.62)
-        self.camera_wall = self.server.scene.add_image(
-            "/camera_wall",
-            _compose_camera_wall({}),
-            render_width=1.0,
-            render_height=0.75,
-            format="jpeg",
-            jpeg_quality=75,
-            cast_shadow=False,
-            receive_shadow=False,
-            position=wall_position,
-            wxyz=_billboard_wxyz(wall_position, self.default_camera_position),
-        )
 
     def _build_gui(self) -> None:
+        self.camera_panel = self.server.gui.add_html(_camera_panel_html({}))
         self.status = self.server.gui.add_markdown("🟠 **Waiting for policy executor**")
         self.instruction = self.server.gui.add_markdown(_instruction_markdown(""))
         self.new_rollout_folder = self.server.gui.add_folder(
@@ -551,11 +519,6 @@ class PolicyViewer:
         self.new_rollout_requested = False
         return state
 
-    @staticmethod
-    def _image(payload: str) -> UInt8Array:
-        raw = base64.b64decode(payload)
-        return np.asarray(Image.open(io.BytesIO(raw)).convert("RGB"))
-
     def _matches_selected_robot(self, message: dict[str, Any]) -> bool:
         robot_name = str(message.get("robot", ""))
         if not robot_name or robot_name == self.robot.name:
@@ -713,6 +676,9 @@ class PolicyViewer:
             self._draw_tail(group, np.empty((0, 3)))
 
     def _update_state(self, message: dict[str, Any]) -> None:
+        metadata = message.get("metadata") or {}
+        if not self.episode_active and bool(metadata.get("episode_active", False)):
+            self._update_event({"event": "episode_started", "metadata": metadata})
         joint_positions = np.asarray(message.get("joint_positions", []), dtype=np.float64)
         grouped_positions = self.robot.split_joint_positions(joint_positions)
         self.last_state_time = time.time()
@@ -744,9 +710,9 @@ class PolicyViewer:
             self._update_group(self.robot.group(group_name), configuration)
         for source_name, payload in message.get("cameras_jpeg", {}).items():
             slot = self.robot.camera_slot(source_name)
-            self.camera_frames[slot] = self._image(payload)
+            self.camera_jpegs[slot] = str(payload)
         if message.get("cameras_jpeg"):
-            self.camera_wall.image = _compose_camera_wall(self.camera_frames)
+            self.camera_panel.content = _camera_panel_html(self.camera_jpegs)
 
     def _update_event(self, message: dict[str, Any]) -> None:
         event = str(message.get("event", "unknown"))

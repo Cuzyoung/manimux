@@ -39,6 +39,7 @@ class ViewerBridge:
         self._instruction = instruction
         self._camera_period_s = 0.0 if camera_hz == 0 else 1.0 / camera_hz
         self._last_camera_publish = float("-inf")
+        self._state_metadata: dict[str, object] = {}
         self._publisher: Any | None = None
         self._controls: Any | None = None
         self._policy_plan_type: Any | None = None
@@ -87,6 +88,11 @@ class ViewerBridge:
             home_requested=bool(state.get("home_requested", False)),
             finish_requested=bool(state.get("finish_requested", False)),
         )
+
+    def set_state_metadata(self, metadata: dict[str, object]) -> None:
+        """Attach recoverable rollout context to every state heartbeat."""
+
+        self._state_metadata = dict(metadata)
 
     def publish_plan(
         self,
@@ -148,6 +154,7 @@ class ViewerBridge:
             chunk_index=chunk_index,
             active_chunk_id=active_chunk_id,
             connected=True,
+            metadata=dict(self._state_metadata),
         )
         self._publisher.publish(message)
 

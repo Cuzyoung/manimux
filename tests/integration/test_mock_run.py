@@ -165,6 +165,9 @@ class _HomeTestViewer:
             return ViewerControl(paused=True, finish_requested=True)
         return ViewerControl(paused=True)
 
+    def set_state_metadata(self, _metadata) -> None:
+        pass
+
     def publish_plan(self, *_args, **_kwargs) -> None:
         pass
 
@@ -179,6 +182,9 @@ class _HomeTestViewer:
 
 
 class _AutoRunningViewer:
+    def set_state_metadata(self, _metadata) -> None:
+        pass
+
     def poll_control(self) -> ViewerControl:
         return ViewerControl(paused=False)
 

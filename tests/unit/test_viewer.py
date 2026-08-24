@@ -11,7 +11,7 @@ from manimux.viewer.bridge import ViewerBridge
 from manimux.viewer.client import ViewerClient
 from manimux.viewer.dashboard import (
     PolicyViewer,
-    _compose_camera_wall,
+    _camera_panel_html,
     _instruction_markdown,
     _prefill_task,
     _trajectory_colors,
@@ -90,19 +90,14 @@ def test_viewer_stage_exposes_only_the_current_action_area(
     assert tuple(handle.visible for handle in handles) == expected
 
 
-def test_camera_wall_keeps_top_left_and_right_in_fixed_tiles() -> None:
-    frames = {
-        "top": np.full((360, 960, 3), (255, 0, 0), dtype=np.uint8),
-        "left": np.full((360, 480, 3), (0, 255, 0), dtype=np.uint8),
-        "right": np.full((360, 480, 3), (0, 0, 255), dtype=np.uint8),
-    }
+def test_camera_panel_is_screen_fixed_and_keeps_three_named_tiles() -> None:
+    html = _camera_panel_html({"top": "TOP", "left": "LEFT", "right": "RIGHT"})
 
-    wall = _compose_camera_wall(frames)
-
-    assert wall.shape == (720, 960, 3)
-    assert tuple(wall[200, 600]) == (255, 0, 0)
-    assert tuple(wall[550, 240]) == (0, 255, 0)
-    assert tuple(wall[550, 720]) == (0, 0, 255)
+    assert "position: fixed" in html
+    assert "data:image/jpeg;base64,TOP" in html
+    assert "data:image/jpeg;base64,LEFT" in html
+    assert "data:image/jpeg;base64,RIGHT" in html
+    assert "grid-template-columns: 1fr 1fr" in html
 
 
 def test_protocol_is_not_tied_to_yam_dimensions() -> None:
@@ -296,6 +291,7 @@ def test_runtime_bridge_throttles_camera_encoding_off_the_control_rate() -> None
     bridge._enabled = True
     bridge._publisher = publisher
     bridge._snapshot_type = RobotSnapshot
+    bridge.set_state_metadata({"episode_active": True, "instruction": "task"})
     state = RobotState(groups={"arm": np.zeros(2)}, monotonic_ns=1, sequence=1)
     frame = SensorFrame(
         name="camera",
@@ -309,6 +305,8 @@ def test_runtime_bridge_throttles_camera_encoding_off_the_control_rate() -> None
 
     assert set(publisher.messages[0]["cameras_jpeg"]) == {"camera"}
     assert publisher.messages[1]["cameras_jpeg"] == {}
+    assert publisher.messages[0]["metadata"]["episode_active"] is True
+    assert publisher.messages[1]["metadata"]["instruction"] == "task"
 
 
 def test_yam_is_a_discovered_adapter() -> None:

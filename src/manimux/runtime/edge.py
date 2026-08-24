@@ -189,22 +189,25 @@ class EdgeRuntime:
             previous_command = copy_group_vector(initial_state.groups)
             last_command = copy_group_vector(initial_state.groups)
             self._state = RuntimeState.RUNNING
+            viewer_episode_metadata = {
+                "episode_active": True,
+                "episode_id": episode_id,
+                "episode_dir": str(recorder.final_dir.resolve()),
+                "run_dir": str(self._run_dir.resolve()),
+                "instruction": self._config.run.task,
+                "max_steps": self._config.run.max_steps,
+                "control_mode": self._strategy.control_mode,
+                "runtime": self._strategy.name,
+                "executor": self._config.execution.executor,
+                "policy_label": self._config.viewer.policy_label,
+                "experiment_mode": self._config.run.experiment_mode,
+                "layout_id": self._config.run.layout_id,
+                "launch_mode": self._launch_mode,
+            }
+            self._viewer.set_state_metadata(viewer_episode_metadata)
             self._viewer.publish_event(
                 "episode_started",
-                metadata={
-                    "episode_id": episode_id,
-                    "episode_dir": str(recorder.final_dir.resolve()),
-                    "run_dir": str(self._run_dir.resolve()),
-                    "instruction": self._config.run.task,
-                    "max_steps": self._config.run.max_steps,
-                    "control_mode": self._strategy.control_mode,
-                    "runtime": self._strategy.name,
-                    "executor": self._config.execution.executor,
-                    "policy_label": self._config.viewer.policy_label,
-                    "experiment_mode": self._config.run.experiment_mode,
-                    "layout_id": self._config.run.layout_id,
-                    "launch_mode": self._launch_mode,
-                },
+                metadata=viewer_episode_metadata,
             )
             next_tick_ns = self._clock.now_ns()
 
