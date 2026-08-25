@@ -104,4 +104,19 @@ Before comparing algorithms:
 - tune on development layouts, then stop changing parameters on test layouts;
 - derive automatic metrics only after matching trajectories, videos and human labels.
 
+### Operator-randomized layout replay
+
+For the YAM pilot, the operator may freely place task objects inside the task's declared workspace.
+That freedom is sampled once per matched block, not once per algorithm:
+
+1. Assign a readable `layout_id` and place the objects.
+2. Use the initial top-camera frame as the layout reference.
+3. Run every compared algorithm once in a randomized order.
+4. Restore the same layout from the reference frame before each rollout.
+5. Complete the configured repeats before sampling a new layout.
+
+If the scene cannot be restored closely enough, mark that attempt `invalid`; do not silently replace
+it with an easier layout for only one algorithm. A future Viewer overlay may assist restoration, but
+the fairness rule does not depend on that UI feature.
+
 See [experiment design](experiment-design.md) for the study matrix and reporting rules.

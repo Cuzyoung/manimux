@@ -1,7 +1,7 @@
 run:
   task: Pick the red ball up and place it into the box.
   output_dir: ./data/experiments/pi05-red-ball-box-step1000/aac
-  max_steps: 16000
+  max_steps: 6000
 
 robot:
   driver: yam_dual
@@ -87,4 +87,4 @@ viewer:
 
 recording:
   enabled: true
-  video_fps: 10.0
+  video_fps: 30.0

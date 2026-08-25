@@ -56,12 +56,18 @@ LingBot-VLA2 和 Cosmos3，但只有完成匹配 YAM 数据的 post-training、�
 最小实验单元不是一条 rollout，而是一个 **matched rollout block**：
 
 ```text
-同一个 task_id + layout_seed + policy checkpoint
+同一个 task_id + operator-randomized layout_id + policy checkpoint
                     ↓
 按随机顺序各运行一次待比较算法
                     ↓
-每条 episode 立即标注，整个 block 完成后再更换布局
+按初始 top-camera 参考图恢复布局并完成重复
+                    ↓
+每条 episode 立即标注，整个 block 完成后再随机新布局
 ```
+
+操作者可以在任务规定的工作区内自由摆放物体，但一次随机摆放只产生一个 `layout_id`。同一个
+matched block 内的所有算法必须复原这一布局；不能给每个算法各自随便摆一次，否则布局差异会和
+推理算法差异混在一起。算法执行顺序在每个 repeat 内独立随机化。
 
 建议第一个 pilot：
 
@@ -69,13 +75,33 @@ LingBot-VLA2 和 Cosmos3，但只有完成匹配 YAM 数据的 post-training、�
 Policy      Pi05 当前 YAM 微调 checkpoint
 Task        红球放入盒子
 Algorithms  Default / ACT / IT-RTC / PAINT
-Layouts     5 个固定 layout_seed
-Repeats     每个布局 2 次
+Layouts     5 个 operator-randomized layout_id
+Repeats     每个布局完整恢复并重复 2 次
 Total       4 × 5 × 2 = 40 episodes
 ```
 
 这 40 条只用于校准指标、估计方差和筛选方法，不作为最终显著性结论。正式实验的 episode 数根据
 pilot 方差、置信区间或 sequential comparison 再决定。
+
+### 4.1 YAM pilot v1 setting
+
+第一轮 YAM pilot 使用下面的统一设置。时间是协议单位；`max_steps` 只是由控制频率换算出的实现值。
+
+| 项目 | 冻结值 | 说明 |
+|---|---:|---|
+| Robot control | `100 Hz` | 所有算法共用同一底层控制频率 |
+| Rollout upper bound | `60 s` | 成功、明确失败或 safety stop 可以提前结束，但必须记录结束原因 |
+| ManiMux limit | `6000 ticks` | `60 s × 100 Hz`，不是 6000 个独立统计样本 |
+| Video | `30 FPS` | 三路相机按同一 recording 配置保存 |
+| Reset/Home | YAM zero Home | `Finish & Home` 后回零位；下一条 rollout 再进入任务固定 start pose |
+| Task start pose | task/checkpoint matched | 同一 task 的所有 Policy/算法保持一致，不与物体 layout 随机化混用 |
+| Layout | operator-randomized, block-matched | 用户自由摆放一次，同一 block 通过 top-camera 参考图恢复 |
+| Trials | `10 / algorithm / task` | `5 layouts × 2 repeats`；pilot 后再依据方差扩充 |
+
+数采和执行可能使用不同频率，不能直接比较裸 `step`。例如当前 YAM 数采是 `30 Hz`：若同样采用
+`60 s` 上限，对应最多 `1800` 帧；只有数采本身也是 `100 Hz` 时，`5000 steps` 才表示 `50 s`。
+训练数据保存实际完成长度，评测 config 统一保存 `timeout_s`、`control_hz` 和换算后的
+`max_steps`。
 
 ## 5. Task 设计
 

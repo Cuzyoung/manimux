@@ -81,10 +81,26 @@ def _xpolicylab_adapter_factory(
     return build_adapter(robot, policy)
 
 
+def _sapolicy_tcp_factory(config: PolicyConfig) -> PolicyModel:
+    from manimux.integrations.sapolicy_yam.policy_plugin import build_model
+
+    return build_model(config)
+
+
+def _sapolicy_yam_adapter_factory(
+    robot: RobotConfig,
+    policy: PolicyConfig,
+) -> PolicyAdapter:
+    from manimux.integrations.sapolicy_yam.policy_plugin import build_adapter
+
+    return build_adapter(robot, policy)
+
+
 _MODEL_BUILTINS: dict[str, PolicyModelFactory] = {
     "fake": _fake_model_factory,
     "molmoact_http": _molmoact_http_factory,
     "abc_http": _abc_http_factory,
+    "sapolicy_tcp": _sapolicy_tcp_factory,
     "xpolicylab_ws": _xpolicylab_ws_factory,
 }
 _ADAPTER_BUILTINS: dict[str, PolicyAdapterFactory] = {
@@ -92,6 +108,7 @@ _ADAPTER_BUILTINS: dict[str, PolicyAdapterFactory] = {
     "molmoact_yam": _molmoact_yam_adapter_factory,
     "abc_yam": _abc_yam_adapter_factory,
     "xr1_yam": _xr1_yam_adapter_factory,
+    "sapolicy_yam": _sapolicy_yam_adapter_factory,
     "xpolicylab": _xpolicylab_adapter_factory,
 }
 

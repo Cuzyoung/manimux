@@ -1,0 +1,97 @@
+# Offline adapter contract only. This deliberately uses mock robot/camera drivers.
+# It still expects a separately started private SAPolicy service on 127.0.0.1:9977.
+# Do not turn this into a real-robot config until checkpoint timing, calibrated K,
+# gripper semantics, camera placement, and task-frame compatibility are verified.
+run:
+  task: sapolicy YAM adapter offline contract
+  output_dir: ./data
+  max_steps: 40
+
+robot:
+  driver: mock
+  control_hz: 30.0
+  group_dims:
+    left_arm: 7
+    right_arm: 7
+
+sensors:
+  - name: front_camera
+    driver: mock
+    width: 64
+    height: 48
+    fps: 30.0
+
+policy:
+  worker: sapolicy_tcp
+  adapter: sapolicy_yam
+  # Must be replaced with the checkpoint dataset's action spacing.
+  action_dt_s: 0.05
+  timeout_s: 10.0
+  horizon_steps: 8
+  inference_delay_s: 0.0
+  startup_timeout_s: 120.0
+  expected_backend:
+    server: sapolicy_manimux_v1
+    model:
+      wire_action_dim: 16
+      horizon_steps: 8
+  options:
+    host: 127.0.0.1
+    port: 9977
+    connect_timeout_s: 5.0
+    request_timeout_s: 10.0
+    group_order: [left_arm, right_arm]
+    camera_map:
+      agentview: front_camera
+    # Synthetic K for the 64x48 mock image, not a real-camera calibration.
+    camera_intrinsics:
+      agentview:
+        - [60.0, 0.0, 31.5]
+        - [0.0, 60.0, 23.5]
+        - [0.0, 0.0, 1.0]
+    # Example checkpoint convention: policy gripper [-1,1] <-> YAM [0,1].
+    # Verify direction/range against the actual checkpoint before hardware use.
+    gripper_transforms:
+      left_arm:
+        scale: 2.0
+        offset: -1.0
+        robot_min: 0.0
+        robot_max: 1.0
+        clip_output: true
+      right_arm:
+        scale: 2.0
+        offset: -1.0
+        robot_min: 0.0
+        robot_max: 1.0
+        clip_output: true
+    # Contract of the existing RoboTwin-compatible private SAPolicy service.
+    server_tcp_forward_offset_m: 0.12
+    requires_depth: false
+    max_position_delta_m: 0.15
+    max_rotation_delta_rad: 0.75
+    kinematics: yam
+    kinematics_options:
+      arm_type: yam
+      gripper_type: linear_4310
+      num_arm_joints: 6
+
+execution:
+  runtime: manimux
+  executor: smooth
+  inference_schedule: single_inflight
+  refill_threshold_s: 0.2
+  commit_lead_s: 0.0
+  max_plan_age_s: 1.0
+  blend_steps: 2
+  smooth:
+    cutoff_hz: 8.0
+    max_velocity: 0.25
+    max_acceleration: 0.5
+    position_limit_abs: 3.14
+
+viewer:
+  enabled: false
+  policy_label: SAPolicy YAM offline contract
+
+recording:
+  enabled: true
