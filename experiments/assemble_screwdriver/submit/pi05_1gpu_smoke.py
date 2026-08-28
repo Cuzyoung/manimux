@@ -21,8 +21,8 @@ payload = {
     "task_priority": 10,
     "reserve_on_fail_ms": "600000",
     "max_running_time_ms": "10800000",
-    "name": "pi05-screwdriver-1xh100-smoke-20260829-v2",
-    "command": "PI05_RUN_NAME=assemble-screwdriver-pi05-1xh100-20260829-v2 bash /inspire/hdd2/project/liu-ming-huan/public/ziyang/manimux/experiments/assemble_screwdriver/train/pi05_1gpu_smoke.sh",
+    "name": "pi05-screwdriver-1xh100-smoke-20260829-v3",
+    "command": "PI05_RUN_NAME=assemble-screwdriver-pi05-1xh100-20260829-v3 bash /inspire/hdd2/project/liu-ming-huan/public/ziyang/manimux/experiments/assemble_screwdriver/train/pi05_1gpu_smoke.sh",
     "framework_config": [
         {
             "image": "docker.sii.shaipower.online/inspire-studio/pytorch:25.06-py3",
