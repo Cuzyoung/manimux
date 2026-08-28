@@ -176,6 +176,16 @@ case "${mode}" in
         exit 2
       fi
     fi
+    xr1_overrides=(
+      "trainer.accumulate_grad_batches=${XR1_GRAD_ACCUM_STEPS:-8}"
+    )
+    if [[ "${XR1_OFFLOAD_OPTIMIZER:-0}" == "1" ]]; then
+      xr1_overrides+=(
+        "+trainer.strategy.params.offload_optimizer=true"
+        "+trainer.strategy.params.offload_optimizer_device=cpu"
+        "trainer.optimizer.type=deepspeed.ops.adam.DeepSpeedCPUAdam"
+      )
+    fi
     PATH="${VENV}/bin:${PATH}" \
     OUTPUT_DIR="${DATASET}" \
     DATA_CONFIG_NAME="${DATA_CONFIG_NAME}" \
@@ -187,7 +197,7 @@ case "${mode}" in
     XR1_LOGGER="${XR1_LOGGER}" \
     bash "${POLICY}/train.sh" \
       RoboDojo_real "${TASK_NAME}" yam_dual ee 0 "${GPU_IDS}" \
-      trainer.accumulate_grad_batches="${XR1_GRAD_ACCUM_STEPS:-8}" \
+      "${xr1_overrides[@]}" \
       2>&1 | tee "${LOG_DIR}/${run_name}.log"
     ;;
   *)
