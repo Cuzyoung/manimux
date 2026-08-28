@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Convert native YAM recordings to Xiaomi XR-1's JSON training format.
+"""Convert native YAM recordings with recorded EE poses to XR-1 JSON format.
 
-The recorder stores joint-space observations and commands.  XR-1 trains on
-end-effector targets, so this converter applies the same YAM forward kinematics
-to both streams and writes the official XR-1 JSON schema.  It also emits the
-normalization statistics and Hydra data config consumed by XR-1 training.
+XR-1 trains on end-effector targets. Current YAM recordings persist the exact
+forward-kinematics result used at collection time, so this converter consumes
+those arrays directly instead of rebuilding MuJoCo kinematics in a training
+job. It also emits normalization statistics and the Hydra data config.
 """
 
 from __future__ import annotations
@@ -24,9 +24,6 @@ from manimux.integrations.xr1_yam.mibot.utils.io import (
     STATE_DIM,
     rotm2aa_batch,
 )
-from manimux.kinematics import build_kinematics
-
-
 ACTION_LENGTH = 30
 REQUIRED_ARRAYS = (
     "left-joint_pos.npy",
@@ -37,6 +34,12 @@ REQUIRED_ARRAYS = (
     "action-left-gripper.npy",
     "action-right-joint.npy",
     "action-right-gripper.npy",
+)
+REQUIRED_EE_ARRAYS = tuple(
+    f"{prefix}{arm}-ee_{kind}.npy"
+    for arm in ("left", "right")
+    for prefix in ("", "action-")
+    for kind in ("pos", "rotm", "transform")
 )
 VIDEOS = {
     "ego": "top-images-rgb.mp4",
@@ -60,14 +63,20 @@ def _sha256(path: Path) -> str:
 def _episodes(root: Path) -> list[Path]:
     episodes = []
     for candidate in sorted(path for path in root.iterdir() if path.is_dir()):
-        required = [candidate / name for name in (*REQUIRED_ARRAYS, *VIDEOS.values())]
+        required = [
+            candidate / name
+            for name in (*REQUIRED_ARRAYS, *REQUIRED_EE_ARRAYS, *VIDEOS.values())
+        ]
         if (candidate / "write_complete.flag").is_file() and all(path.is_file() for path in required):
             episodes.append(candidate)
     return episodes
 
 
 def _load_episode(path: Path) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
-    arrays = {name.removesuffix(".npy"): np.load(path / name) for name in REQUIRED_ARRAYS}
+    arrays = {
+        name.removesuffix(".npy"): np.load(path / name)
+        for name in (*REQUIRED_ARRAYS, *REQUIRED_EE_ARRAYS)
+    }
     metadata = json.loads((path / "metadata.json").read_text())
     length = int(metadata["num_frames"])
     lengths = {name: len(value) for name, value in arrays.items()}
@@ -81,35 +90,43 @@ def _load_episode(path: Path) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
                 raise ValueError(
                     f"{path}: unexpected {prefix}{arm} shapes {joints.shape}, {gripper.shape}"
                 )
+            pos = arrays[f"{prefix}{arm}-ee_pos"]
+            rotm = arrays[f"{prefix}{arm}-ee_rotm"]
+            transform = arrays[f"{prefix}{arm}-ee_transform"]
+            if pos.shape != (length, 3) or rotm.shape != (length, 9) or transform.shape != (
+                length,
+                4,
+                4,
+            ):
+                raise ValueError(
+                    f"{path}: unexpected recorded EE shapes for {prefix}{arm}: "
+                    f"{pos.shape}, {rotm.shape}, {transform.shape}"
+                )
+            if not np.isfinite(pos).all() or not np.isfinite(rotm).all() or not np.isfinite(
+                transform
+            ).all():
+                raise ValueError(f"{path}: non-finite recorded EE pose for {prefix}{arm}")
+            np.testing.assert_allclose(transform[:, :3, 3], pos, atol=1e-9, rtol=0)
+            np.testing.assert_allclose(
+                transform[:, :3, :3].reshape(length, 9), rotm, atol=1e-9, rtol=0
+            )
+    if not metadata.get("extra", {}).get("eepose", {}).get("enabled", False):
+        raise ValueError(f"{path}: metadata does not declare recorded EE poses")
     return arrays, metadata
-
-
-def _poses(kinematics: Any, joints: np.ndarray, grippers: np.ndarray) -> np.ndarray:
-    transforms = np.empty((len(joints), 4, 4), dtype=np.float64)
-    for index, (joint, gripper) in enumerate(zip(joints, grippers, strict=True)):
-        transforms[index] = kinematics.fk(joint, float(gripper[0]))
-    return transforms
 
 
 def _episode_payload(
     episode: Path,
     arrays: dict[str, np.ndarray],
     metadata: dict[str, Any],
-    kinematics: Any,
     instruction: str,
 ) -> tuple[dict[str, Any], np.ndarray, dict[int, list[np.ndarray]]]:
     length = int(metadata["num_frames"])
     poses: dict[str, dict[str, np.ndarray]] = {}
     for arm in ("left", "right"):
         poses[arm] = {
-            "state": _poses(
-                kinematics, arrays[f"{arm}-joint_pos"], arrays[f"{arm}-gripper_pos"]
-            ),
-            "action": _poses(
-                kinematics,
-                arrays[f"action-{arm}-joint"],
-                arrays[f"action-{arm}-gripper"],
-            ),
+            "state": arrays[f"{arm}-ee_transform"],
+            "action": arrays[f"action-{arm}-ee_transform"],
         }
 
     states = np.zeros((length, STATE_DIM), dtype=np.float64)
@@ -262,9 +279,10 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True, help="XR-1 dataset root")
     parser.add_argument(
         "--instruction",
-        default="Pick the red ball up and place it into the box.",
+        default="Assemble the screwdriver.",
     )
     parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--config-name", default="yam_dataset")
     args = parser.parse_args()
 
     episodes = _episodes(args.episodes.resolve())
@@ -272,7 +290,6 @@ def main() -> int:
         raise SystemExit(f"no complete YAM episodes under {args.episodes}")
     data_dir = args.output.resolve() / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    kinematics = build_kinematics("yam")
     all_states: list[np.ndarray] = []
     all_actions: dict[int, list[np.ndarray]] = {
         step: [] for step in range(ACTION_LENGTH)
@@ -281,9 +298,7 @@ def main() -> int:
     total_frames = 0
     for index, episode in enumerate(episodes, 1):
         arrays, metadata = _load_episode(episode)
-        payload, states, actions = _episode_payload(
-            episode, arrays, metadata, kinematics, args.instruction
-        )
+        payload, states, actions = _episode_payload(episode, arrays, metadata, args.instruction)
         destination = data_dir / f"{episode.name}.json"
         destination.write_text(json.dumps(payload, separators=(",", ":")))
         all_states.append(states)
@@ -307,7 +322,7 @@ def main() -> int:
     )
     stats_path = args.output.resolve() / "norm_stats.json"
     stats_path.write_text(json.dumps(stats))
-    config_path = args.output.resolve() / "yam_pick_red_ball_box.yaml"
+    config_path = args.output.resolve() / f"{args.config_name}.yaml"
     _write_config(config_path, data_dir, stats, args.batch_size)
     manifest = {
         "schema": "manimux.xr1_yam_dataset.v1",

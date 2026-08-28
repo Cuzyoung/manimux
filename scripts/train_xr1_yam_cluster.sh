@@ -2,20 +2,22 @@
 set -euo pipefail
 
 mode=${1:-train}
-run_name=${2:-pick-red-ball-box-v1-s0-4xh100-10k}
+run_name=${2:-assemble-screwdriver-v1-s0-4xh100-3k}
 
 ROOT=${YAM_TRAIN_ROOT:-/inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data}
-WORKSPACE=${XR1_WORKSPACE:-${ROOT}/operate/manimux-training}
+WORKSPACE=${XR1_WORKSPACE:-${ROOT}/operate/manimux-training-clean}
 POLICY=${WORKSPACE}/XPolicyLab/policy/Xiaomi_Robotics_1
 XR1=${POLICY}/xiaomi_robotics_1/xr1
 VENV=${ROOT}/envs/xr1/.venv
-DATASET=${ROOT}/datasets/xr1/RoboDojo_real-pick_red_ball_box-yam_dual-ee
+DATASET=${XR1_DATASET_PATH:-${ROOT}/datasets/xr1/RoboDojo_real-assemble_the_screwdriver-yam_dual-ee}
 BASE_MODEL=${ROOT}/weights/base/xiaomi/model_states.pt
 PROCESSOR=${ROOT}/weights/base/xiaomi/qwen3_vl_4b_processor
 OUTPUT=${ROOT}/weights/finetuned/xiaomi-xr1/${run_name}
 LOG_DIR=${ROOT}/runs/xiaomi-xr1
 GPU_IDS=${XR1_GPU_IDS:-0,1,2,3}
-DATA_CONFIG_NAME=yam_pick_red_ball_box
+DATA_CONFIG_NAME=${XR1_DATA_CONFIG_NAME:-yam_assemble_the_screwdriver}
+TASK_NAME=${XR1_TASK_NAME:-assemble_the_screwdriver}
+INSTRUCTION=${XR1_INSTRUCTION:-Assemble the screwdriver.}
 
 export PATH="${ROOT}/envs/bin:${PATH}"
 export HF_HOME=${ROOT}/cache/huggingface
@@ -29,14 +31,10 @@ export UV_INSECURE_HOST=${UV_INSECURE_HOST:-nexus.sii.shaipower.online}
 export PYTORCH_INDEX_URL=${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}
 export TORCH_HOME=${ROOT}/cache/torch
 export XR1_QWEN_VL_CONFIG_SOURCE=${PROCESSOR}
-export WANDB_DIR=${WANDB_DIR:-${ROOT}/runs/wandb}
-export WANDB_ENTITY=${WANDB_ENTITY:-ace_experiments}
-export WANDB_PROJECT=${XR1_WANDB_PROJECT:-yam-xiaomi-xr1}
-export WANDB_NAME=${XR1_WANDB_NAME:-${run_name}}
-export WANDB_INIT_TIMEOUT=${WANDB_INIT_TIMEOUT:-300}
+export XR1_LOGGER=${XR1_LOGGER:-tensorboard}
 export MAX_LENGTH=${XR1_MAX_LENGTH:-20000}
 
-mkdir -p "${VENV%/.venv}" "${DATASET}" "${OUTPUT}" "${LOG_DIR}" "${WANDB_DIR}"
+mkdir -p "${VENV%/.venv}" "${DATASET}" "${LOG_DIR}"
 
 require_file() {
   if [[ ! -e "$1" ]]; then
@@ -52,10 +50,10 @@ find_episodes() {
   fi
   mapfile -t candidates < <(
     find "${ROOT}/datasets" -maxdepth 6 -type d \
-      -name pick_the_red_ball_up_and_place_it_into_the_box | sort
+      -name assemble_the_screwdriver_20260825 | sort
   )
   if [[ "${#candidates[@]}" -ne 1 ]]; then
-    echo "Expected exactly one raw red-ball episode directory, found ${#candidates[@]}:" >&2
+    echo "Expected exactly one raw screwdriver-assembly episode directory, found ${#candidates[@]}:" >&2
     printf '  %s\n' "${candidates[@]}" >&2
     echo "Set XR1_YAM_EPISODES explicitly." >&2
     exit 1
@@ -86,16 +84,37 @@ install_environment() {
 }
 
 prepare_data() {
-  local episodes
-  episodes=$(find_episodes)
-  echo "[Xiaomi_Robotics_1] raw episodes=${episodes}"
-  PYTHONPATH="${WORKSPACE}/src" "${VENV}/bin/python" \
-    "${WORKSPACE}/scripts/prepare_xr1_yam_dataset.py" \
-    --episodes "${episodes}" \
-    --output "${DATASET}" \
-    --batch-size "${XR1_MICRO_BATCH_SIZE:-1}"
-  cp "${DATASET}/yam_pick_red_ball_box.yaml" \
-    "${XR1}/configs/data/${DATA_CONFIG_NAME}.yaml"
+  if [[ "${XR1_REBUILD_DATA:-0}" != "1" && -s "${DATASET}/manifest.json" ]]; then
+    echo "[Xiaomi_Robotics_1] reusing converted dataset: ${DATASET}"
+  else
+    local episodes
+    episodes=$(find_episodes)
+    echo "[Xiaomi_Robotics_1] raw episodes=${episodes}"
+    PYTHONPATH="${WORKSPACE}/src" "${VENV}/bin/python" \
+      "${WORKSPACE}/scripts/prepare_xr1_yam_dataset.py" \
+      --episodes "${episodes}" \
+      --output "${DATASET}" \
+      --instruction "${INSTRUCTION}" \
+      --config-name "${DATA_CONFIG_NAME}" \
+      --batch-size "${XR1_MICRO_BATCH_SIZE:-1}"
+  fi
+
+  local manifest_config
+  manifest_config=$("${VENV}/bin/python" - "${DATASET}" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+manifest = json.loads((root / "manifest.json").read_text())
+config = root / manifest["config"]["path"]
+assert config.is_file(), config
+assert hashlib.sha256(config.read_bytes()).hexdigest() == manifest["config"]["sha256"]
+print(config)
+PY
+  )
+  cp "${manifest_config}" "${XR1}/configs/data/${DATA_CONFIG_NAME}.yaml"
 }
 
 preflight() {
@@ -114,8 +133,8 @@ from pathlib import Path
 dataset, model = map(Path, sys.argv[1:])
 manifest = json.loads((dataset / "manifest.json").read_text())
 assert manifest["schema"] == "manimux.xr1_yam_dataset.v1"
-assert manifest["episodes"] == 20
-assert manifest["frames"] == 8326
+assert manifest["episodes"] == 19
+assert manifest["frames"] == 17789
 assert model.stat().st_size > 9_000_000_000
 print(json.dumps({
     "dataset": str(dataset),
@@ -128,6 +147,17 @@ PY
 }
 
 case "${mode}" in
+  gate-train)
+    XR1_MAX_STEPS=2 XR1_SAVE_INTERVAL=2 \
+      bash "$0" smoke "${run_name}-smoke"
+    smoke_root="${ROOT}/weights/finetuned/xiaomi-xr1/${run_name}-smoke"
+    if ! find "${smoke_root}" -type d -name 'last.ckpt' -print -quit | grep -q .; then
+      echo "XR-1 smoke did not produce a checkpoint under ${smoke_root}" >&2
+      exit 1
+    fi
+    XR1_MAX_STEPS=3000 XR1_SAVE_INTERVAL=500 \
+      bash "$0" train "${run_name}"
+    ;;
   prepare)
     install_environment
     prepare_data
@@ -137,17 +167,16 @@ case "${mode}" in
     install_environment
     prepare_data
     preflight
-    secret_file=${WANDB_API_KEY_FILE:-${ROOT}/secrets/wandb_api_key}
-    require_file "${secret_file}"
-    IFS= read -r WANDB_API_KEY < "${secret_file}"
-    export WANDB_API_KEY
-    export WANDB_MODE=${WANDB_MODE:-online}
     if [[ "${mode}" == smoke ]]; then
       max_steps=${XR1_MAX_STEPS:-2}
       save_interval=${XR1_SAVE_INTERVAL:-2}
     else
-      max_steps=${XR1_MAX_STEPS:-10000}
-      save_interval=${XR1_SAVE_INTERVAL:-1000}
+      max_steps=${XR1_MAX_STEPS:-3000}
+      save_interval=${XR1_SAVE_INTERVAL:-500}
+      if [[ -d "${OUTPUT}" ]] && find "${OUTPUT}" -mindepth 1 -print -quit | grep -q .; then
+        echo "Refusing to overwrite existing run: ${OUTPUT}" >&2
+        exit 2
+      fi
     fi
     PATH="${VENV}/bin:${PATH}" \
     OUTPUT_DIR="${DATASET}" \
@@ -157,14 +186,14 @@ case "${mode}" in
     PROJECT="yam-xiaomi-xr1" \
     MAX_STEPS="${max_steps}" \
     SAVE_INTERVAL="${save_interval}" \
-    WANDB_MODE="${WANDB_MODE}" \
+    XR1_LOGGER="${XR1_LOGGER}" \
     bash "${POLICY}/train.sh" \
-      RoboDojo_real pick_red_ball_box yam_dual ee 0 "${GPU_IDS}" \
+      RoboDojo_real "${TASK_NAME}" yam_dual ee 0 "${GPU_IDS}" \
       trainer.accumulate_grad_batches="${XR1_GRAD_ACCUM_STEPS:-8}" \
       2>&1 | tee "${LOG_DIR}/${run_name}.log"
     ;;
   *)
-    echo "Usage: $0 [prepare|smoke|train] [run_name]" >&2
+    echo "Usage: $0 [prepare|smoke|train|gate-train] [run_name]" >&2
     exit 2
     ;;
 esac
