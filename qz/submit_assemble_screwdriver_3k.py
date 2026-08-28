@@ -201,8 +201,50 @@ def verify_qz_identity() -> tuple[dict[str, Any], dict[str, Any]]:
     if project is None or project.get("name") != PROJECT_NAME:
         raise RuntimeError(f"QZ project is not {PROJECT_NAME} ({PROJECT_ID})")
     status = str(project.get("status", ""))
-    if status == "FINISHED" or status.startswith("REJECT"):
+    if status not in {"FINISHED", "APPROVE_RESOURCE", "PASS_MODIFY_RESOURCE"}:
         raise RuntimeError(f"QZ project is not submit-ready: status={status}")
+
+    schedule_response = qz_json(
+        "train", "GetTrainScheduleConfig", "--set", f"workspace_id={WORKSPACE_ID}"
+    )
+    schedule = next(
+        (
+            item
+            for item in dictionaries(schedule_response)
+            if item.get("workspace_id") == WORKSPACE_ID and "predef_train_spec" in item
+        ),
+        None,
+    )
+    if schedule is None:
+        raise RuntimeError(f"No train schedule config for workspace {WORKSPACE_ID}")
+    specs = json.loads(schedule["predef_train_spec"])
+    spec = next((item for item in specs if item.get("id") == H100_4GPU_SPEC_ID), None)
+    if spec is None or spec.get("gpu_count") != 4:
+        raise RuntimeError(f"4-GPU spec is unavailable: {H100_4GPU_SPEC_ID}")
+    if LOGIC_COMPUTE_GROUP_ID not in spec.get("logic_compute_group_ids", []):
+        raise RuntimeError("Selected 4-GPU spec is not valid in the H100 compute group")
+
+    group_response = qz_json(
+        "workspace",
+        "GetLogicComputeGroupById",
+        "--set",
+        f"LogicComputeGroupId={LOGIC_COMPUTE_GROUP_ID}",
+    )
+    group = next(
+        (
+            item
+            for item in dictionaries(group_response)
+            if item.get("logic_compute_group_id") == LOGIC_COMPUTE_GROUP_ID
+        ),
+        None,
+    )
+    if (
+        group is None
+        or group.get("workspace_id") != WORKSPACE_ID
+        or "H100" not in str(group.get("name", ""))
+        or "distributed_training" not in str(group.get("support_job_type_list", ""))
+    ):
+        raise RuntimeError("Selected logic compute group is not the expected H100 training pool")
     return user, project
 
 
