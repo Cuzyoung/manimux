@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Literal
 
@@ -81,8 +82,37 @@ class ExecutorLimitsConfig(StrictModel):
     position_limit_abs: float = Field(default=3.14, gt=0)
 
 
+class GripperHysteresisConfig(StrictModel):
+    """Optional last-mile shaping for grippers embedded in joint groups."""
+
+    group_indices: dict[str, int]
+    close_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
+    open_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
+    min_closed_s: float = Field(default=0.0, ge=0.0)
+    open_confirm_s: float = Field(default=0.0, ge=0.0)
+    max_velocity: float = Field(default=3.0, gt=0.0)
+    max_acceleration: float = Field(default=12.0, gt=0.0)
+    closed_value: float = Field(default=0.0, ge=0.0, le=1.0)
+    open_value: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def validate_hysteresis(self) -> GripperHysteresisConfig:
+        if not self.group_indices:
+            raise ValueError("gripper group_indices must not be empty")
+        if any(not name or index < 0 for name, index in self.group_indices.items()):
+            raise ValueError(
+                "gripper group_indices must map non-empty names to non-negative indices"
+            )
+        if self.close_threshold >= self.open_threshold:
+            raise ValueError("gripper close_threshold must be below open_threshold")
+        if self.closed_value >= self.open_value:
+            raise ValueError("gripper closed_value must be below open_value")
+        return self
+
+
 class SmoothConfig(ExecutorLimitsConfig):
     cutoff_hz: float = Field(default=8.0, gt=0)
+    gripper: GripperHysteresisConfig | None = None
 
 
 class MPCConfig(ExecutorLimitsConfig):
@@ -90,6 +120,66 @@ class MPCConfig(ExecutorLimitsConfig):
     dynamics_a: float = Field(default=0.85, gt=0, lt=1)
     tracking_weight: float = Field(default=10.0, gt=0)
     command_delta_weight: float = Field(default=1.0, ge=0)
+
+
+class CommandSafetyConfig(StrictModel):
+    """Executor-independent per-joint command envelope for real hardware."""
+
+    position_lower: dict[str, list[float]] = Field(default_factory=dict)
+    position_upper: dict[str, list[float]] = Field(default_factory=dict)
+    max_velocity: dict[str, list[float]] = Field(default_factory=dict)
+    max_acceleration: dict[str, list[float]] = Field(default_factory=dict)
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.position_lower)
+
+    @model_validator(mode="after")
+    def validate_envelope(self) -> CommandSafetyConfig:
+        mappings = (
+            self.position_lower,
+            self.position_upper,
+            self.max_velocity,
+            self.max_acceleration,
+        )
+        populated = [bool(values) for values in mappings]
+        if not any(populated):
+            return self
+        if not all(populated):
+            raise ValueError(
+                "execution.command_safety requires position_lower, position_upper, "
+                "max_velocity, and max_acceleration together"
+            )
+        groups = set(self.position_lower)
+        if not groups or any(set(values) != groups for values in mappings[1:]):
+            raise ValueError(
+                "execution.command_safety mappings must contain the same groups"
+            )
+        for group in groups:
+            lower = self.position_lower[group]
+            upper = self.position_upper[group]
+            velocity = self.max_velocity[group]
+            acceleration = self.max_acceleration[group]
+            dimensions = {len(lower), len(upper), len(velocity), len(acceleration)}
+            if dimensions == {0} or len(dimensions) != 1:
+                raise ValueError(
+                    f"execution.command_safety group {group!r} vectors must share "
+                    "one non-zero dimension"
+                )
+            values = lower + upper + velocity + acceleration
+            if not all(math.isfinite(value) for value in values):
+                raise ValueError(
+                    f"execution.command_safety group {group!r} must be finite"
+                )
+            if any(lo >= hi for lo, hi in zip(lower, upper, strict=True)):
+                raise ValueError(
+                    f"execution.command_safety group {group!r} has invalid position bounds"
+                )
+            if any(value <= 0 for value in velocity + acceleration):
+                raise ValueError(
+                    f"execution.command_safety group {group!r} rate limits must be positive"
+                )
+        return self
 
 
 class RtcConfig(StrictModel):
@@ -148,7 +238,7 @@ class DvacConfig(StrictModel):
 
 class ExecutionConfig(StrictModel):
     runtime: str = Field(default="manimux", min_length=1)
-    executor: Literal["smooth", "mpc"] = "smooth"
+    executor: Literal["direct", "smooth", "mpc"] = "smooth"
     inference_schedule: Literal["deadline", "single_inflight"] = "deadline"
     refill_threshold_s: float = Field(default=0.4, gt=0)
     commit_lead_s: float = Field(default=0.02, ge=0)
@@ -156,6 +246,7 @@ class ExecutionConfig(StrictModel):
     blend_steps: int = Field(default=2, ge=0)
     smooth: SmoothConfig = SmoothConfig()
     mpc: MPCConfig = MPCConfig()
+    command_safety: CommandSafetyConfig = CommandSafetyConfig()
     rtc: RtcConfig = RtcConfig()
     temporal_ensemble: TemporalEnsembleConfig = TemporalEnsembleConfig()
     aac: AacConfig = AacConfig()
@@ -263,6 +354,19 @@ class ManiMuxConfig(StrictModel):
 
     @model_validator(mode="after")
     def validate_runtime_contract(self) -> ManiMuxConfig:
+        command_safety = self.execution.command_safety
+        if command_safety.configured:
+            expected_groups = set(self.robot.group_dims)
+            if set(command_safety.position_lower) != expected_groups:
+                raise ValueError(
+                    "execution.command_safety groups must exactly match robot.group_dims"
+                )
+            for group, dimension in self.robot.group_dims.items():
+                if len(command_safety.position_lower[group]) != dimension:
+                    raise ValueError(
+                        f"execution.command_safety group {group!r} must have "
+                        f"{dimension} values"
+                    )
         if self.execution.runtime == "rtc":
             delay = self.execution.rtc.initial_delay_steps
             if 2 * delay > self.policy.horizon_steps:

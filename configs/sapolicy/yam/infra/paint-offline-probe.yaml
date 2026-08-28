@@ -1,0 +1,104 @@
+# SAPolicy PAINT protocol/scheduler probe. This deliberately uses mock robot and
+# camera drivers. The current 3cam service is timing-feasible at H=16, but PAINT
+# remains offline-only until its continuous scheduling and safety replay pass.
+run:
+  task: put the plastic bottles in the bin
+  output_dir: /home/ubuntu/sa/rollouts/sapolicy_paint_probe
+  max_steps: 120
+
+robot:
+  driver: mock
+  control_hz: 30.0
+  group_dims:
+    left_arm: 7
+    right_arm: 7
+
+sensors:
+  - name: front_camera
+    driver: mock
+    width: 640
+    height: 480
+    fps: 30.0
+
+policy:
+  worker: sapolicy_tcp
+  adapter: sapolicy_yam
+  action_dt_s: 0.03333333333333333
+  timeout_s: 20.0
+  horizon_steps: 16
+  inference_delay_s: 0.0
+  startup_timeout_s: 180.0
+  expected_backend:
+    server: sapolicy_manimux_v1
+    model:
+      wire_action_dim: 16
+      horizon_steps: 16
+      sampling_modes: [default, paint]
+  options:
+    host: 127.0.0.1
+    port: 9977
+    connect_timeout_s: 5.0
+    request_timeout_s: 20.0
+    group_order: [left_arm, right_arm]
+    model_from_kinematics:
+      left_arm:
+        - [1.0, 0.0000036732, 0.0000036732, 0.2522021]
+        - [-0.0000036732, 1.0, -0.0000053072, 0.3100003422]
+        - [-0.0000036732, 0.0000053072, 1.0, 0.7504985942]
+        - [0.0, 0.0, 0.0, 1.0]
+      right_arm:
+        - [1.0, 0.0000036732, 0.0000036732, 0.2522021]
+        - [-0.0000036732, 1.0, -0.0000053072, -0.3099996578]
+        - [-0.0000036732, 0.0000053072, 1.0, 0.7504985942]
+        - [0.0, 0.0, 0.0, 1.0]
+    camera_map:
+      agentview: front_camera
+    camera_intrinsics:
+      agentview:
+        - [394.7972412109375, 0.0, 317.49383544921875]
+        - [0.0, 394.2569885253906, 241.21372985839844]
+        - [0.0, 0.0, 1.0]
+    gripper_transforms:
+      left_arm:
+        scale: 1.0
+        offset: 0.0
+        robot_min: 0.0
+        robot_max: 1.0
+        clip_output: false
+      right_arm:
+        scale: 1.0
+        offset: 0.0
+        robot_min: 0.0
+        robot_max: 1.0
+        clip_output: false
+    server_tcp_forward_offset_m: 0.12
+    requires_depth: false
+    kinematics: yam
+    kinematics_options:
+      arm_type: yam
+      gripper_type: linear_4310
+      num_arm_joints: 6
+      pos_threshold: 0.004
+      ori_threshold: 0.002
+      max_iters: 300
+
+execution:
+  runtime: paint
+  paint:
+    # H=16 permits at most d=8. Keep the conservative cold-start forecast.
+    execution_steps: 8
+    initial_delay_steps: 8
+    delay_buffer_size: 10
+  executor: direct
+  commit_lead_s: 0.0
+  max_plan_age_s: 2.0
+  # PAINT conditions on the exact old chunk; external seam blending is invalid.
+  blend_steps: 0
+
+viewer:
+  enabled: false
+  robot_adapter: yam
+  policy_label: SAPolicy bottles · PAINT · offline probe
+
+recording:
+  enabled: true

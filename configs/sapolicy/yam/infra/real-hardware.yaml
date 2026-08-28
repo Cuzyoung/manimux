@@ -1,0 +1,122 @@
+# SAPolicy bottles real-robot rollout through ManiMux.
+#
+# Safety lifecycle:
+#   1. Start the Viewer first.
+#   2. Start this runtime. It connects at the achieved pose and stays paused.
+#   3. Inspect the first real-camera/model/IK plan while paused.
+#   4. Only an operator at the robot may press Start in the Viewer.
+run:
+  task: put the plastic bottles in the bin
+  output_dir: /home/ubuntu/sa/rollouts/sapolicy_real
+  # Operator-requested rollout: at most 60 seconds of commanded motion at 30 Hz.
+  max_steps: 1800
+
+robot:
+  driver: yam_dual
+  config: configs/robots/yam_left.yaml
+  control_hz: 30.0
+  group_dims:
+    left_arm: 7
+    right_arm: 7
+  options:
+    right_config: configs/robots/yam_right.yaml
+    # Never jump to a checkpoint-unrelated pose merely by connecting.
+    move_to_start_on_connect: false
+    start_duration_s: 8.0
+    home_duration_s: 5.0
+    home_on_close: true
+
+sensors:
+  - name: yam_cameras
+    driver: camera_server
+    options:
+      endpoint: tcp://127.0.0.1:5555
+      request_timeout_ms: 500
+      max_frame_age_sec: 0.5
+      camera_names: [front_camera]
+
+policy:
+  worker: sapolicy_tcp
+  adapter: sapolicy_yam
+  action_dt_s: 0.03333333333333333
+  timeout_s: 20.0
+  horizon_steps: 16
+  inference_delay_s: 0.0
+  startup_timeout_s: 180.0
+  expected_backend:
+    server: sapolicy_manimux_v1
+    model:
+      wire_action_dim: 16
+      horizon_steps: 16
+  options:
+    host: 127.0.0.1
+    port: 9977
+    connect_timeout_s: 5.0
+    request_timeout_s: 20.0
+    group_order: [left_arm, right_arm]
+    # ABC training state came from the full put_bottle station MJCF in world
+    # coordinates. ManiMux IK uses standalone arm-local MJCFs. These measured,
+    # fixed transforms map local grasp-site FK into that checkpoint state frame.
+    model_from_kinematics:
+      left_arm:
+        - [1.0, 0.0000036732, 0.0000036732, 0.2522021]
+        - [-0.0000036732, 1.0, -0.0000053072, 0.3100003422]
+        - [-0.0000036732, 0.0000053072, 1.0, 0.7504985942]
+        - [0.0, 0.0, 0.0, 1.0]
+      right_arm:
+        - [1.0, 0.0000036732, 0.0000036732, 0.2522021]
+        - [-0.0000036732, 1.0, -0.0000053072, -0.3099996578]
+        - [-0.0000036732, 0.0000053072, 1.0, 0.7504985942]
+        - [0.0, 0.0, 0.0, 1.0]
+    camera_map:
+      agentview: front_camera
+    camera_intrinsics:
+      agentview:
+        - [394.7972412109375, 0.0, 317.49383544921875]
+        - [0.0, 394.2569885253906, 241.21372985839844]
+        - [0.0, 0.0, 1.0]
+    gripper_transforms:
+      left_arm:
+        scale: 1.0
+        offset: 0.0
+        robot_min: 0.0
+        robot_max: 1.0
+        clip_output: false
+      right_arm:
+        scale: 1.0
+        offset: 0.0
+        robot_min: 0.0
+        robot_max: 1.0
+        clip_output: false
+    server_tcp_forward_offset_m: 0.12
+    requires_depth: false
+    kinematics: yam
+    kinematics_options:
+      arm_type: yam
+      gripper_type: linear_4310
+      num_arm_joints: 6
+      # The stock 0.1 mm criterion rejects otherwise usable real-arm solutions
+      # near Home. Keep millimetre-level accuracy while rejecting genuine misses.
+      pos_threshold: 0.004
+      ori_threshold: 0.002
+      max_iters: 300
+
+execution:
+  runtime: manimux
+  # Execute the IK-decoded policy trajectory without low-pass filtering,
+  # velocity/acceleration limiting, position clipping, or gripper shaping.
+  executor: direct
+  inference_schedule: single_inflight
+  refill_threshold_s: 0.25
+  commit_lead_s: 0.0
+  max_plan_age_s: 2.0
+  blend_steps: 0
+
+viewer:
+  enabled: true
+  robot_adapter: yam
+  policy_label: SAPolicy bottles · real hardware
+
+recording:
+  enabled: true
+  video_fps: 30.0

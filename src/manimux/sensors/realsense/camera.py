@@ -26,19 +26,37 @@ def get_device_ids() -> list[str]:
 
 class RealSenseCamera(CameraDriver):
     def __repr__(self) -> str:
-        return f"RealSenseCamera(device_id={self._device_id})"
+        return (
+            f"RealSenseCamera(device_id={self._device_id}, "
+            f"color={self._width}x{self._height}@{self._fps})"
+        )
 
-    def __init__(self, device_id: str | None = None, flip: bool = False):
+    def __init__(
+        self,
+        device_id: str | None = None,
+        flip: bool = False,
+        width: int = 640,
+        height: int = 360,
+        fps: int = 30,
+        max_frame_age_sec: float = 0.30,
+    ):
         import pyrealsense2 as rs
 
         self._device_id = device_id
         self._flip = flip
+        self._width = int(width)
+        self._height = int(height)
+        self._fps = int(fps)
+        self._max_frame_age_sec = float(max_frame_age_sec)
+        if self._width <= 0 or self._height <= 0 or self._fps <= 0:
+            raise ValueError("RealSense width, height, and fps must be positive")
+        if self._max_frame_age_sec <= 0:
+            raise ValueError("RealSense max_frame_age_sec must be positive")
         self._lock = threading.Lock()
         self._frame_lock = threading.Lock()
         self._warmup_frames = 15
         self._read_timeout_ms = 1200
         self._read_wait_timeout_sec = 1.5
-        self._max_frame_age_sec = 0.30
         self._max_read_attempts = 5
         self._latest_color_image = None
         self._latest_depth_image = None
@@ -114,8 +132,20 @@ class RealSenseCamera(CameraDriver):
             self._config = rs.config()
             if self._device_id is not None:
                 self._config.enable_device(self._device_id)
-            self._config.enable_stream(rs.stream.depth, 640, 360, rs.format.z16, 30)
-            self._config.enable_stream(rs.stream.color, 640, 360, rs.format.bgr8, 30)
+            self._config.enable_stream(
+                rs.stream.depth,
+                self._width,
+                self._height,
+                rs.format.z16,
+                self._fps,
+            )
+            self._config.enable_stream(
+                rs.stream.color,
+                self._width,
+                self._height,
+                rs.format.bgr8,
+                self._fps,
+            )
             self._pipeline.start(self._config)
 
             for _ in range(self._warmup_frames):

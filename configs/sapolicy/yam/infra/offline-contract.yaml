@@ -57,18 +57,16 @@ policy:
         offset: -1.0
         robot_min: 0.0
         robot_max: 1.0
-        clip_output: true
+        clip_output: false
       right_arm:
         scale: 2.0
         offset: -1.0
         robot_min: 0.0
         robot_max: 1.0
-        clip_output: true
+        clip_output: false
     # Contract of the existing RoboTwin-compatible private SAPolicy service.
     server_tcp_forward_offset_m: 0.12
     requires_depth: false
-    max_position_delta_m: 0.15
-    max_rotation_delta_rad: 0.75
     kinematics: yam
     kinematics_options:
       arm_type: yam
@@ -77,17 +75,12 @@ policy:
 
 execution:
   runtime: manimux
-  executor: smooth
+  executor: direct
   inference_schedule: single_inflight
   refill_threshold_s: 0.2
   commit_lead_s: 0.0
   max_plan_age_s: 1.0
-  blend_steps: 2
-  smooth:
-    cutoff_hz: 8.0
-    max_velocity: 0.25
-    max_acceleration: 0.5
-    position_limit_abs: 3.14
+  blend_steps: 0
 
 viewer:
   enabled: false

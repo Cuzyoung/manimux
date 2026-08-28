@@ -15,7 +15,7 @@ from manimux.recording import EpisodeRecorder
 from manimux.robots import build_robot
 from manimux.robots.base import RobotDriver
 from manimux.runtime.diagnostics import build_plan_boundary_payload
-from manimux.runtime.executors import Executor, MPCExecutor, SmoothExecutor
+from manimux.runtime.executors import DirectExecutor, Executor, MPCExecutor, SmoothExecutor
 from manimux.runtime.inference import (
     DefaultChunkStrategy,
     InferenceStrategy,
@@ -115,12 +115,21 @@ class EdgeRuntime:
         self._executor = self._build_executor()
         self._strategy = strategy or DefaultChunkStrategy(config)
         self._launch_mode = launch_mode
-        limits = (
-            config.execution.smooth
-            if config.execution.executor == "smooth"
-            else config.execution.mpc
+        position_limit_abs = None
+        if config.execution.executor == "smooth":
+            position_limit_abs = config.execution.smooth.position_limit_abs
+        elif config.execution.executor == "mpc":
+            position_limit_abs = config.execution.mpc.position_limit_abs
+        command_safety = config.execution.command_safety
+        self._safety = SafetyGuard(
+            config.robot.group_dims,
+            position_limit_abs,
+            position_lower=command_safety.position_lower,
+            position_upper=command_safety.position_upper,
+            max_velocity=command_safety.max_velocity,
+            max_acceleration=command_safety.max_acceleration,
+            control_dt_s=self._control_dt_ns / 1_000_000_000,
         )
-        self._safety = SafetyGuard(config.robot.group_dims, limits.position_limit_abs)
         self._viewer = ViewerBridge(
             enabled=config.viewer.enabled,
             robot_adapter=config.viewer.robot_adapter,
@@ -136,6 +145,8 @@ class EdgeRuntime:
 
     def _build_executor(self) -> Executor:
         control_dt_s = self._control_dt_ns / 1_000_000_000
+        if self._config.execution.executor == "direct":
+            return DirectExecutor()
         if self._config.execution.executor == "smooth":
             return SmoothExecutor(self._config.execution.smooth, control_dt_s)
         return MPCExecutor(self._config.execution.mpc, control_dt_s)
@@ -221,7 +232,7 @@ class EdgeRuntime:
             self._robot.connect()
             robot_connected = True
             initial_state = self._robot.get_state()
-            self._safety.validate_state(initial_state)
+            self._safety.reset(initial_state)
             self._executor.reset(initial_state)
             self._strategy.reset()
             previous_command = copy_group_vector(initial_state.groups)
@@ -271,7 +282,7 @@ class EdgeRuntime:
                 if viewer_control.home_requested:
                     self._robot.home()
                     state = self._robot.get_state()
-                    self._safety.validate_state(state)
+                    self._safety.reset(state)
                     self._timeline = ActionTimeline(self._config.robot.group_dims)
                     self._executor.reset(state)
                     self._strategy.reset()
@@ -323,6 +334,16 @@ class EdgeRuntime:
                                     request_seq=response.request_seq,
                                     observation_time_ns=response.observation_time_ns,
                                     created_time_ns=response.finished_time_ns,
+                                    execution_time_ns=(
+                                        now_ns
+                                        + int(
+                                            self._config.execution.commit_lead_s
+                                            * 1_000_000_000
+                                        )
+                                        if self._strategy.name == "manimux"
+                                        else None
+                                    ),
+                                    measured_state=state,
                                 ),
                             )
                         except (TypeError, ValueError) as exc:
@@ -409,6 +430,7 @@ class EdgeRuntime:
                                     "plan_accepted",
                                     plan_id=chunk.plan_id,
                                     request_seq=chunk.request_seq,
+                                    **chunk.metadata,
                                     **event_fields,
                                 )
                                 recorder.event(
@@ -489,6 +511,7 @@ class EdgeRuntime:
                     command = self._executor.step(now_ns, state, reference)
                 else:
                     self._executor.reset(state)
+                    self._safety.reset(state)
                     command = self._hold_command(now_ns, state.groups)
                 self._safety.validate_command(command)
                 self._robot.send_command(command)

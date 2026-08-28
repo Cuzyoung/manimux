@@ -51,6 +51,7 @@ from fastapi.responses import JSONResponse, Response
 from .abc_minimal.config import ClipConfig, DiTConfig
 from .abc_minimal.dit import CLIPTextEmbedder, DiTPolicy, infer_dit_shape, load_pretrained
 from .abc_minimal.preprocess import (
+    load_norm_stats,
     normalize,
     parse_norm_stats,
     resize_pad_normalize,
@@ -94,6 +95,7 @@ class Policy:
         prompt: str = DEFAULT_PROMPT,
         diffusion_steps: int = DEFAULT_NUM_STEPS,
         clip_cache_dir: str | None = None,
+        norm_stats_path: str | None = None,
     ) -> None:
         self.device = torch.device(device)
         self.diffusion_steps = diffusion_steps
@@ -111,10 +113,19 @@ class Policy:
         ckpt = load_pretrained(self.model, self.checkpoint)
         self.model.eval()
 
-        if ckpt.get("norm_stats") is None:
-            raise ValueError(f"no norm_stats embedded in checkpoint: {self.checkpoint}")
-        self.norm_stats = parse_norm_stats(ckpt["norm_stats"])
-        log.info("Loaded norm_stats (train step %s)", ckpt.get("step"))
+        if ckpt.get("norm_stats") is not None:
+            self.norm_stats = parse_norm_stats(ckpt["norm_stats"])
+            stats_source = "checkpoint"
+        elif norm_stats_path:
+            stats_path = Path(norm_stats_path).expanduser().resolve()
+            self.norm_stats = load_norm_stats(stats_path)
+            stats_source = str(stats_path)
+        else:
+            raise ValueError(
+                f"no norm_stats embedded in checkpoint: {self.checkpoint}; "
+                "pass --norm-stats-path for model-only checkpoints"
+            )
+        log.info("Loaded norm_stats from %s (train step %s)", stats_source, ckpt.get("step"))
 
         clip_config = (
             ClipConfig(cache_dir=clip_cache_dir) if clip_cache_dir else ClipConfig()
@@ -398,6 +409,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="CLIP ViT-B/32 asset directory (default: ~/.cache/clip; downloaded if missing)",
     )
+    p.add_argument(
+        "--norm-stats-path",
+        default=None,
+        help="external norm_stats.json for model-only checkpoints",
+    )
     p.add_argument("--no-warmup", action="store_true", help="skip warmup pass")
     return p.parse_args()
 
@@ -411,6 +427,7 @@ def main() -> None:
         prompt=args.prompt,
         diffusion_steps=args.diffusion_steps,
         clip_cache_dir=args.clip_cache_dir,
+        norm_stats_path=args.norm_stats_path,
     )
     if not args.no_warmup:
         warmup(policy)

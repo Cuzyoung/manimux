@@ -102,7 +102,8 @@ class ActionTimeline:
 
         start_time_ns = now_ns + commit_lead_ns
         age_at_commit_ns = max(0, start_time_ns - chunk.observation_time_ns)
-        trimmed_steps = int(age_at_commit_ns // chunk.dt_ns)
+        source_cursor = int(age_at_commit_ns // chunk.dt_ns)
+        trimmed_steps = max(0, source_cursor - chunk.source_offset_steps)
         if trimmed_steps >= chunk.horizon_steps:
             return CommitResult(False, "no_future_horizon")
 

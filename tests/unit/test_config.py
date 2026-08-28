@@ -79,6 +79,23 @@ def test_experiment_and_video_recording_defaults_are_opt_in() -> None:
     assert config.recording.video_fps == 0
 
 
+def test_command_safety_must_match_every_robot_group_dimension() -> None:
+    config = load_config(Path("configs/mock.yaml"))
+    payload = config.model_dump(mode="python")
+    groups = payload["robot"]["group_dims"]
+    payload["execution"]["command_safety"] = {
+        "position_lower": {name: [-1.0] * dim for name, dim in groups.items()},
+        "position_upper": {name: [1.0] * dim for name, dim in groups.items()},
+        "max_velocity": {name: [1.0] * dim for name, dim in groups.items()},
+        "max_acceleration": {name: [2.0] * dim for name, dim in groups.items()},
+    }
+    first_group = next(iter(groups))
+    payload["execution"]["command_safety"]["max_velocity"][first_group].pop()
+
+    with pytest.raises(ValidationError, match="vectors must share"):
+        ManiMuxConfig.model_validate(payload)
+
+
 def test_unknown_inference_strategy_fails_before_runtime_construction(tmp_path: Path) -> None:
     config = load_config(Path("configs/mock.yaml"))
     config.execution.runtime = "missing_strategy"

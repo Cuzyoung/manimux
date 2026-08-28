@@ -17,6 +17,7 @@ import numpy as np
 from manimux.clock import SystemClock
 from manimux.config import load_config
 from manimux.policies import build_policy_adapter, build_policy_model
+from manimux.policies.base import prepare_policy_request
 from manimux.robots import build_robot
 from manimux.runtime.rtc.mask import inpainting_condition
 from manimux.runtime.rtc.request import RtcInferenceRequest
@@ -44,7 +45,7 @@ def _request(
 
 def _decode(model: Any, adapter: Any, request: InferenceRequest) -> tuple[Any, float]:
     started = time.monotonic()
-    raw = model.infer(request)
+    raw = model.infer(prepare_policy_request(adapter, request))
     elapsed_s = time.monotonic() - started
     chunk = adapter.decode_action(
         raw,

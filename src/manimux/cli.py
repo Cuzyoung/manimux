@@ -38,7 +38,7 @@ def _git_sha(workdir: Path | None = None) -> str | None:
 def _load_config(config_path: Path, executor: str | None = None) -> ManiMuxConfig:
     config = load_config(config_path)
     if executor is not None:
-        if executor not in {"smooth", "mpc"}:
+        if executor not in {"direct", "smooth", "mpc"}:
             raise ValueError(f"unsupported executor override {executor!r}")
         config.execution.executor = cast(Literal["smooth", "mpc"], executor)
     return config
@@ -120,7 +120,7 @@ def _runtime_lock(
 
 def _add_runtime_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--executor", choices=("smooth", "mpc"))
+    parser.add_argument("--executor", choices=("direct", "smooth", "mpc"))
 
 
 def build_parser() -> argparse.ArgumentParser:

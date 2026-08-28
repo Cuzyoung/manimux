@@ -8,13 +8,14 @@ SAPolicy 已按 ManiMux 的模块边界接入为两个薄插件：
 - `sapolicy_yam`：负责相机名和内参、YAM FK/IK、夹爪单位以及笛卡尔动作到关节动作的转换。
 
 adapter 最终只交付标准 `joint_position ActionChunk`。之后仍走同一套 ManiMux
-Timeline、Default 调度、executor、Safety、Recorder、Viewer 和 YAM driver，没有复制控制循环。
+Timeline、executor、Safety、Recorder、Viewer 和 YAM driver，没有复制控制循环。
 
-当前证据边界是 **本地实现 + 离线契约验证通过**，覆盖 plugin registry、wire codec、
-observation 转换、双臂绝对 EE 到 joint chunk、未收敛 IK、笛卡尔跳变和 depth contract
-拒绝。尚未验证真实 checkpoint
-加载、真实相机 observation、GPU forward、YAM IK 数值或真机执行，因此不能标成“已跑通”或
-“真机可用”。
+Default 路径已经完成真实 checkpoint/EMA/normalizer、真实相机、GPU、IK 和 YAM 真机
+rollout；基础设施完整跑完不等于任务成功，首次 60 秒 bottles rollout 的盒子仍为空。
+默认 ManiMux 路径现在会在 IK 前按 action 时钟丢弃已过期的源步，以最新实测关节为 seed，
+并只提交左右臂共同可解且远离关节限位的前缀。PAINT 路径已完成公式、协议、动作变换、
+真实权重 GPU forward 和 mock runtime 契约；最新离线探针满足 `H=16` 的延迟上界，但仍未
+进入真机，首轮验证继续使用默认异步 chunk 路径。
 
 ## 数据流
 
@@ -22,13 +23,43 @@ observation 转换、双臂绝对 EE 到 joint chunk、未收敛 IK、笛卡尔�
 YAM joints + named RGB frames
   -> sapolicy_yam: FK + calibrated K + checkpoint gripper units
   -> sapolicy_tcp: private SAPolicy service atomic infer(observation)
-  -> sapolicy_yam: absolute EE waypoints + gripper -> fail-closed IK
+  -> sapolicy_yam: trim expired source rows -> measured-state-seeded fail-closed IK
+  -> both-arm common safe prefix + joint-limit margin
   -> canonical left_arm/right_arm joint_position ActionChunk
   -> unchanged ManiMux Timeline / executor / Safety / Recorder / YAM driver
 ```
 
 SAPolicy 服务保留在它自己的私有仓库和 Python 环境中。ManiMux 中没有 vendoring、submodule
 或模型依赖；wire client 只使用 Python 标准库和 NumPy。
+
+## PAINT 接入
+
+PAINT 复用 [`runtime/paint.py`](../src/manimux/runtime/paint.py) 的异步 `s/d` 调度，不修改
+robot、executor、Safety 或 recorder。由于 SAPolicy 的 DiT 生成归一化 20D 相对笛卡尔动作，
+而 ManiMux timeline 保存 14D YAM 关节动作，条件前缀必须走完整可逆契约：
+
+```text
+旧 14D joint prefix
+  -> YAM FK + task-frame transform
+  -> 16D absolute EE wire prefix
+  -> 相对当前 observation 的 20D action
+  -> checkpoint action normalizer
+  -> DiT PAINT: naive forward + backward Euler + repainted forward (3N)
+  -> 原有 unnormalize / absolute EE / IK / ActionChunk
+```
+
+普通请求仍调用原来的单次 forward sampler。服务只有在 action head 真正实现
+`sample_trajectory_paint` 时才在 `backend_info.sampling_modes` 广告 `paint`；旧服务和错误
+checkpoint 会在机器人连接前被 capability 检查拒绝。
+
+当前 3cam TCP bottles checkpoint 是 `H=16, N=20, 30 Hz`。2026-08-27 使用历史真机
+RGB/关节输入复测：普通 warmed forward 为 `99.6--102.4 ms`，PAINT 在
+`d=4/6/8` 时分别为 `182.6/179.8/184.3 ms`，约 5.4 个 action step。PAINT 要求
+`d <= s <= H-d`，`H=16` 最多容许 `d=8`，所以当前延迟在离线时序上可行；但 PAINT 的
+单次 forward 更慢，它解决 chunk 衔接而不是提高模型吞吐。目前只提供
+[`paint-offline-probe.yaml`](../configs/sapolicy/yam/infra/paint-offline-probe.yaml)，其中 robot 和
+camera 都是 mock。不要把它改成真机 driver；启用前仍需完成连续离线调度回放、独立命令
+安全门验证和只读 preflight。
 
 ## 当前支持的精确契约
 
@@ -39,9 +70,9 @@ SAPolicy 服务保留在它自己的私有仓库和 Python 环境中。ManiMux �
 | policy state | 每臂 grasp-site `pos3 + rot6d + gripper1`，由私有服务构造 |
 | wire action | 每步 `left pose7 + grip1 + right pose7 + grip1`，四元数为 `wxyz` |
 | ManiMux action | 两组绝对关节位置，每组 7 维 |
-| runtime | 当前只声明 `default`；RTC/AAC/PAINT 等会在启动 capability 检查时拒绝 |
+| runtime | 真机基线为 `default`；PAINT 仅离线验证，RTC/AAC 仍 fail closed |
 | depth | 暂不支持；`requires_depth: true` 会 fail fast |
-| IK failure | 整个 chunk 拒绝，不执行部分解或未收敛的末态 |
+| IK failure | 先裁过期步；后段失败时只保留双臂共同前缀，少于配置最小步数则整块拒绝 |
 
 私有服务当前复用了 RoboTwin-compatible `endpose` wire convention：grasp site 沿自身局部
 `+x` 前方 0.12 m。adapter 在输入和输出两侧对称处理该偏移。它不是 YAM tool-frame 的
@@ -58,8 +89,8 @@ SAPolicy 服务保留在它自己的私有仓库和 Python 环境中。ManiMux �
 4. `gripper_transforms` 的方向、范围和开合含义。示例中的 `[-1,1] <-> [0,1]` 只是显式模板。
 5. SAPolicy 训练 embodiment/tool frame 与 YAM `grasp_site` 是否一致；跨 embodiment 训练或
    仿真成功不自动证明该外参和动作尺度适用于 YAM。
-6. `max_position_delta_m`、`max_rotation_delta_rad` 应按任务和 checkpoint 收紧，而不是为了
-   让某个输出通过而放宽。
+6. IK 位置/姿态收敛精度、迭代次数和关节/执行器限制必须单独验证；删除笛卡尔跳变门限并不
+   等于 IK 或硬件安全限制也被删除。
 
 ## 私有 SAPolicy 服务
 

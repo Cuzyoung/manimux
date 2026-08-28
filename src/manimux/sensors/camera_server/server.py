@@ -228,8 +228,29 @@ def _build_cameras_from_config(cfg_path: Path) -> dict[str, RealSenseCamera]:
     try:
         for name, spec in camera_cfg.items():
             device_id = spec["device_id"]
-            logger.info("Opening camera %s (device_id=%s)", name, device_id)
-            cameras[name] = RealSenseCamera(device_id)
+            width = int(spec.get("width", 640))
+            height = int(spec.get("height", 360))
+            fps = int(spec.get("fps", 30))
+            max_frame_age_sec = float(spec.get("max_frame_age_sec", 0.30))
+            flip = bool(spec.get("flip", False))
+            logger.info(
+                "Opening camera %s (device_id=%s, %dx%d@%d, max_age=%.3fs, flip=%s)",
+                name,
+                device_id,
+                width,
+                height,
+                fps,
+                max_frame_age_sec,
+                flip,
+            )
+            cameras[name] = RealSenseCamera(
+                device_id,
+                flip=flip,
+                width=width,
+                height=height,
+                fps=fps,
+                max_frame_age_sec=max_frame_age_sec,
+            )
     except Exception:
         for camera in cameras.values():
             camera.close()

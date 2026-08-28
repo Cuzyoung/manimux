@@ -22,15 +22,12 @@ def test_realsense_capture_stays_one_explicit_stream_pair() -> None:
     assert "_center_crop" not in source
 
     streams = re.findall(
-        r"enable_stream\(\s*rs\.stream\.(depth|color),\s*(\d+),\s*(\d+),"
-        r"\s*rs\.format\.\w+,\s*(\d+)\s*\)",
+        r"enable_stream\(\s*rs\.stream\.(depth|color),\s*self\._width,"
+        r"\s*self\._height,\s*rs\.format\.\w+,\s*self\._fps,?\s*\)",
         source,
     )
     assert len(streams) == 2
-    kinds = {kind for kind, *_ in streams}
-    assert kinds == {"depth", "color"}
-    geometries = {(w, h, fps) for _, w, h, fps in streams}
-    assert len(geometries) == 1, f"depth and color must share one geometry, got {geometries}"
+    assert set(streams) == {"depth", "color"}
 
 
 def test_standalone_camera_config_matches_the_yam_devices() -> None:

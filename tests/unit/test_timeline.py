@@ -72,6 +72,48 @@ def test_commit_trims_obsolete_prefix_and_interpolates() -> None:
     assert timeline.cursor(100) == 3
 
 
+def test_commit_does_not_trim_adapter_source_offset_twice() -> None:
+    timeline = ActionTimeline({"left_arm": 2, "right_arm": 2})
+    current = {"left_arm": np.zeros(2), "right_arm": np.zeros(2)}
+    chunk = _chunk(1)
+    chunk.groups = {name: values[2:].copy() for name, values in chunk.groups.items()}
+    chunk.source_offset_steps = 2
+
+    result = timeline.commit(
+        chunk,
+        now_ns=20,
+        commit_lead_ns=0,
+        max_plan_age_ns=100,
+        current_command=current,
+        blend_steps=0,
+    )
+
+    assert result.accepted
+    assert result.trimmed_steps == 0
+    committed = timeline.active_horizon()
+    assert committed is not None
+    np.testing.assert_array_equal(committed.groups["left_arm"][0], [4.0, 5.0])
+
+
+def test_source_offset_does_not_hide_original_plan_age() -> None:
+    timeline = ActionTimeline({"left_arm": 2, "right_arm": 2})
+    current = {"left_arm": np.zeros(2), "right_arm": np.zeros(2)}
+    chunk = _chunk(1)
+    chunk.source_offset_steps = 2
+
+    result = timeline.commit(
+        chunk,
+        now_ns=25,
+        commit_lead_ns=0,
+        max_plan_age_ns=20,
+        current_command=current,
+        blend_steps=0,
+    )
+
+    assert not result.accepted
+    assert result.reason == "plan_too_old"
+
+
 def test_dimension_mismatch_rejects_entire_chunk() -> None:
     timeline = ActionTimeline({"left_arm": 2, "right_arm": 2})
     current = {"left_arm": np.zeros(2), "right_arm": np.zeros(2)}

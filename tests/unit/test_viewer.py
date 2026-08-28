@@ -169,6 +169,7 @@ def test_new_runtime_service_resets_an_unfinalized_rollout() -> None:
     assert not viewer.home_requested
     assert not viewer.finish_requested
     assert not viewer.new_rollout_requested
+    assert viewer.task.value == ""
     assert stages[-1] == "setup"
     assert "prepare a rollout" in viewer.status.content
 

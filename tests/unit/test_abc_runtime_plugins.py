@@ -76,8 +76,11 @@ def test_abc_live_config_matches_the_checkpoint_timing() -> None:
     config = load_config("configs/abc/yam/infra/manimux.yaml")
 
     # ABC-DiT was trained at 30 Hz with a fixed chunk_length of 30.
+    assert config.run.task == "put the plastic bottles in the bin"
     assert config.policy.horizon_steps == 30
     assert config.policy.effective_action_dt_s == pytest.approx(1.0 / 30.0, abs=1e-4)
+    assert config.execution.executor == "direct"
+    assert config.execution.blend_steps == 0
     assert config.robot.options["home_on_close"] is True
 
 

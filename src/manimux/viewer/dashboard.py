@@ -532,6 +532,10 @@ class PolicyViewer:
     def _reset_for_new_service(self) -> None:
         """Make a new ``manimux serve`` instance a hard workflow boundary."""
 
+        # A task edit belongs to one runtime service.  Clear it at this hard
+        # boundary so the following runtime_service_ready event can seed the
+        # new service's task instead of preserving a stale command forever.
+        self.task.value = ""
         self.paused = True
         self.rollout_started = False
         self.home_requested = False

@@ -125,7 +125,8 @@ def test_yam_driver_maps_grouped_move_to_existing_joint_command() -> None:
     )
     driver.send_command(command)
     assert backend.command is not None
-    np.testing.assert_array_equal(backend.command, np.r_[np.ones(7), np.full(7, 2.0)])
+    expected = np.r_[np.ones(7), np.full(7, 2.0)]
+    np.testing.assert_array_equal(backend.command, expected)
 
 
 def test_an_unknown_robot_option_is_refused_before_the_arms_move() -> None:

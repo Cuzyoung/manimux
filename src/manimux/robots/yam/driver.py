@@ -77,6 +77,7 @@ class YamDualArmDriver:
         {
             "right_config",
             "start_duration_s",
+            "start_joints",
             "home_duration_s",
             "move_to_start_on_connect",
             "home_on_close",
@@ -98,6 +99,10 @@ class YamDualArmDriver:
         self._clock = clock
         self._home_duration_s = float(config.options.get("home_duration_s", 5.0))
         self._start_duration_s = float(config.options.get("start_duration_s", 5.0))
+        start_joints = config.options.get("start_joints")
+        self._start_joints = (
+            None if start_joints is None else np.asarray(start_joints, dtype=np.float64)
+        )
         self._move_to_start_on_connect = bool(config.options.get("move_to_start_on_connect", False))
         unknown = sorted(set(config.options) - self.OPTIONS)
         if unknown:
@@ -115,6 +120,11 @@ class YamDualArmDriver:
         right_cfg = _load_mapping(self._right_path)
         left_start = np.asarray(left_cfg.get("agent", {}).get("start_joints"), dtype=np.float64)
         right_start = np.asarray(right_cfg.get("agent", {}).get("start_joints"), dtype=np.float64)
+        if self._start_joints is not None:
+            if self._start_joints.shape != (14,) or not np.isfinite(self._start_joints).all():
+                raise ValueError("robot.options.start_joints must contain 14 finite values")
+            left_start = self._start_joints[:7]
+            right_start = self._start_joints[7:]
         if left_start.shape != (7,) or right_start.shape != (7,):
             raise ValueError("YAM requires 7-value agent.start_joints in both configs")
         if not np.isfinite(left_start).all() or not np.isfinite(right_start).all():

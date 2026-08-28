@@ -98,6 +98,14 @@ class ActionContext:
     request_seq: int
     observation_time_ns: int
     created_time_ns: int
+    # The first time at which a newly decoded action can be executed.  Runtime
+    # adapters may use this to discard source waypoints that are already in the
+    # past before doing expensive or failure-prone embodiment conversion (IK).
+    execution_time_ns: int | None = None
+    # Latest measured state at response handling time.  This is intentionally
+    # separate from the observation embedded in the policy request: the latter
+    # defines the trajectory clock, while the former is the safest IK seed.
+    measured_state: RobotState | None = None
 
 
 @dataclass(slots=True)
@@ -109,10 +117,16 @@ class ActionChunk:
     action_space: str
     dt_ns: int
     groups: GroupTrajectory
+    # Number of leading policy-source rows already removed by the adapter.
+    # Keeping this separate preserves observation_time_ns for plan-age checks.
+    source_offset_steps: int = 0
+    metadata: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.dt_ns <= 0:
             raise ValueError("action chunk dt_ns must be positive")
+        if self.source_offset_steps < 0:
+            raise ValueError("action chunk source_offset_steps must be non-negative")
         self.groups = _trajectory_groups(self.groups, label="action chunk")
 
     @property
@@ -161,4 +175,6 @@ def copy_action_chunk(chunk: ActionChunk) -> ActionChunk:
         action_space=chunk.action_space,
         dt_ns=chunk.dt_ns,
         groups={name: values.copy() for name, values in chunk.groups.items()},
+        source_offset_steps=chunk.source_offset_steps,
+        metadata=dict(chunk.metadata),
     )

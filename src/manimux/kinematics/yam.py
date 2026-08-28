@@ -169,6 +169,48 @@ class YamKinematics:
             raise ValueError(f"expected {self.state_dim} YAM values, got {values.size}")
         return self.fk(values[: self._num_arm_joints], float(values[-1]))
 
+    def joint_position_limits(self) -> tuple[FloatArray, FloatArray]:
+        """Return lower/upper limits for the canonical arm-joint vector."""
+        lower = np.full(self._num_arm_joints, -np.inf, dtype=np.float64)
+        upper = np.full(self._num_arm_joints, np.inf, dtype=np.float64)
+        for qpos_index in range(self._num_arm_joints):
+            matches = np.flatnonzero(self.model.jnt_qposadr == qpos_index)
+            if matches.size != 1:
+                raise RuntimeError(
+                    f"YAM qpos {qpos_index} does not map to exactly one joint"
+                )
+            joint_id = int(matches[0])
+            if bool(self.model.jnt_limited[joint_id]):
+                lower[qpos_index], upper[qpos_index] = self.model.jnt_range[joint_id]
+        return lower, upper
+
+    def joint_limit_margins(self, joints: FloatArray) -> FloatArray:
+        """Signed distance from each arm joint to its nearest position limit."""
+        values = np.asarray(joints, dtype=np.float64).reshape(-1)
+        if values.shape != (self._num_arm_joints,) or not np.isfinite(values).all():
+            raise ValueError(
+                f"expected {self._num_arm_joints} finite arm joints, got {values.shape}"
+            )
+        lower, upper = self.joint_position_limits()
+        return np.minimum(values - lower, upper - values)
+
+    def pose_error(
+        self,
+        target_pose: FloatArray,
+        joints: FloatArray,
+        gripper: float,
+    ) -> tuple[float, float]:
+        """Return translational and rotational FK residuals for IK diagnostics."""
+        target = np.asarray(target_pose, dtype=np.float64)
+        if target.shape != (4, 4) or not np.isfinite(target).all():
+            raise ValueError(f"target_pose must be a finite 4x4 transform, got {target.shape}")
+        actual = self.fk(joints, gripper)
+        position_error_m = float(np.linalg.norm(actual[:3, 3] - target[:3, 3]))
+        relative_rotation = actual[:3, :3].T @ target[:3, :3]
+        cosine = float(np.clip((np.trace(relative_rotation) - 1.0) / 2.0, -1.0, 1.0))
+        orientation_error_rad = float(np.arccos(cosine))
+        return position_error_m, orientation_error_rad
+
     def _joint_limits(self) -> list:
         import mink
 
