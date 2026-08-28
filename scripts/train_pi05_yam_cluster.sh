@@ -86,7 +86,7 @@ compute_stats() {
     OPENPI_LEROBOT_REPO_ID=${DATASET_NAME} \
     OPENPI_ASSETS_BASE_DIR=${ASSETS_BASE} \
     OPENPI_BASE_PARAMS=${BASE_PARAMS} \
-      uv run scripts/compute_norm_stats.py --config-name pi05_yam
+      "${VENV}/bin/python" scripts/compute_norm_stats.py --config-name pi05_yam
   )
   require_file "${NORM_STATS}"
 }
