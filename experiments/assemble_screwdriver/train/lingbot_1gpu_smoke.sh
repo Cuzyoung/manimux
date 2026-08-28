@@ -10,7 +10,7 @@ DATASET=${DATA_ROOT}/datasets/lerobot/yam_assemble_screwdriver_20260825_v1
 STATS=${DATA_ROOT}/cache/lingbot-vla2/yam_assemble_screwdriver_20260825_v1/norm_stats.json
 MODEL=${DATA_ROOT}/weights/base/lingbot-vla-v2-6b
 TOKENIZER=${DATA_ROOT}/weights/base/xiaomi/qwen3_vl_4b_processor
-RUN_NAME=${LINGBOT_RUN_NAME:-assemble-screwdriver-lingbot-1xh100-offload-smoke-20260828-v2}
+RUN_NAME=${LINGBOT_RUN_NAME:-assemble-screwdriver-lingbot-1xh100-expert-smoke-20260828-v3}
 OUTPUT=${DATA_ROOT}/weights/finetuned/lingbot-vla2/${RUN_NAME}
 LOG=${DATA_ROOT}/runs/lingbot-vla2/${RUN_NAME}.log
 
@@ -19,6 +19,7 @@ export HF_HOME=${DATA_ROOT}/cache/huggingface
 export HF_HUB_CACHE=${HF_HOME}/hub
 export TRANSFORMERS_CACHE=${HF_HOME}/transformers
 export TORCH_HOME=${DATA_ROOT}/cache/torch
+export PYTHONPATH=${SOURCE_ROOT}${PYTHONPATH:+:${PYTHONPATH}}
 unset WANDB_API_KEY WANDB_BASE_URL WANDB_ENTITY WANDB_PROJECT WANDB_MODE
 
 mkdir -p "${OUTPUT}" "$(dirname "${LOG}")"
@@ -38,10 +39,8 @@ PATH="${VENV}/bin:${PATH}" bash -o pipefail train.sh \
   --train.chunk_size 50 \
   --train.micro_batch_size 1 \
   --train.gradient_accumulation_steps 1 \
-  --train.data_parallel_mode fsdp1 \
-  --train.enable_full_shard true \
-  --train.enable_fsdp_offload true \
-  --train.enable_activation_offload false \
+  --train.data_parallel_mode ddp \
+  --train.train_expert_only true \
   --train.max_steps 1 \
   --train.save_steps 1 \
   --train.use_wandb false \
@@ -70,4 +69,4 @@ PATH="${VENV}/bin:${PATH}" "${VENV}/bin/python" "${POLICY_ROOT}/prepare_bundle.p
   --native-hz 30 \
   --action-horizon 50
 
-echo "LINGBOT_SMOKE_OK ${OUTPUT}"
+echo "LINGBOT_EXPERT_SMOKE_OK ${OUTPUT}"

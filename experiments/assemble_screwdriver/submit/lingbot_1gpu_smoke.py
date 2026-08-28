@@ -16,12 +16,12 @@ payload = {
     "exclude_nodes": [],
     "specified_nodes": [],
     "pre_check_items": [],
-    "description": "LingBot-VLA2 screwdriver one-H100 smoke: FSDP1 CPU offload, one optimizer step, checkpoint and strict reload",
+    "description": "LingBot-VLA2 screwdriver one-H100 action-expert smoke: AdamW optimizer step, checkpoint and strict reload",
     "is_publicpath_readonly": False,
     "task_priority": 10,
     "reserve_on_fail_ms": "600000",
     "max_running_time_ms": "10800000",
-    "name": "lingbot-vla2-screwdriver-1xh100-offload-smoke-20260828-v2",
+    "name": "lingbot-vla2-screwdriver-1xh100-expert-smoke-20260828-v3",
     "command": "bash /inspire/hdd2/project/liu-ming-huan/public/ziyang/manimux/experiments/assemble_screwdriver/train/lingbot_1gpu_smoke.sh",
     "framework_config": [
         {
