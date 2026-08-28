@@ -7,7 +7,7 @@ POLICY_ROOT=${CODE_ROOT}/XPolicyLab/policy/GR00T_N17
 VENV=${DATA_ROOT}/envs/gr00t-n17/.venv
 SOURCE_DATASET=yam_assemble_screwdriver_20260825_v1
 PROCESSED_DATASET=yam-assemble_screwdriver-yam_dual-joint
-RUN_NAME=${GR00T_RUN_NAME:-assemble-screwdriver-gr00t-n17-1xh100-smoke-20260829-v1}
+RUN_NAME=${GR00T_RUN_NAME:-assemble-screwdriver-gr00t-n17-1xh100-smoke-20260829-v2}
 OUTPUT=${DATA_ROOT}/weights/finetuned/gr00t-n17/${RUN_NAME}
 LOG=${DATA_ROOT}/runs/gr00t-n17/${RUN_NAME}.log
 
@@ -36,18 +36,20 @@ unset WANDB_API_KEY WANDB_BASE_URL WANDB_ENTITY WANDB_PROJECT WANDB_MODE
 
 mkdir -p "$(dirname "${LOG}")"
 
-if [[ ! -s "${DATA_ROOT}/datasets/lerobot/${PROCESSED_DATASET}/meta/stats.json" ]] || \
-   [[ ! -s "${DATA_ROOT}/datasets/lerobot/${PROCESSED_DATASET}/meta/modality.json" ]]; then
-  bash "${POLICY_ROOT}/process_data.sh" yam assemble_screwdriver yam_dual joint
-fi
+run_smoke() {
+  python --version
+  nvidia-smi -L
 
-bash -o pipefail "${POLICY_ROOT}/train.sh" \
-  yam assemble_screwdriver yam_dual joint 0 0 \
-  2>&1 | tee "${LOG}"
+  if [[ ! -s "${DATA_ROOT}/datasets/lerobot/${PROCESSED_DATASET}/meta/stats.json" ]] || \
+     [[ ! -s "${DATA_ROOT}/datasets/lerobot/${PROCESSED_DATASET}/meta/modality.json" ]]; then
+    bash "${POLICY_ROOT}/process_data.sh" yam assemble_screwdriver yam_dual joint
+  fi
 
-CHECKPOINT=$(find "${OUTPUT}" -type d -name checkpoint-1 -print -quit)
-test -n "${CHECKPOINT}"
-"${VENV}/bin/python" - "${CHECKPOINT}" <<'PY'
+  bash "${POLICY_ROOT}/train.sh" yam assemble_screwdriver yam_dual joint 0 0
+
+  CHECKPOINT=$(find "${OUTPUT}" -type d -name checkpoint-1 -print -quit)
+  test -n "${CHECKPOINT}"
+  "${VENV}/bin/python" - "${CHECKPOINT}" <<'PY'
 import sys
 import torch
 import gr00t.model  # noqa: F401
@@ -59,4 +61,7 @@ model.to("cuda:0")
 print(f"GR00T_STRICT_RELOAD_OK {checkpoint} {type(model).__name__}")
 PY
 
-echo "GR00T_1GPU_SMOKE_OK ${CHECKPOINT}"
+  echo "GR00T_1GPU_SMOKE_OK ${CHECKPOINT}"
+}
+
+run_smoke 2>&1 | tee "${LOG}"

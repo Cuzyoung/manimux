@@ -20,11 +20,11 @@ payload = {
     "is_publicpath_readonly": False,
     "task_priority": 10,
     "reserve_on_fail_ms": "600000",
-    "name": "gr00t-n17-screwdriver-1xh100-smoke-20260829-v1",
+    "name": "gr00t-n17-screwdriver-1xh100-smoke-20260829-v2",
     "command": "bash /inspire/hdd2/project/liu-ming-huan/public/ziyang/manimux/experiments/assemble_screwdriver/train/gr00t_1gpu_smoke.sh",
     "framework_config": [
         {
-            "image": "docker.sii.shaipower.online/inspire-studio/pytorch:25.06-py3",
+            "image": "docker.sii.shaipower.online/base/ngc-pytorch:24.05-cuda12.4-py3",
             "image_type": "SOURCE_OFFICIAL",
             "instance_count": 1,
             "shm_gi": 200,
