@@ -20,7 +20,6 @@ payload = {
     "is_publicpath_readonly": False,
     "task_priority": 10,
     "reserve_on_fail_ms": "600000",
-    "max_running_time_ms": "21600000",
     "name": "xiaomi-xr1-screwdriver-1xh100-offload-smoke-20260829-v1",
     "command": "bash /inspire/hdd2/project/liu-ming-huan/public/ziyang/manimux/experiments/assemble_screwdriver/train/xr1_1gpu_smoke.sh",
     "framework_config": [

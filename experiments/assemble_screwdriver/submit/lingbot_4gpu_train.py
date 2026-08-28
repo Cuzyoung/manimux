@@ -20,7 +20,6 @@ payload = {
     "is_publicpath_readonly": False,
     "task_priority": 10,
     "reserve_on_fail_ms": "600000",
-    "max_running_time_ms": "86400000",
     "name": "lingbot-vla2-screwdriver-4xh100-3k-20260829-v1",
     "command": "bash /inspire/hdd2/project/liu-ming-huan/public/ziyang/manimux/experiments/assemble_screwdriver/train/lingbot_4gpu_train.sh",
     "framework_config": [

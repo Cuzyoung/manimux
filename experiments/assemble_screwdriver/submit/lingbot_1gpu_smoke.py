@@ -20,7 +20,6 @@ payload = {
     "is_publicpath_readonly": False,
     "task_priority": 10,
     "reserve_on_fail_ms": "600000",
-    "max_running_time_ms": "10800000",
     "name": "lingbot-vla2-screwdriver-1xh100-expert-smoke-20260828-v3",
     "command": "bash /inspire/hdd2/project/liu-ming-huan/public/ziyang/manimux/experiments/assemble_screwdriver/train/lingbot_1gpu_smoke.sh",
     "framework_config": [
