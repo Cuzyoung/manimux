@@ -21,6 +21,12 @@ GPU_IDS=${OPENPI_GPU_IDS:-0,1,2,3}
 export PATH="${ROOT}/envs/bin:${PATH}"
 export UV_CACHE_DIR=${ROOT}/cache/uv
 export UV_PROJECT_ENVIRONMENT=${VENV}
+# QZ GPU containers do not have uv's per-user managed Python installation.
+# Reuse the Python already staged on shared storage and fail fast instead of
+# attempting a GitHub download from an offline training node.
+export UV_PYTHON=${OPENPI_UV_PYTHON:-${ROOT}/envs/uv-python/cpython-3.11-linux-x86_64-gnu/bin/python}
+export UV_PYTHON_DOWNLOADS=${OPENPI_UV_PYTHON_DOWNLOADS:-never}
+export UV_NO_MANAGED_PYTHON=${OPENPI_UV_NO_MANAGED_PYTHON:-1}
 export HF_HOME=${ROOT}/cache/huggingface
 export HF_LEROBOT_HOME=${ROOT}/datasets/lerobot
 export HF_HUB_OFFLINE=1
