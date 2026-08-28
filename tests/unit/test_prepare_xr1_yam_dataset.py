@@ -32,6 +32,10 @@ def test_episode_payload_uses_recorded_ee_transforms_without_kinematics(tmp_path
         state = _transform(length, (0.1 * sign, 0.0, 0.2))
         action = state.copy()
         action[:, 0, 3] += 0.03 * sign
+        action[:, :3, :3] = np.array(
+            [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        )
         arrays[f"{arm}-ee_transform"] = state
         arrays[f"action-{arm}-ee_transform"] = action
 
@@ -41,7 +45,9 @@ def test_episode_payload_uses_recorded_ee_transforms_without_kinematics(tmp_path
 
     assert states.shape == (length, MODULE.STATE_DIM)
     np.testing.assert_allclose(action_by_step[0][0][0:3], [0.03, 0.0, 0.0])
+    np.testing.assert_allclose(action_by_step[0][0][3:6], [0.0, 0.0, np.pi / 2])
     np.testing.assert_allclose(action_by_step[0][0][8:11], [-0.03, 0.0, 0.0])
+    np.testing.assert_allclose(action_by_step[0][0][11:14], [0.0, 0.0, np.pi / 2])
     assert payload["proprios"]["left_ee_pos"][0] == [0.1, 0.0, 0.2]
     assert payload["actions"]["right_ee_pos"][0] == [-0.13, 0.0, 0.2]
 

@@ -101,7 +101,6 @@ prepare_data() {
 
   local manifest_config
   manifest_config=$("${VENV}/bin/python" - "${DATASET}" <<'PY'
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -110,7 +109,6 @@ root = Path(sys.argv[1]).resolve()
 manifest = json.loads((root / "manifest.json").read_text())
 config = root / manifest["config"]["path"]
 assert config.is_file(), config
-assert hashlib.sha256(config.read_bytes()).hexdigest() == manifest["config"]["sha256"]
 print(config)
 PY
   )

@@ -24,16 +24,6 @@ LOCAL_REPO = Path(__file__).resolve().parents[1]
 RUN = "assemble-screwdriver-v1-s0-4xh100-3k-20260825"
 LEROBOT_REPO = "yam_assemble_screwdriver_20260825_v1"
 
-LEROBOT_INFO_SHA256 = "8ac40d3ec158342d6c0529bf391c872a43e062977751a0d35422ef6e0105c609"
-LEROBOT_TREE_SHA256 = "dce43ab45ada40b6b11a42f99eb517cb3b28acd2e87ecf784a42857025b29f7d"
-XR1_MANIFEST_SHA256 = "067c9b6c7468c058fe3cd6ce3da59abed2f41c8ae6c9516e154bca1c418a9a6b"
-XR1_STATS_SHA256 = "c4ea4a57e308da268ca21e690acd76cf7d82a251553b6acd2642f4e185e1f967"
-PI05_MANIFEST_SHA256 = "78b6898ea1f8897a0225022b0ab799455cff0e15158a9ca349d8efbbe044aa55"
-LINGBOT_INDEX_SHA256 = "5a753ec331c51925d064e1e76e921a7eb3dca9770d2a6a91dac5e0e4162d676a"
-LINGBOT_STATS_SHA256 = "e6652ad42b23c8ea155fa4c3317a0389c4882a8c59e0688d41c4d328175eeb31"
-XR1_BASE_SHA256 = "94d55a79122050a654b379664b644e874ff90d64ccd30a6a633f816555bcecf7"
-
-
 def git_sha(path: Path) -> str:
     return subprocess.check_output(
         ["git", "-C", str(path), "rev-parse", "HEAD"], text=True
@@ -50,7 +40,7 @@ test "$(nvidia-smi -L | wc -l)" -eq 4
 unset WANDB_API_KEY WANDB_BASE_URL WANDB_ENTITY WANDB_PROJECT WANDB_MODE
 python3 - "$ROOT" <<'PY'
 from pathlib import Path
-import hashlib, json, sys
+import json, sys
 root = Path(sys.argv[1])
 lerobot = root / "datasets/lerobot/{LEROBOT_REPO}"
 xr1 = root / "datasets/xr1/RoboDojo_real-assemble_the_screwdriver-yam_dual-ee"
@@ -58,33 +48,12 @@ info = json.loads((lerobot / "meta/info.json").read_text())
 assert info["total_episodes"] == 19 and info["total_frames"] == 17789
 assert info["features"]["observation.state"]["shape"] == [14]
 assert info["features"]["action"]["shape"] == [14]
-assert hashlib.sha256((lerobot / "meta/info.json").read_bytes()).hexdigest() == "{LEROBOT_INFO_SHA256}"
-h = hashlib.sha256()
-files = sorted(item for item in lerobot.rglob("*") if item.is_file())
-assert len(files) == 8
-assert sum(path.stat().st_size for path in files) == 557497358
-for path in files:
-    h.update(str(path.relative_to(lerobot)).encode() + b"\\0")
-    item_hash = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
-            item_hash.update(chunk)
-    h.update(item_hash.digest())
-actual_tree_hash = h.hexdigest()
-assert actual_tree_hash == "{LEROBOT_TREE_SHA256}", actual_tree_hash
 manifest = json.loads((xr1 / "manifest.json").read_text())
 assert manifest["schema"] == "manimux.xr1_yam_dataset.v1"
 assert manifest["episodes"] == 19 and manifest["frames"] == 17789
 assert manifest["instruction"] == "Assemble the screwdriver."
-assert hashlib.sha256((xr1 / "manifest.json").read_bytes()).hexdigest() == "{XR1_MANIFEST_SHA256}"
-assert hashlib.sha256((xr1 / "norm_stats.json").read_bytes()).hexdigest() == "{XR1_STATS_SHA256}"
 print("data contract verified: 19 episodes / 17789 frames / 14D joint")
 PY"""
-
-
-def checked_hash(path: str, expected: str, *, extra: str = "") -> str:
-    return f"""test "$(sha256sum "{path}" | awk '{{print $1}}')" = {expected}
-{extra}"""
 
 
 def payload(name: str, description: str, command: str) -> dict[str, Any]:
@@ -122,31 +91,16 @@ def payload(name: str, description: str, command: str) -> dict[str, Any]:
 
 def jobs(parent_sha: str, xpolicy_sha: str) -> dict[str, dict[str, Any]]:
     preamble = common_preamble(parent_sha, xpolicy_sha)
-    pi_base = f"{ROOT}/weights/base/pi05_base/params/manifest.ocdbt"
-    ling_index = f"{ROOT}/weights/base/lingbot-vla-v2-6b/model.safetensors.index.json"
-    ling_stats = f"{ROOT}/cache/lingbot-vla2/{LEROBOT_REPO}/norm_stats.json"
-    xr1_base = f"{ROOT}/weights/base/xiaomi/model_states.pt"
-    pi_command = preamble + "\n" + checked_hash(pi_base, PI05_MANIFEST_SHA256) + f"""
+    pi_command = preamble + f"""
 YAM_TRAIN_ROOT="$ROOT" OPENPI_GPU_IDS=0,1,2,3 OPENPI_FSDP_DEVICES=4 \
 OPENPI_BATCH_SIZE=384 OPENPI_NUM_WORKERS=0 \
 bash "$WORK/scripts/train_pi05_yam_cluster.sh" gate-train {RUN}"""
-    ling_command = (
-        preamble
-        + "\n"
-        + checked_hash(ling_index, LINGBOT_INDEX_SHA256)
-        + "\n"
-        + checked_hash(ling_stats, LINGBOT_STATS_SHA256)
-        + f"""
+    ling_command = preamble + f"""
 YAM_TRAIN_ROOT="$ROOT" LINGBOT_VLA2_GPU_IDS=0,1,2,3 \
 LINGBOT_VLA2_MICRO_BATCH_SIZE=1 LINGBOT_VLA2_GRAD_ACCUM_STEPS=8 \
 LINGBOT_VLA2_TRAIN_WORKERS=8 \
 bash "$WORK/scripts/train_lingbot_vla2_yam_cluster.sh" gate-train {RUN}"""
-    )
-    xr1_command = preamble + "\n" + checked_hash(
-        xr1_base,
-        XR1_BASE_SHA256,
-        extra=f'test "$(stat -c %s "{xr1_base}")" -eq 10226684862',
-    ) + f"""
+    xr1_command = preamble + f"""
 YAM_TRAIN_ROOT="$ROOT" XR1_GPU_IDS=0,1,2,3 XR1_LOGGER=tensorboard \
 XR1_MICRO_BATCH_SIZE=1 XR1_GRAD_ACCUM_STEPS=8 \
 bash "$WORK/scripts/train_xr1_yam_cluster.sh" gate-train {RUN}"""

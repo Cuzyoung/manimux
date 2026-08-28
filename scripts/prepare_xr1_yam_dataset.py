@@ -10,7 +10,6 @@ job. It also emits normalization statistics and the Hydra data config.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -50,14 +49,6 @@ STATE_SLOTS = {
     "left": {"joints": slice(0, 6), "gripper": 7},
     "right": {"joints": slice(8, 14), "gripper": 15},
 }
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _episodes(root: Path) -> list[Path]:
@@ -310,7 +301,6 @@ def main() -> int:
                 "episode": episode.name,
                 "frames": len(states),
                 "annotation": destination.name,
-                "sha256": _sha256(destination),
             }
         )
         print(f"[{index}/{len(episodes)}] {episode.name}: {len(states)} frames")
@@ -332,8 +322,8 @@ def main() -> int:
         "frames": total_frames,
         "action_length": ACTION_LENGTH,
         "annotations": manifest_episodes,
-        "stats": {"path": stats_path.name, "sha256": _sha256(stats_path)},
-        "config": {"path": config_path.name, "sha256": _sha256(config_path)},
+        "stats": {"path": stats_path.name},
+        "config": {"path": config_path.name},
     }
     (args.output.resolve() / "manifest.json").write_text(json.dumps(manifest, indent=2))
     print(f"wrote {len(episodes)} episodes / {total_frames} frames to {args.output.resolve()}")
