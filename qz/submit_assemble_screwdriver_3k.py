@@ -25,7 +25,7 @@ RUN = "assemble-screwdriver-v1-s0-4xh100-3k-20260825"
 LEROBOT_REPO = "yam_assemble_screwdriver_20260825_v1"
 
 LEROBOT_INFO_SHA256 = "8ac40d3ec158342d6c0529bf391c872a43e062977751a0d35422ef6e0105c609"
-LEROBOT_TREE_SHA256 = "b37eb892db035feb5707637c9efa36c3d5bc7f4c6e8ac54c1cc3cafc5fba1b14"
+LEROBOT_TREE_SHA256 = "dce43ab45ada40b6b11a42f99eb517cb3b28acd2e87ecf784a42857025b29f7d"
 XR1_MANIFEST_SHA256 = "067c9b6c7468c058fe3cd6ce3da59abed2f41c8ae6c9516e154bca1c418a9a6b"
 XR1_STATS_SHA256 = "c4ea4a57e308da268ca21e690acd76cf7d82a251553b6acd2642f4e185e1f967"
 PI05_MANIFEST_SHA256 = "78b6898ea1f8897a0225022b0ab799455cff0e15158a9ca349d8efbbe044aa55"
@@ -60,14 +60,18 @@ assert info["features"]["observation.state"]["shape"] == [14]
 assert info["features"]["action"]["shape"] == [14]
 assert hashlib.sha256((lerobot / "meta/info.json").read_bytes()).hexdigest() == "{LEROBOT_INFO_SHA256}"
 h = hashlib.sha256()
-for path in sorted(item for item in lerobot.rglob("*") if item.is_file()):
+files = sorted(item for item in lerobot.rglob("*") if item.is_file())
+assert len(files) == 8
+assert sum(path.stat().st_size for path in files) == 557497358
+for path in files:
     h.update(str(path.relative_to(lerobot)).encode() + b"\\0")
     item_hash = hashlib.sha256()
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
             item_hash.update(chunk)
     h.update(item_hash.digest())
-assert h.hexdigest() == "{LEROBOT_TREE_SHA256}"
+actual_tree_hash = h.hexdigest()
+assert actual_tree_hash == "{LEROBOT_TREE_SHA256}", actual_tree_hash
 manifest = json.loads((xr1 / "manifest.json").read_text())
 assert manifest["schema"] == "manimux.xr1_yam_dataset.v1"
 assert manifest["episodes"] == 19 and manifest["frames"] == 17789
