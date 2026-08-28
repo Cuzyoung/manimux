@@ -21,6 +21,7 @@ GPU_IDS=${OPENPI_GPU_IDS:-0,1,2,3}
 export PATH="${ROOT}/envs/bin:${PATH}"
 export UV_CACHE_DIR=${ROOT}/cache/uv
 export UV_PROJECT_ENVIRONMENT=${VENV}
+export PYTHONPATH="${OPENPI}/src${PYTHONPATH:+:${PYTHONPATH}}"
 export HF_HOME=${ROOT}/cache/huggingface
 export HF_LEROBOT_HOME=${ROOT}/datasets/lerobot
 export HF_HUB_OFFLINE=1
@@ -91,22 +92,14 @@ compute_stats() {
   require_file "${NORM_STATS}"
 }
 
-install_environment() {
-  if [[ -x "${VENV}/bin/python" ]] && \
-      "${VENV}/bin/python" - "${OPENPI}" <<'PY' >/dev/null 2>&1
-import pathlib
-import sys
+check_environment() {
+  require_file "${VENV}/bin/python"
+  "${VENV}/bin/python" - <<'PY'
 import jax
 import openpi
 assert len(jax.devices()) > 0
-pathlib.Path(openpi.__file__).resolve().relative_to(pathlib.Path(sys.argv[1]).resolve())
 PY
-  then
-    echo "[Pi_05] reusing ${VENV}"
-    return
-  fi
-  mkdir -p "${VENV%/.venv}"
-  bash "${POLICY}/install.sh"
+  echo "[Pi_05] using ${VENV}"
 }
 
 case "${mode}" in
@@ -119,12 +112,12 @@ case "${mode}" in
       bash "$0" train "${run_name}"
     ;;
   prepare)
-    install_environment
+    check_environment
     compute_stats
     preflight
     ;;
   smoke|train)
-    install_environment
+    check_environment
     compute_stats
     preflight
     if [[ "${mode}" == "smoke" ]]; then
