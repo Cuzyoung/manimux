@@ -23,10 +23,10 @@ export PYTHONPATH=${SOURCE_ROOT}${PYTHONPATH:+:${PYTHONPATH}}
 unset WANDB_API_KEY WANDB_BASE_URL WANDB_ENTITY WANDB_PROJECT WANDB_MODE
 
 mkdir -p "${OUTPUT}" "$(dirname "${LOG}")"
-cd "${SOURCE_ROOT}"
+cd "${OUTPUT}"
 
-PATH="${VENV}/bin:${PATH}" bash -o pipefail train.sh \
-  tasks/vla/train_lingbotvla.py "${POLICY_ROOT}/training/yam_dual.yaml" \
+PATH="${VENV}/bin:${PATH}" bash -o pipefail "${SOURCE_ROOT}/train.sh" \
+  "${SOURCE_ROOT}/tasks/vla/train_lingbotvla.py" "${POLICY_ROOT}/training/yam_dual.yaml" \
   --model.model_path "${MODEL}" \
   --model.tokenizer_path "${TOKENIZER}" \
   --data.data_name yam_dual_packed_absolute \
