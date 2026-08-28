@@ -22,8 +22,6 @@ mkdir -p "${PI05_EVENTS}"
 sidecar_pid=$!
 trap 'kill "${sidecar_pid}" 2>/dev/null || true' EXIT
 
-exec tensorboard \
-  --logdir_spec "Pi05:${PI05_EVENTS},LingBot:${LINGBOT_EVENTS},XR1:${XR1_EVENTS}" \
-  --host 127.0.0.1 \
-  --port "${PORT}" \
-  --reload_interval 10
+exec "${PYTHON}" "${CODE_ROOT}/scripts/launch_tensorboard_localhost.py" \
+  --logdir-spec "Pi05:${PI05_EVENTS},LingBot:${LINGBOT_EVENTS},XR1:${XR1_EVENTS}" \
+  --port "${PORT}"
