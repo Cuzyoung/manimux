@@ -22,3 +22,14 @@ seconds. Use these primary curves:
 - Pi05: `training/loss`
 - LingBot-VLA2: `training/vla_loss`
 - XR-1 flow matching: `train/loss_mse`
+- GR00T N1.7: `training/loss`
+
+The GR00T checkpoint downloader waits for complete deployment bundles and then
+resumes each file into the local checkpoint directory. It intentionally omits
+DeepSpeed optimizer shards, which are only needed for resuming training:
+
+```bash
+python experiments/assemble_screwdriver/monitor/download_gr00t_checkpoints.py \
+  --remote-root /inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data/weights/finetuned/gr00t-n17/assemble-screwdriver-gr00t-n17-4xh100-3k-20260829-v1 \
+  --local-root /home/ubuntu/manimux/checkpoints/finetuned/gr00t-n17/assemble-screwdriver-20260829-v1
+```
