@@ -2,6 +2,17 @@
 
 Task-specific launch and submission scripts live here. Model training entrypoints under `scripts/` and `XPolicyLab/` remain unchanged.
 
+Final 8-H100 / global-batch-64 / 15k launchers:
+
+- `train/pi05_8gpu_15k.sh`
+- `train/lingbot_native_depth_relative_8gpu_15k.sh`
+- `train/xr1_8gpu_15k.sh`
+
+Their direct QZ submission scripts are under `submit/` with the same basename.
+LingBot uses anchor-relative arm qpos and absolute grippers; Pi05 uses its
+existing YAM relative-joint transform; XR-1 uses its native anchor-relative EE
+action representation.
+
 - `train/pi05_1gpu_smoke.sh`: one H100, one optimizer step, checkpoint save, and strict OpenPI reload.
 - `submit/pi05_1gpu_smoke.py`: submits that Pi05 smoke job to `intern-ziyang`.
 - `train/pi05_4gpu_train.sh`: four-H100 Pi05 training with global batch 384 for 3000 steps, saving every 500 steps.
