@@ -56,6 +56,7 @@ PATH="${VENV}/bin:${PATH}" "${VENV}/bin/torchrun" \
   trainer.max_steps=3000 \
   trainer.save_interval=500 \
   trainer.accumulate_grad_batches=8 \
+  +trainer.log_every_n_steps=1 \
   +trainer.strategy.params.stage=2 \
   +trainer.strategy.params.offload_optimizer=false \
   model.params.pretrained="${MODEL}" \

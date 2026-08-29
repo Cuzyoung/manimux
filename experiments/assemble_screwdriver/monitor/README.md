@@ -4,20 +4,25 @@ The monitor is a sidecar. It does not change any training process or optimizer.
 LingBot-VLA2 and XR-1 already emit TensorBoard events. The sidecar mirrors Pi05's
 stdout `loss`, `grad_norm`, and `param_norm` into the same dashboard.
 
-On the training host:
+From the ManiMux repository root on the local workstation:
 
 ```bash
-bash /inspire/hdd2/project/liu-ming-huan/public/ziyang/manimux/experiments/assemble_screwdriver/monitor/start_live_tensorboard.sh
+./training_dashboard.sh
 ```
 
-On the local workstation:
+Open <http://127.0.0.1:16006>. The command starts the persistent remote service
+and a persistent local SSH tunnel. `status`, `restart`, and `stop` are also
+supported:
 
 ```bash
-ssh -N -L 16006:127.0.0.1:16006 localhost-3338
+./training_dashboard.sh status
 ```
 
-Open <http://127.0.0.1:16006>. TensorBoard reloads new event data every ten
-seconds. Use these primary curves:
+The dashboard scans model-level roots instead of four hard-coded runs. Native
+LingBot and XR1 event files appear automatically. A supervisor discovers new
+Pi05 and GR00T stdout logs and mirrors their metrics into TensorBoard. New runs
+show up in TensorBoard's run selector within roughly five seconds, without a
+service restart. Use these primary curves:
 
 - Pi05: `training/loss`
 - LingBot-VLA2: `training/vla_loss`

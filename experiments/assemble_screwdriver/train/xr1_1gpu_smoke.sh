@@ -58,6 +58,7 @@ run_xr1() {
     trainer.max_steps=1 \
     trainer.save_interval=1 \
     trainer.accumulate_grad_batches=1 \
+    +trainer.log_every_n_steps=1 \
     trainer.optimizer.type=deepspeed.ops.adam.DeepSpeedCPUAdam \
     +trainer.strategy.params.stage=2 \
     +trainer.strategy.params.offload_optimizer=true \
