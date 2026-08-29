@@ -12,8 +12,12 @@ tunnel_running() {
   ssh -S "${CONTROL_SOCKET}" -O check "${REMOTE_HOST}" >/dev/null 2>&1
 }
 
+dashboard_reachable() {
+  curl -fsS --max-time 2 "http://127.0.0.1:${LOCAL_PORT}/data/runs" >/dev/null 2>&1
+}
+
 start_tunnel() {
-  if tunnel_running; then
+  if tunnel_running || dashboard_reachable; then
     return
   fi
   rm -f "${CONTROL_SOCKET}"
@@ -47,7 +51,7 @@ case "${1:-start}" in
     ;;
   status)
     ssh "${REMOTE_HOST}" bash "${REMOTE_SERVICE}" status
-    if tunnel_running; then
+    if tunnel_running || dashboard_reachable; then
       echo "local tunnel running: http://127.0.0.1:${LOCAL_PORT}"
     else
       echo "local tunnel stopped"
