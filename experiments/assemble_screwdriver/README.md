@@ -13,6 +13,10 @@ LingBot uses anchor-relative arm qpos and absolute grippers; Pi05 uses its
 existing YAM relative-joint transform; XR-1 uses its native anchor-relative EE
 action representation.
 
+Run `train/lingbot_native_depth_relative_1gpu_smoke.sh` once before the formal
+LingBot launch. It computes the relative-action statistics, performs one native-
+depth optimizer step, saves a checkpoint, and reloads that checkpoint.
+
 - `train/pi05_1gpu_smoke.sh`: one H100, one optimizer step, checkpoint save, and strict OpenPI reload.
 - `submit/pi05_1gpu_smoke.py`: submits that Pi05 smoke job to `intern-ziyang`.
 - `train/pi05_4gpu_train.sh`: four-H100 Pi05 training with global batch 384 for 3000 steps, saving every 500 steps.
