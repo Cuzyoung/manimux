@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/manimux/training_dashboard.sh foreground
+ExecStart=%h/manimux-training-clean/training_dashboard.sh foreground
 Restart=always
 RestartSec=3
 

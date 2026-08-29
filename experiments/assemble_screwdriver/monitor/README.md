@@ -4,7 +4,8 @@ The monitor is a sidecar. It does not change any training process or optimizer.
 LingBot-VLA2 and XR-1 already emit TensorBoard events. The sidecar mirrors Pi05's
 stdout `loss`, `grad_norm`, and `param_norm` into the same dashboard.
 
-From the shared training-code checkout on the CPU server:
+From the local management checkout on the workstation. Training code and logs
+remain on the shared CPU server:
 
 ```bash
 ./training_dashboard.sh
