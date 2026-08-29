@@ -96,6 +96,7 @@ def test_normalize_condition_masks_unused_55d_slots() -> None:
             "action.arm.position": False,
             "action.effector.position": False,
         }
+        action_relative_type = {}
         normalizer = IdentityNormalizer()
         model_config = SimpleNamespace(max_action_dim=55)
         feature_config = SimpleNamespace(
@@ -129,12 +130,61 @@ def test_normalize_condition_masks_unused_55d_slots() -> None:
         "action.effector.position": np.ones((3, 2), dtype=np.float32),
     }
     target, weights = rtc.normalize_condition(
-        FakeTransform(), raw, np.array([1.0, 0.5, 0.0], dtype=np.float32)
+        FakeTransform(),
+        raw,
+        np.array([1.0, 0.5, 0.0], dtype=np.float32),
+        {
+            "observation.state.arm.position": np.zeros(12, dtype=np.float32),
+            "observation.state.effector.position": np.zeros(2, dtype=np.float32),
+        },
     )
     assert target.shape == (3, 55)
     assert weights.shape == (3, 55)
     assert int(torch.count_nonzero(weights[0])) == 14
     assert int(torch.count_nonzero(weights[2])) == 0
+
+
+def test_normalize_condition_converts_absolute_arm_targets_to_relative() -> None:
+    rtc = _load_rtc_module()
+
+    class IdentityNormalizer:
+        @staticmethod
+        def normalize(value):
+            return value
+
+    class FakeTransform:
+        action_subtract_state = {
+            "action.arm.position": True,
+            "action.effector.position": False,
+        }
+        action_relative_type = {"action.arm.position": "vector"}
+        normalizer = IdentityNormalizer()
+        model_config = SimpleNamespace(max_action_dim=55)
+        feature_config = SimpleNamespace(
+            joints=["arm.position", "effector.position"],
+            joints_max_dim={"arm.position": 14, "effector.position": 2},
+        )
+
+    arm_anchor = np.arange(12, dtype=np.float32)
+    raw = {
+        "action.arm.position": np.stack([arm_anchor + 1, arm_anchor + 2]),
+        "action.effector.position": np.array([[0.2, 0.8], [0.3, 0.7]], dtype=np.float32),
+    }
+    target, weights = rtc.normalize_condition(
+        FakeTransform(),
+        raw,
+        np.ones(2, dtype=np.float32),
+        {
+            "observation.state.arm.position": arm_anchor,
+            "observation.state.effector.position": np.array([0.1, 0.9], dtype=np.float32),
+        },
+    )
+
+    torch.testing.assert_close(target[:, :12], torch.tensor([[1.0] * 12, [2.0] * 12]))
+    torch.testing.assert_close(
+        target[:, 14:16], torch.tensor([[0.2, 0.8], [0.3, 0.7]])
+    )
+    assert int(torch.count_nonzero(weights[0])) == 14
 
 
 def test_sampler_applies_guidance_inside_each_flow_step() -> None:

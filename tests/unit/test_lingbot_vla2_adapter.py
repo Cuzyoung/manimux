@@ -98,7 +98,12 @@ def test_official_feature_literals_are_normalized_for_runtime() -> None:
     assert normalized.norm_type == ["{'arm.position': 'meanstd'}"]
 
 
+@pytest.mark.parametrize(
+    "robot_config_name",
+    ["yam_dual_absolute.yaml", "yam_dual_packed_relative.yaml"],
+)
 def test_validate_complete_bundle_without_loading_model(
+    robot_config_name: str,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = _load_model_module()
@@ -155,7 +160,7 @@ def test_validate_complete_bundle_without_loading_model(
     )
     robot_config = bundle_root / "robot_config.yaml"
     robot_config.write_text(
-        (MODEL_PATH.parent / "robot_configs/yam_dual_absolute.yaml").read_text(
+        (MODEL_PATH.parent / f"robot_configs/{robot_config_name}").read_text(
             encoding="utf-8"
         ),
         encoding="utf-8",
