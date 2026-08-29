@@ -5,7 +5,8 @@ mode=${1:-train}
 run_name=${2:-pick-red-ball-box-v1-s0-4xh100-10k}
 
 ROOT=${YAM_TRAIN_ROOT:-/inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data}
-WORKSPACE=${GR00T_WORKSPACE:-${ROOT}/operate/manimux-training}
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+WORKSPACE=${GR00T_WORKSPACE:-${REPO_ROOT}}
 POLICY=${WORKSPACE}/XPolicyLab/policy/GR00T_N17
 SOURCE=${POLICY}/gr00t_n17
 ENV_DIR=${ROOT}/envs/gr00t-n17/.venv

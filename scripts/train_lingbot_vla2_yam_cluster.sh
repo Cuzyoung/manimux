@@ -5,7 +5,8 @@ mode=${1:-train}
 run_name=${2:-assemble-screwdriver-v1-s0-4xh100-3k}
 
 ROOT=${YAM_TRAIN_ROOT:-/inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data}
-WORKSPACE=${LINGBOT_VLA2_WORKSPACE:-${ROOT}/operate/manimux-training-clean}
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+WORKSPACE=${LINGBOT_VLA2_WORKSPACE:-${REPO_ROOT}}
 POLICY=${WORKSPACE}/XPolicyLab/policy/LingBot_VLA2
 SOURCE=${POLICY}/lingbot_vla_v2
 VENV=${ROOT}/envs/lingbot-vla2/.venv

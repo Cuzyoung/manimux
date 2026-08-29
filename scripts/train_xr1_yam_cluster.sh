@@ -5,7 +5,8 @@ mode=${1:-train}
 run_name=${2:-assemble-screwdriver-v1-s0-4xh100-3k}
 
 ROOT=${YAM_TRAIN_ROOT:-/inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data}
-WORKSPACE=${XR1_WORKSPACE:-${ROOT}/operate/manimux-training-clean}
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+WORKSPACE=${XR1_WORKSPACE:-${REPO_ROOT}}
 POLICY=${WORKSPACE}/XPolicyLab/policy/Xiaomi_Robotics_1
 XR1=${POLICY}/xiaomi_robotics_1/xr1
 VENV=${ROOT}/envs/xr1/.venv
