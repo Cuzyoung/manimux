@@ -11,23 +11,23 @@ from tensorboard import program
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--logdir-spec", required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--logdir")
+    source.add_argument("--logdir-spec")
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--reload-interval", type=float, default=10.0)
     args = parser.parse_args()
 
     tensorboard = program.TensorBoard()
-    tensorboard.configure(
-        argv=[
-            None,
-            "--logdir_spec",
-            args.logdir_spec,
-            "--port",
-            str(args.port),
-            "--reload_interval",
-            str(args.reload_interval),
-        ]
+    argv = [None]
+    if args.logdir is not None:
+        argv.extend(["--logdir", args.logdir])
+    else:
+        argv.extend(["--logdir_spec", args.logdir_spec])
+    argv.extend(
+        ["--port", str(args.port), "--reload_interval", str(args.reload_interval)]
     )
+    tensorboard.configure(argv=argv)
     tensorboard.flags.bind_all = False
     tensorboard.flags.host = "127.0.0.1"
     print(tensorboard.launch(), flush=True)

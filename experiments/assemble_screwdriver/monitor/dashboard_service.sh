@@ -6,7 +6,7 @@ CODE_ROOT=${MANIMUX_CODE_ROOT:-/inspire/hdd2/project/liu-ming-huan/public/ziyang
 STATE_ROOT=${DATA_ROOT}/runs/live-tensorboard
 PID_FILE=${STATE_ROOT}/dashboard.pid
 LOG_FILE=${STATE_ROOT}/server.log
-START_SCRIPT=${CODE_ROOT}/experiments/assemble_screwdriver/monitor/start_live_tensorboard.sh
+GUARD_SCRIPT=${CODE_ROOT}/experiments/assemble_screwdriver/monitor/dashboard_guard.sh
 
 running_pid() {
   if [[ -f "${PID_FILE}" ]]; then
@@ -27,7 +27,7 @@ start_service() {
     echo "training dashboard already running pid=${pid}"
     return
   fi
-  nohup setsid bash "${START_SCRIPT}" >>"${LOG_FILE}" 2>&1 &
+  nohup setsid bash "${GUARD_SCRIPT}" >>"${LOG_FILE}" 2>&1 &
   pid=$!
   printf '%s\n' "${pid}" >"${PID_FILE}"
   sleep 1
@@ -78,7 +78,7 @@ case "${1:-start}" in
     fi
     ;;
   foreground)
-    exec bash "${START_SCRIPT}"
+    exec bash "${GUARD_SCRIPT}"
     ;;
   *)
     echo "Usage: $0 [start|stop|restart|status|foreground]" >&2

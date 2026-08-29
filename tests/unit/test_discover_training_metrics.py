@@ -56,3 +56,25 @@ def test_new_log_appears_on_next_discovery(tmp_path: Path):
     runs = MODULE.discover_runs(data_root, code_root)
     assert len(runs) == 1
     assert runs[0].log_path == new_log
+
+
+def test_native_events_are_cataloged_as_model_then_run(tmp_path: Path):
+    data_root = tmp_path / "data"
+    source = (
+        data_root
+        / "weights/finetuned/xiaomi-xr1/my-xr1-run/project/nested"
+        / "events.out.tfevents.123"
+    )
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"event")
+
+    created = MODULE.refresh_native_event_catalog(data_root)
+    catalog = (
+        data_root
+        / "runs/live-tensorboard/native/xr1/my-xr1-run/events.out.tfevents.123"
+    )
+
+    assert created == 1
+    assert catalog.is_symlink()
+    assert catalog.resolve() == source
+    assert MODULE.refresh_native_event_catalog(data_root) == 0

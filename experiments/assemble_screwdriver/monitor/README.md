@@ -10,19 +10,22 @@ From the ManiMux repository root on the local workstation:
 ./training_dashboard.sh
 ```
 
-Open <http://127.0.0.1:16006>. The command starts the persistent remote service
-and a persistent local SSH tunnel. `status`, `restart`, and `stop` are also
-supported:
+Open <http://127.0.0.1:16006>. The first page selects a model; each model opens
+an independent TensorBoard containing only that model's runs. The command
+installs a user systemd service for the local tunnel, so an SSH disconnect is
+retried automatically. The remote dashboard has its own restart guard.
+`status`, `restart`, and `stop` are also supported:
 
 ```bash
 ./training_dashboard.sh status
 ```
 
-The dashboard scans model-level roots instead of four hard-coded runs. Native
-LingBot and XR1 event files appear automatically. A supervisor discovers new
-Pi05 and GR00T stdout logs and mirrors their metrics into TensorBoard. New runs
-show up in TensorBoard's run selector within roughly five seconds, without a
-service restart. Use these primary curves:
+The dashboard maintains a two-level `model/run_name` event catalog. Native
+LingBot and XR1 event files appear automatically with their long internal
+checkpoint paths hidden. A supervisor discovers new Pi05 and GR00T stdout logs
+and mirrors their metrics into TensorBoard. New runs show up in the selected
+model's run list within roughly five seconds, without a service restart. Use
+these primary curves:
 
 - Pi05: `training/loss`
 - LingBot-VLA2: `training/vla_loss`

@@ -9,6 +9,7 @@ per recognizable log file and keeps watching for new runs.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import signal
 import subprocess
@@ -31,6 +32,14 @@ class MetricRun:
     log_path: Path
     output_path: Path
     tail_script: Path
+
+
+@dataclass(frozen=True)
+class NativeEvent:
+    model: str
+    run_name: str
+    source_path: Path
+    catalog_path: Path
 
 
 def _tail_bytes(path: Path) -> bytes:
@@ -84,6 +93,49 @@ def discover_runs(data_root: Path, code_root: Path) -> list[MetricRun]:
     return runs
 
 
+def discover_native_events(data_root: Path) -> list[NativeEvent]:
+    weight_root = data_root / "weights/finetuned"
+    catalog_root = data_root / "runs/live-tensorboard/native"
+    sources = (
+        ("lingbot-action", weight_root / "lingbot-vla2"),
+        ("lingbot-native-depth", weight_root / "lingbot-vla2-native-depth"),
+        ("xr1", weight_root / "xiaomi-xr1"),
+    )
+    events: list[NativeEvent] = []
+    for model, model_root in sources:
+        if not model_root.is_dir():
+            continue
+        for source_path in sorted(model_root.rglob("events.out.tfevents*")):
+            relative = source_path.relative_to(model_root)
+            if len(relative.parts) < 2:
+                continue
+            run_name = relative.parts[0]
+            events.append(
+                NativeEvent(
+                    model=model,
+                    run_name=run_name,
+                    source_path=source_path,
+                    catalog_path=catalog_root / model / run_name / source_path.name,
+                )
+            )
+    return events
+
+
+def refresh_native_event_catalog(data_root: Path) -> int:
+    created = 0
+    for event in discover_native_events(data_root):
+        event.catalog_path.parent.mkdir(parents=True, exist_ok=True)
+        if os.path.lexists(event.catalog_path):
+            continue
+        event.catalog_path.symlink_to(event.source_path)
+        print(
+            f"cataloged {event.model} run={event.run_name} event={event.source_path.name}",
+            flush=True,
+        )
+        created += 1
+    return created
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", type=Path, required=True)
@@ -96,6 +148,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     if args.once:
+        for event in discover_native_events(args.data_root):
+            print(
+                f"native:{event.model}\t{event.source_path}\t{event.catalog_path}"
+            )
         for run in discover_runs(args.data_root, args.code_root):
             print(f"{run.model}\t{run.log_path}\t{run.output_path}")
         return
@@ -112,6 +168,7 @@ def main() -> None:
 
     try:
         while not stopping:
+            refresh_native_event_catalog(args.data_root)
             for path, child in list(children.items()):
                 if child.poll() is not None:
                     print(f"metric tailer exited rc={child.returncode}: {path}", flush=True)

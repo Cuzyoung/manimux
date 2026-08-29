@@ -6,23 +6,42 @@ CODE_ROOT=${MANIMUX_CODE_ROOT:-/inspire/hdd2/project/liu-ming-huan/public/ziyang
 PORT=${TENSORBOARD_PORT:-16006}
 PYTHON=${DATA_ROOT}/envs/xr1/.venv/bin/python
 LIVE_ROOT=${DATA_ROOT}/runs/live-tensorboard
-WEIGHT_ROOT=${DATA_ROOT}/weights/finetuned
+NATIVE_ROOT=${LIVE_ROOT}/native
 
-mkdir -p "${LIVE_ROOT}/pi05" "${LIVE_ROOT}/gr00t-n17"
+mkdir -p \
+  "${LIVE_ROOT}/pi05" \
+  "${LIVE_ROOT}/gr00t-n17" \
+  "${NATIVE_ROOT}/lingbot-action" \
+  "${NATIVE_ROOT}/lingbot-native-depth" \
+  "${NATIVE_ROOT}/xr1"
 "${PYTHON}" "${CODE_ROOT}/scripts/discover_training_metrics.py" \
   --data-root "${DATA_ROOT}" \
   --code-root "${CODE_ROOT}" &
 metric_supervisor_pid=$!
 
-"${PYTHON}" "${CODE_ROOT}/scripts/launch_tensorboard_localhost.py" \
-  --logdir-spec "Pi05:${LIVE_ROOT}/pi05,GR00T:${LIVE_ROOT}/gr00t-n17,LingBot-action:${WEIGHT_ROOT}/lingbot-vla2,LingBot-native-depth:${WEIGHT_ROOT}/lingbot-vla2-native-depth,XR1:${WEIGHT_ROOT}/xiaomi-xr1" \
-  --port "${PORT}" \
-  --reload-interval 5 &
-tensorboard_pid=$!
+"${PYTHON}" "${CODE_ROOT}/scripts/launch_training_dashboard_index.py" --port "${PORT}" &
+index_pid=$!
+
+event_roots=(
+  "${LIVE_ROOT}/pi05"
+  "${NATIVE_ROOT}/lingbot-action"
+  "${NATIVE_ROOT}/lingbot-native-depth"
+  "${NATIVE_ROOT}/xr1"
+  "${LIVE_ROOT}/gr00t-n17"
+)
+tensorboard_pids=()
+for index in "${!event_roots[@]}"; do
+  model_port=$((PORT + index + 1))
+  "${PYTHON}" "${CODE_ROOT}/scripts/launch_tensorboard_localhost.py" \
+    --logdir "${event_roots[${index}]}" \
+    --port "${model_port}" \
+    --reload-interval 5 &
+  tensorboard_pids+=("$!")
+done
 
 cleanup() {
-  kill "${tensorboard_pid}" "${metric_supervisor_pid}" 2>/dev/null || true
-  wait "${tensorboard_pid}" "${metric_supervisor_pid}" 2>/dev/null || true
+  kill "${index_pid}" "${metric_supervisor_pid}" "${tensorboard_pids[@]}" 2>/dev/null || true
+  wait "${index_pid}" "${metric_supervisor_pid}" "${tensorboard_pids[@]}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
-wait "${tensorboard_pid}"
+wait -n "${index_pid}" "${metric_supervisor_pid}" "${tensorboard_pids[@]}"
