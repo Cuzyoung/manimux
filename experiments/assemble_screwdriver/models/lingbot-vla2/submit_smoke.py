@@ -16,21 +16,19 @@ payload = {
     "exclude_nodes": [],
     "specified_nodes": [],
     "pre_check_items": [],
-    "description": "Xiaomi XR-1 screwdriver one-H100 full-model smoke: native DeepSpeed ZeRO-2/CPUAdam optimizer offload, optimizer step, checkpoint and reload",
+    "description": "LingBot-VLA2 native-depth relative-qpos one-step smoke and strict checkpoint reload",
     "is_publicpath_readonly": False,
     "task_priority": 10,
     "reserve_on_fail_ms": "600000",
-    "name": "xiaomi-xr1-screwdriver-1xh100-offload-smoke-20260829-v1",
-    "command": "bash /inspire/hdd2/project/liu-ming-huan/public/ziyang/manimux/experiments/assemble_screwdriver/train/xr1_1gpu_smoke.sh",
-    "framework_config": [
-        {
-            "image": "docker.sii.shaipower.online/inspire-studio/pytorch:25.06-py3",
-            "image_type": "SOURCE_OFFICIAL",
-            "instance_count": 1,
-            "shm_gi": 200,
-            "spec_id": "79fe954a-be92-4772-ac0b-94ad8a79b7bb",
-        }
-    ],
+    "name": "lingbot-vla2-native-depth-relative-screwdriver-1xh100-smoke-20260829-v2",
+    "command": "bash /inspire/hdd2/project/liu-ming-huan/public/ziyang/manimux/experiments/assemble_screwdriver/models/lingbot-vla2/smoke.sh",
+    "framework_config": [{
+        "image": "docker.sii.shaipower.online/inspire-studio/pytorch:25.06-py3",
+        "image_type": "SOURCE_OFFICIAL",
+        "instance_count": 1,
+        "shm_gi": 200,
+        "spec_id": "79fe954a-be92-4772-ac0b-94ad8a79b7bb",
+    }],
 }
 
 result = subprocess.run(

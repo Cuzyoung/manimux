@@ -5,7 +5,7 @@ DATA_ROOT=/inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data
 CODE_ROOT=/inspire/hdd2/project/liu-ming-huan/public/ziyang/manimux
 OPENPI=${CODE_ROOT}/XPolicyLab/policy/Pi_05/openpi
 VENV=${DATA_ROOT}/envs/pi05/.venv
-RUN_NAME=${PI05_RUN_NAME:-assemble-screwdriver-pi05-1xh100-20260829-v1}
+RUN_NAME=${PI05_RUN_NAME:-assemble-screwdriver-pi05-1xh100-20260829-v4}
 OUTPUT=${DATA_ROOT}/weights/finetuned/pi05/${RUN_NAME}-smoke
 
 export CUDA_VISIBLE_DEVICES=0

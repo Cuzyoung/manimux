@@ -16,18 +16,18 @@ payload = {
     "exclude_nodes": [],
     "specified_nodes": [],
     "pre_check_items": [],
-    "description": "LingBot-VLA2 native-depth relative-qpos one-step smoke and strict checkpoint reload",
+    "description": "LingBot-VLA2 native-depth relative-qpos screwdriver: 8 H100, global batch 64, 15000 steps, save every 1000, no resume, no W&B",
     "is_publicpath_readonly": False,
     "task_priority": 10,
     "reserve_on_fail_ms": "600000",
-    "name": "lingbot-vla2-native-depth-relative-screwdriver-1xh100-smoke-20260829-v1",
-    "command": "bash /inspire/hdd2/project/liu-ming-huan/public/ziyang/manimux/experiments/assemble_screwdriver/train/lingbot_native_depth_relative_1gpu_smoke.sh",
+    "name": "lingbot-vla2-native-depth-relative-screwdriver-8xh100-b64-15k-20260829-v2",
+    "command": "bash /inspire/hdd2/project/liu-ming-huan/public/ziyang/manimux/experiments/assemble_screwdriver/models/lingbot-vla2/train.sh",
     "framework_config": [{
         "image": "docker.sii.shaipower.online/inspire-studio/pytorch:25.06-py3",
         "image_type": "SOURCE_OFFICIAL",
         "instance_count": 1,
         "shm_gi": 200,
-        "spec_id": "79fe954a-be92-4772-ac0b-94ad8a79b7bb",
+        "spec_id": "7166bd2e-6cbe-4bd9-be38-762d11003e7f",
     }],
 }
 

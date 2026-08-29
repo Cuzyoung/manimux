@@ -3,7 +3,7 @@ set -euo pipefail
 
 DATA_ROOT=/inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data
 CODE_ROOT=/inspire/hdd2/project/liu-ming-huan/public/ziyang/manimux
-RUN_NAME=${PI05_RUN_NAME:-assemble-screwdriver-pi05-8xh100-b64-15k-20260829-v1}
+RUN_NAME=${PI05_RUN_NAME:-assemble-screwdriver-pi05-8xh100-b64-15k-20260829-v2}
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export UV_PYTHON=${DATA_ROOT}/envs/uv-python/cpython-3.11-linux-x86_64-gnu/bin/python
