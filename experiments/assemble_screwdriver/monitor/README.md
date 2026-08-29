@@ -4,7 +4,7 @@ The monitor is a sidecar. It does not change any training process or optimizer.
 LingBot-VLA2 and XR-1 already emit TensorBoard events. The sidecar mirrors Pi05's
 stdout `loss`, `grad_norm`, and `param_norm` into the same dashboard.
 
-From the ManiMux repository root on the local workstation:
+From the shared training-code checkout on the CPU server:
 
 ```bash
 ./training_dashboard.sh
@@ -32,12 +32,11 @@ these primary curves:
 - XR-1 flow matching: `train/loss_mse`
 - GR00T N1.7: `training/loss`
 
-The GR00T checkpoint downloader waits for complete deployment bundles and then
-resumes each file into the local checkpoint directory. It intentionally omits
-DeepSpeed optimizer shards, which are only needed for resuming training:
+All training outputs and inference bundles stay under:
 
-```bash
-python experiments/assemble_screwdriver/monitor/download_gr00t_checkpoints.py \
-  --remote-root /inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data/weights/finetuned/gr00t-n17/assemble-screwdriver-gr00t-n17-4xh100-3k-20260829-v1 \
-  --local-root /home/ubuntu/manimux/checkpoints/finetuned/gr00t-n17/assemble-screwdriver-20260829-v1
+```text
+/inspire/hdd2/project/liu-ming-huan/public/ziyang/yam_fintune_data/weights
 ```
+
+The dashboard reads the shared run directories directly. No checkpoint download
+to `/home/ubuntu/manimux` is part of the current training workflow.

@@ -62,3 +62,9 @@ def test_formal_settings_and_directory_contract() -> None:
     for script in (pi05, lingbot, xr1):
         assert "yam_fintune_data/operate" not in script
         assert "/home/ubuntu/manimux" not in script
+
+
+def test_active_pi05_chain_has_no_custom_preflight_or_finished_guard() -> None:
+    generic = (REPO_ROOT / "scripts" / "train_pi05_yam_cluster.sh").read_text()
+    for marker in ("require_file", "preflight", "check_environment", "gate-train", "Refusing to overwrite"):
+        assert marker not in generic

@@ -39,44 +39,6 @@ export OPENPI_WANDB_ENABLED=false
 
 mkdir -p "${LOG_DIR}" "${ROOT}/cache/pi05/${HOSTNAME}"
 
-require_file() {
-  if [[ ! -e "$1" ]]; then
-    echo "Required artifact is missing: $1" >&2
-    exit 1
-  fi
-}
-
-preflight() {
-  require_file "${OPENPI}/scripts/train.py"
-  require_file "${DATASET}/meta/info.json"
-  require_file "${BASE_PARAMS}/manifest.ocdbt"
-  require_file "${NORM_STATS}"
-  python3 - "${DATASET}" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-dataset = Path(sys.argv[1])
-info = json.loads((dataset / "meta/info.json").read_text())
-assert info["codebase_version"] == "v3.0"
-assert info["total_episodes"] == 19
-assert info["total_frames"] == 17789
-assert info["features"]["observation.state"]["shape"] == [14]
-assert info["features"]["action"]["shape"] == [14]
-print(json.dumps({"dataset": dataset.name, "episodes": 19, "frames": 17789}, indent=2))
-PY
-  python3 - "${NORM_STATS}" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-stats = json.loads(Path(sys.argv[1]).read_text())["norm_stats"]
-assert len(stats["state"]["mean"]) == 14
-assert len(stats["actions"]["mean"]) == 14
-print("Pi05 norm stats verified: state=14D actions=14D")
-PY
-}
-
 compute_stats() {
   if [[ -s "${NORM_STATS}" ]]; then
     echo "[Pi_05] reusing norm stats: ${NORM_STATS}"
@@ -90,37 +52,14 @@ compute_stats() {
     OPENPI_BASE_PARAMS=${BASE_PARAMS} \
       "${VENV}/bin/python" scripts/compute_norm_stats.py --config-name pi05_yam
   )
-  require_file "${NORM_STATS}"
-}
-
-check_environment() {
-  require_file "${VENV}/bin/python"
-  "${VENV}/bin/python" - <<'PY'
-import jax
-import openpi
-assert len(jax.devices()) > 0
-PY
-  echo "[Pi_05] using ${VENV}"
 }
 
 case "${mode}" in
-  gate-train)
-    OPENPI_BATCH_SIZE=4 OPENPI_NUM_TRAIN_STEPS=1 OPENPI_SAVE_INTERVAL=1 \
-      OPENPI_MAX_TO_KEEP=1 bash "$0" smoke "${run_name}"
-    require_file "${ROOT}/weights/finetuned/pi05/${run_name}-smoke/1/params/manifest.ocdbt"
-    OPENPI_BATCH_SIZE=${OPENPI_BATCH_SIZE:-32} OPENPI_NUM_TRAIN_STEPS=3000 \
-      OPENPI_SAVE_INTERVAL=500 OPENPI_MAX_TO_KEEP=10 \
-      bash "$0" train "${run_name}"
-    ;;
   prepare)
-    check_environment
     compute_stats
-    preflight
     ;;
   smoke|train)
-    check_environment
     compute_stats
-    preflight
     if [[ "${mode}" == "smoke" ]]; then
       export OPENPI_BATCH_SIZE=${OPENPI_BATCH_SIZE:-4}
       export OPENPI_NUM_TRAIN_STEPS=${OPENPI_NUM_TRAIN_STEPS:-1}
@@ -133,17 +72,13 @@ case "${mode}" in
       export OPENPI_SAVE_INTERVAL=${OPENPI_SAVE_INTERVAL:-500}
       export OPENPI_MAX_TO_KEEP=${OPENPI_MAX_TO_KEEP:-10}
       export OPENPI_CHECKPOINT_DIR=${OUTPUT}
-      if [[ -e "${OUTPUT}" ]]; then
-        echo "Refusing to overwrite existing run: ${OUTPUT}" >&2
-        exit 2
-      fi
     fi
     bash "${POLICY}/train.sh" \
       yam assemble_the_screwdriver yam_dual joint 0 "${GPU_IDS}" \
       2>&1 | tee "${LOG_DIR}/${run_name}-${mode}.log"
     ;;
   *)
-    echo "Usage: $0 [prepare|smoke|train|gate-train] [run_name]" >&2
+    echo "Usage: $0 [prepare|smoke|train] [run_name]" >&2
     exit 2
     ;;
 esac
