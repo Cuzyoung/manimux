@@ -186,6 +186,13 @@ class XPolicyLabWsPolicyModel:
             instruction=request.instruction,
             frequency=self._frequency,
         )
+        # Embodiment adapters (e.g. sapolicy_yam) may attach EE poses / intrinsics
+        # that the generic joint-state codec does not carry.
+        extra_info = getattr(request, "xpolicylab_additional_info", None)
+        if isinstance(extra_info, Mapping) and extra_info:
+            merged = dict(observation.get("additional_info") or {})
+            merged.update(dict(extra_info))
+            observation["additional_info"] = merged
         condition = getattr(request, "action_condition", None)
         weights = getattr(request, "condition_weights", None)
         if (condition is None) != (weights is None):

@@ -1,16 +1,29 @@
-# Real SAPolicy + real front camera + mock robot.
-# This is the mandatory no-motion gate before the hardware config.
+# SAPolicy bottles via XPolicyLab WebSocket.
+#
+# Prerequisites:
+#   1. SpatialAlign venv running:
+#        python scripts/sapolicy_yam_server.py --config configs/sapolicy/yam/server/abc-bottles.yaml
+#   2. camera server + viewer as in docs/sapolicy-yam-runbook.md
+#
+# Safety: connects paused when viewer.enabled; operator must Start at the robot.
 run:
   task: put the plastic bottles in the bin
-  output_dir: /home/ubuntu/sa/rollouts/sapolicy_preflight
-  max_steps: 90
+  output_dir: ./data
+  max_steps: 1800
 
 robot:
-  driver: mock_dual_arm
+  driver: yam_dual
+  config: configs/robots/yam_left.yaml
   control_hz: 30.0
   group_dims:
     left_arm: 7
     right_arm: 7
+  options:
+    right_config: configs/robots/yam_right.yaml
+    move_to_start_on_connect: false
+    start_duration_s: 8.0
+    home_duration_s: 5.0
+    home_on_close: true
 
 sensors:
   - name: yam_cameras
@@ -19,27 +32,28 @@ sensors:
       endpoint: tcp://127.0.0.1:5555
       request_timeout_ms: 500
       max_frame_age_sec: 0.5
-      camera_names: [front_camera, left_camera, right_camera]
+      camera_names: [front_camera]
 
 policy:
-  worker: sapolicy_tcp
+  worker: xpolicylab_ws
   adapter: sapolicy_yam
   action_dt_s: 0.03333333333333333
   timeout_s: 20.0
   horizon_steps: 16
   inference_delay_s: 0.0
   startup_timeout_s: 180.0
-  expected_backend:
-    server: sapolicy_manimux_v1
-    model:
-      wire_action_dim: 16
-      horizon_steps: 16
   options:
-    host: 127.0.0.1
-    port: 9977
+    server: ws://127.0.0.1:8500
     connect_timeout_s: 5.0
     request_timeout_s: 20.0
     group_order: [left_arm, right_arm]
+    group_prefixes:
+      left_arm: left
+      right_arm: right
+    gripper_dofs: 1
+    # XPolicy vision key = SAPolicy camera name; value = ManiMux sensor frame.
+    camera_map:
+      agentview: front_camera
     model_from_kinematics:
       left_arm:
         - [1.0, 0.0000036732, 0.0000036732, 0.2522021]
@@ -51,40 +65,12 @@ policy:
         - [-0.0000036732, 1.0, -0.0000053072, -0.3099996578]
         - [-0.0000036732, 0.0000053072, 1.0, 0.7504985942]
         - [0.0, 0.0, 0.0, 1.0]
-    camera_map:
-      top: front_camera
-      left: left_camera
-      right: right_camera
     camera_intrinsics:
-      top:
+      agentview:
         - [394.7972412109375, 0.0, 317.49383544921875]
         - [0.0, 394.2569885253906, 241.21372985839844]
         - [0.0, 0.0, 1.0]
-      left:
-        - [394.2466125488281, 0.0, 319.2265930175781]
-        - [0.0, 393.6261901855469, 241.67579650878906]
-        - [0.0, 0.0, 1.0]
-      right:
-        - [394.0639953613281, 0.0, 321.9771728515625]
-        - [0.0, 393.66046142578125, 244.92794799804688]
-        - [0.0, 0.0, 1.0]
-    # ABC recordings and YAM expose 0=closed, 1=open; policy output is
-    # unnormalized back to that same range before it reaches this adapter.
-    gripper_transforms:
-      left_arm:
-        scale: 1.0
-        offset: 0.0
-        robot_min: 0.0
-        robot_max: 1.0
-        clip_output: false
-      right_arm:
-        scale: 1.0
-        offset: 0.0
-        robot_min: 0.0
-        robot_max: 1.0
-        clip_output: false
-    server_tcp_forward_offset_m: 0.12
-    requires_depth: false
+    endpose_forward_offset_m: 0.12
     kinematics: yam
     kinematics_options:
       arm_type: yam
@@ -104,8 +90,10 @@ execution:
   blend_steps: 0
 
 viewer:
-  enabled: false
-  policy_label: SAPolicy bottles preflight
+  enabled: true
+  robot_adapter: yam
+  policy_label: SAPolicy bottles · XPolicyLab WS
 
 recording:
   enabled: true
+  video_fps: 30.0

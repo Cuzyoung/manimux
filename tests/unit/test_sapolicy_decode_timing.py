@@ -5,7 +5,13 @@ import pytest
 
 import manimux.kinematics
 from manimux.config import load_config
-from manimux.integrations.sapolicy_yam.policy_plugin import SAPolicyYamAdapter
+from manimux.integrations.sapolicy_yam.policy_plugin import (
+    ARM_JOINTS,
+    GROUP_DIM,
+    WIRE_ACTION_DIM,
+    SAPolicyYamAdapter,
+    _pose_to_wire_endpose,
+)
 from manimux.types import (
     ActionContext,
     InferenceRequest,
@@ -14,7 +20,7 @@ from manimux.types import (
     SensorFrame,
 )
 
-CONFIG = "configs/sapolicy/yam/infra/real-hardware.yaml"
+CONFIG = "configs/sapolicy/yam/infra/manimux-xpl.yaml"
 
 
 class _FakeKinematics:
@@ -22,7 +28,6 @@ class _FakeKinematics:
 
     def __init__(self) -> None:
         self.fail_x: list[float] = []
-        self.low_margin_x: list[float] = []
         self.ik_calls: list[tuple[np.ndarray, np.ndarray]] = []
 
     def fk(self, joints, gripper):
@@ -45,22 +50,9 @@ class _FakeKinematics:
         )
         return converged, solved
 
-    def pose_error(self, target, joints, gripper):
-        actual = self.fk(joints, gripper)
-        return float(np.linalg.norm(actual[:3, 3] - target[:3, 3])), 0.0
 
-    def joint_limit_margins(self, joints):
-        values = np.asarray(joints, dtype=np.float64)
-        margins = np.ones(6, dtype=np.float64)
-        if any(np.isclose(values[0], value, atol=1e-8) for value in self.low_margin_x):
-            margins[3] = 0.01
-        return margins
-
-
-def _build_adapter(monkeypatch, *, margin: float = 0.0):
+def _build_adapter(monkeypatch):
     config = load_config(CONFIG)
-    config.policy.options["min_valid_horizon_steps"] = 4
-    config.policy.options["joint_limit_margin_rad"] = margin
     fake = _FakeKinematics()
     monkeypatch.setattr(
         manimux.kinematics,
@@ -101,7 +93,21 @@ def _wire_actions(adapter: SAPolicyYamAdapter) -> np.ndarray:
         packed[step, 7] = -0.2 - step * 0.01
         packed[step, 8] = -0.2
         packed[step, 13] = 0.5
-    return adapter._joint_prefix_to_wire(packed)
+    wire = np.empty((len(packed), WIRE_ACTION_DIM), dtype=np.float64)
+    for step, row in enumerate(packed):
+        packed_offset = 0
+        wire_offset = 0
+        for group in adapter._group_order:
+            state = row[packed_offset : packed_offset + GROUP_DIM]
+            local_pose = adapter._kinematics.fk(state[:ARM_JOINTS], float(state[-1]))
+            model_pose = adapter._model_from_kinematics[group] @ local_pose
+            wire[step, wire_offset : wire_offset + 7] = _pose_to_wire_endpose(
+                model_pose, adapter._server_offset_m
+            )
+            wire[step, wire_offset + 7] = float(state[-1])
+            packed_offset += GROUP_DIM
+            wire_offset += 8
+    return wire
 
 
 def _anchor(adapter: SAPolicyYamAdapter, seq: int, snapshot: ObservationSnapshot) -> None:
@@ -116,15 +122,13 @@ def _anchor(adapter: SAPolicyYamAdapter, seq: int, snapshot: ObservationSnapshot
     )
 
 
-def test_sapolicy_discards_expired_source_steps_before_ik(monkeypatch) -> None:
+def test_sapolicy_seeds_ik_from_measured_state(monkeypatch) -> None:
     adapter, fake = _build_adapter(monkeypatch)
     observation_ns = 1_000_000_000
     snapshot = _snapshot(observation_ns)
     _anchor(adapter, 1, snapshot)
     actions = _wire_actions(adapter)
     fake.ik_calls.clear()
-    # These targets would fail if the adapter still solved the stale prefix.
-    fake.fail_x = [0.0, 0.01, 0.02, -0.2, -0.21, -0.22]
 
     chunk = adapter.decode_action(
         actions,
@@ -141,25 +145,20 @@ def test_sapolicy_discards_expired_source_steps_before_ik(monkeypatch) -> None:
         ),
     )
 
-    assert chunk.horizon_steps == 13
-    assert chunk.observation_time_ns == observation_ns
-    assert chunk.source_offset_steps == 3
-    assert chunk.metadata["adapter_source_offset_steps"] == 3
-    assert chunk.metadata["adapter_ik_valid_steps"] == 13
-    assert fake.ik_calls[0][0][0, 3] == pytest.approx(0.03)
+    assert chunk.horizon_steps == 16
+    assert chunk.source_offset_steps == 0
     assert fake.ik_calls[0][1][0] == pytest.approx(0.8)
-    assert fake.ik_calls[1][0][0, 3] == pytest.approx(-0.23)
-    assert fake.ik_calls[1][1][0] == pytest.approx(-0.8)
+    assert fake.ik_calls[16][1][0] == pytest.approx(-0.8)
 
 
-def test_sapolicy_keeps_only_dual_arm_common_valid_prefix(monkeypatch) -> None:
+def test_sapolicy_holds_last_good_when_ik_fails(monkeypatch) -> None:
     adapter, fake = _build_adapter(monkeypatch)
     observation_ns = 2_000_000_000
     snapshot = _snapshot(observation_ns)
     _anchor(adapter, 2, snapshot)
     actions = _wire_actions(adapter)
     fake.ik_calls.clear()
-    fake.fail_x = [-0.26]
+    fake.fail_x = [0.06]
 
     chunk = adapter.decode_action(
         actions,
@@ -171,60 +170,8 @@ def test_sapolicy_keeps_only_dual_arm_common_valid_prefix(monkeypatch) -> None:
         ),
     )
 
-    assert chunk.horizon_steps == 6
-    assert chunk.groups["left_arm"].shape == (6, 7)
-    assert chunk.groups["right_arm"].shape == (6, 7)
-    assert chunk.metadata["adapter_ik_truncated"] is True
-    assert "right_arm" in chunk.metadata["adapter_ik_truncation_reason"]
-    assert "source step 6" in chunk.metadata["adapter_ik_truncation_reason"]
-
-
-def test_sapolicy_rejects_prefix_shorter_than_configured_minimum(monkeypatch) -> None:
-    adapter, fake = _build_adapter(monkeypatch)
-    observation_ns = 3_000_000_000
-    snapshot = _snapshot(observation_ns)
-    _anchor(adapter, 3, snapshot)
-    actions = _wire_actions(adapter)
-    fake.ik_calls.clear()
-    fake.fail_x = [0.02]
-
-    with pytest.raises(ValueError, match="common_valid_prefix_steps=2") as exc_info:
-        adapter.decode_action(
-            actions,
-            ActionContext(
-                request_seq=3,
-                observation_time_ns=observation_ns,
-                created_time_ns=observation_ns + 100,
-                measured_state=snapshot.state,
-            ),
-        )
-
-    message = str(exc_info.value)
-    assert "source step 2" in message
-    assert "position_error_m=" in message
-    assert "joint_limit_margin_rad=" in message
-
-
-def test_sapolicy_truncates_before_joint_limit_margin(monkeypatch) -> None:
-    adapter, fake = _build_adapter(monkeypatch, margin=0.05)
-    observation_ns = 4_000_000_000
-    snapshot = _snapshot(observation_ns)
-    _anchor(adapter, 4, snapshot)
-    actions = _wire_actions(adapter)
-    fake.ik_calls.clear()
-    fake.low_margin_x = [0.08]
-
-    chunk = adapter.decode_action(
-        actions,
-        ActionContext(
-            request_seq=4,
-            observation_time_ns=observation_ns,
-            created_time_ns=observation_ns + 100,
-            measured_state=snapshot.state,
-        ),
-    )
-
-    assert chunk.horizon_steps == 8
-    reason = chunk.metadata["adapter_ik_truncation_reason"]
-    assert "joint J4 margin 0.010000 rad" in reason
-    assert "below 0.050000 rad" in reason
+    assert chunk.horizon_steps == 16
+    assert chunk.groups["left_arm"].shape == (16, 7)
+    assert chunk.groups["right_arm"].shape == (16, 7)
+    np.testing.assert_allclose(chunk.groups["left_arm"][6, 0], chunk.groups["left_arm"][5, 0])
+    assert chunk.groups["left_arm"][7, 0] == pytest.approx(0.07)

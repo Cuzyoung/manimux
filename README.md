@@ -209,7 +209,7 @@ Status: ✅ running · 🧪 experimental · 🚧 not deployable yet · 🔌 infr
 | ✅ | GR00T N1.7 + YAM | 16 × 14 absolute joint positions | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
 | ✅ | XR-1 + YAM | `30×60` EE delta → `30×14` joints | `configs/xiaomi-xr1/yam/` | [Runbook](docs/xiaomi-xr1-yam-runbook.md) |
 | ✅ | LingBot-VLA2 + YAM | `50×14` joints; limited base capability | `configs/lingbot-vla2/yam/` | [Runbook](docs/lingbot-vla2-yam-runbook.md) |
-| 🔌 | Private SAPolicy + YAM | absolute dual-EE chunk → YAM joint chunk; offline contract only | `configs/sapolicy/yam/` | [Runbook](docs/sapolicy-yam-runbook.md) |
+| 🔌 | SAPolicy + YAM (XPolicyLab WS) | absolute dual-EE → YAM joints via `sapolicy_yam` | `configs/sapolicy/yam/` | [Runbook](docs/sapolicy-yam-runbook.md) |
 | 🧪 | Cosmos3 DROID | `32×8` single-arm absolute joints; offline only | `XPolicyLab/policy/Cosmos3/` | [Offline runbook](docs/cosmos3-offline-runbook.md) |
 | 🔌 | XPolicy bridge | Observation/action wire contract | `configs/xpolicylab/yam/` | [Runbook](docs/xpolicylab-runbook.md) |
 

@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+import time
+
+import numpy as np
+
+from manimux.config import load_config
+from manimux.integrations.sapolicy_yam.policy_plugin import (
+    SAPolicyXPolicyRequest,
+    build_adapter,
+)
+from manimux.types import ObservationSnapshot, RobotState, SensorFrame
+
+CONFIG = "configs/sapolicy/yam/infra/manimux-xpl.yaml"
+
+
+def _snapshot(now_ns: int) -> ObservationSnapshot:
+    return ObservationSnapshot(
+        state=RobotState(
+            groups={
+                "left_arm": np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5]),
+                "right_arm": np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5]),
+            },
+            monotonic_ns=now_ns,
+            sequence=1,
+        ),
+        frames={
+            "front_camera": SensorFrame(
+                name="front_camera",
+                data=np.zeros((48, 64, 3), dtype=np.uint8),
+                capture_monotonic_ns=now_ns,
+                sequence=1,
+            )
+        },
+    )
+
+
+def test_sapolicy_xpl_infra_uses_ws_transport() -> None:
+    config = load_config(CONFIG)
+    assert config.policy.worker == "xpolicylab_ws"
+    assert config.policy.adapter == "sapolicy_yam"
+    assert config.policy.horizon_steps == 16
+
+
+def test_sapolicy_adapter_prepares_xpolicylab_additional_info() -> None:
+    config = load_config(CONFIG)
+    adapter = build_adapter(config.robot, config.policy)
+    now_ns = time.monotonic_ns()
+    from manimux.types import InferenceRequest
+
+    prepared = adapter.prepare_request(
+        InferenceRequest(
+            session_id="session",
+            request_seq=1,
+            observation_time_ns=now_ns,
+            deadline_ns=now_ns + 1_000_000_000,
+            observation=_snapshot(now_ns),
+            instruction="put bottles in bin",
+        )
+    )
+
+    assert isinstance(prepared, SAPolicyXPolicyRequest)
+    sap = prepared.xpolicylab_additional_info["sapolicy"]
+    assert np.asarray(sap["left_endpose"]).shape == (7,)
+    assert np.asarray(sap["right_endpose"]).shape == (7,)
+    assert np.asarray(sap["intrinsics"]["agentview"]).shape == (3, 3)
