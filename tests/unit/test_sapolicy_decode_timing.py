@@ -37,6 +37,9 @@ class _FakeKinematics:
         pose[1, 3] = float(np.asarray(joints)[1])
         return pose
 
+    def clip_arm_joints(self, joints):
+        return np.asarray(joints, dtype=np.float64).reshape(-1).copy()
+
     def ik(self, target, seed, gripper):
         del gripper
         target = np.asarray(target, dtype=np.float64)
@@ -101,9 +104,7 @@ def _wire_actions(adapter: SAPolicyYamAdapter) -> np.ndarray:
             state = row[packed_offset : packed_offset + GROUP_DIM]
             local_pose = adapter._kinematics.fk(state[:ARM_JOINTS], float(state[-1]))
             model_pose = adapter._model_from_kinematics[group] @ local_pose
-            wire[step, wire_offset : wire_offset + 7] = _pose_to_wire_endpose(
-                model_pose, adapter._server_offset_m
-            )
+            wire[step, wire_offset : wire_offset + 7] = _pose_to_wire_endpose(model_pose)
             wire[step, wire_offset + 7] = float(state[-1])
             packed_offset += GROUP_DIM
             wire_offset += 8

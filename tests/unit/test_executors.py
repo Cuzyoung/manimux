@@ -156,6 +156,40 @@ def test_command_safety_uses_true_per_joint_position_bounds() -> None:
         )
 
 
+def test_command_safety_allows_milliradian_joint_slop() -> None:
+    guard = _per_joint_safety_guard()
+    state = RobotState(
+        groups={
+            "left_arm": np.array([-1.0, 0.5]),
+            "right_arm": np.array([0.0, 0.5]),
+        },
+        monotonic_ns=0,
+        sequence=0,
+    )
+    guard.reset(state)
+    guard.validate_command(
+        RobotCommand(
+            groups={
+                "left_arm": np.array([-1.0 - 8.5e-4, 0.5]),
+                "right_arm": np.array([0.0, 0.5]),
+            },
+            monotonic_ns=100_000_000,
+            plan_id="encoder-slop",
+        )
+    )
+    with pytest.raises(ValueError, match="joint 0 position -1.010000"):
+        guard.validate_command(
+            RobotCommand(
+                groups={
+                    "left_arm": np.array([-1.01, 0.5]),
+                    "right_arm": np.array([0.0, 0.5]),
+                },
+                monotonic_ns=200_000_000,
+                plan_id="real-excursion",
+            )
+        )
+
+
 def test_command_safety_checks_velocity_and_acceleration_after_reset() -> None:
     guard = _per_joint_safety_guard()
     state = RobotState(

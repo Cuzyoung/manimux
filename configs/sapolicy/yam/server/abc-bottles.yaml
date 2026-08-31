@@ -1,13 +1,9 @@
-# XPolicyLab SAPolicy server for the dual-arm bottles checkpoint.
+# XPolicyLab SAPolicy server for the dual-arm 3cam TCP bottles checkpoint.
 #
-# Launch inside the SpatialAlignVLA Python environment after:
+# Launch inside the SpatialAlignPolicy Python environment after:
 #   pip install -e XPolicyLab
 #
 #   python scripts/sapolicy_yam_server.py --config configs/sapolicy/yam/server/abc-bottles.yaml
-#
-# cfg_file MUST match the architecture used to train abc_tcp.ckpt. The checkpoint
-# itself does not embed a full Hydra config — set this before first real load.
-# Until then, dry_run: true exercises the WS contract with zero actions.
 
 policy_name: SAPolicy
 protocol: ws
@@ -19,18 +15,21 @@ env_cfg_type: yam_dual
 action_type: ee
 eval_batch: false
 
-sapolicy_root: /home/jw/project/SpatialAlignVLA
-# TODO: replace with the training yaml that built abc_tcp.ckpt
-cfg_file: /home/jw/project/SpatialAlignVLA/configs/exps/PLACEHOLDER_MATCHING_abc_tcp.yaml
-model_path: /home/jw/Desktop/project/manimux/abc_tcp.ckpt
+sapolicy_root: /home/ubuntu/sa/SpatialAlignPolicy
+cfg_file: /home/ubuntu/sa/checkpoints/sapolicy/dinov2lfrz_yam_bottles_realsim_top_tcp_dit_8gpu_bs256/training_source/configs/deploy/yam_bottles_3cam_tcp.yaml
+model_path: /home/ubuntu/manimux/3cam_tcp.ckpt
+workspace: /home/ubuntu/sa
+backbone_path: /home/ubuntu/sa/dinov2_vitl14_pretrain.pth
+normalizer_path: /home/ubuntu/sa/checkpoints/sapolicy/dinov2lfrz_yam_bottles_realsim_top_tcp_dit_8gpu_bs256/bottles_norm_stats_real.pt
 
 output_format: packed_ee_wire
 action_horizon: 16
 body_frame_actions: true
+# ABC TCP / YAM grasp_site on the wire; do not apply RoboTwin's 0.12 m offset.
+tcp_forward_offset_m: 0.0
 use_ema: true
 ckpt_type: ema
-camera_names: [agentview]
+camera_names: [top, left, right]
 device: cuda:0
-
-# Set false after cfg_file points at a real matching config.
-dry_run: true
+warmup_iterations: 3
+dry_run: false

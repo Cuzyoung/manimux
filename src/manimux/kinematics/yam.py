@@ -184,6 +184,16 @@ class YamKinematics:
                 lower[qpos_index], upper[qpos_index] = self.model.jnt_range[joint_id]
         return lower, upper
 
+    def clip_arm_joints(self, joints: FloatArray) -> FloatArray:
+        """Project arm joints onto the model's finite position limits."""
+        values = np.asarray(joints, dtype=np.float64).reshape(-1)
+        if values.shape != (self._num_arm_joints,) or not np.isfinite(values).all():
+            raise ValueError(
+                f"expected {self._num_arm_joints} finite arm joints, got {values.shape}"
+            )
+        lower, upper = self.joint_position_limits()
+        return np.clip(values, lower, upper)
+
     def joint_limit_margins(self, joints: FloatArray) -> FloatArray:
         """Signed distance from each arm joint to its nearest position limit."""
         values = np.asarray(joints, dtype=np.float64).reshape(-1)
@@ -263,4 +273,6 @@ class YamKinematics:
                 max_iters=self._max_iters,
             )
         joints = np.asarray(qpos, dtype=np.float64)[: self._num_arm_joints].copy()
-        return bool(converged), joints
+        # mink's ConfigurationLimit still leaks ~1 mrad past a stop; clip so the
+        # commanded joints stay inside the same range SafetyGuard enforces.
+        return bool(converged), self.clip_arm_joints(joints)

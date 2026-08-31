@@ -49,7 +49,6 @@ policy:
         - [394.7972412109375, 0.0, 317.49383544921875]
         - [0.0, 394.2569885253906, 241.21372985839844]
         - [0.0, 0.0, 1.0]
-    endpose_forward_offset_m: 0.12
     kinematics: yam
     kinematics_options:
       arm_type: yam

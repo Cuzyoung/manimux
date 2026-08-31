@@ -20,7 +20,7 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INFRA = REPO_ROOT / "configs/sapolicy/yam/infra/mock.yaml"
-DEFAULT_SERVER = REPO_ROOT / "configs/sapolicy/yam/server/abc-bottles.yaml"
+DEFAULT_SERVER = REPO_ROOT / "configs/sapolicy/yam/server/mock.yaml"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8500
 

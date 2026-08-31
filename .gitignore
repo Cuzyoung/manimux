@@ -13,3 +13,5 @@ checkpoints/finetuned/
 configs/robots/maniunicon_meshcat_dual.yaml
 recordings/
 logs/
+/3cam_tcp.ckpt
+*.ckpt

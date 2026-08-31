@@ -2,8 +2,8 @@
 
 ManiMux uses ``worker: xpolicylab_ws`` plus this adapter. The adapter owns
 embodiment knowledge: camera aliases, calibrated intrinsics, YAM FK/IK,
-RoboTwin-compatible 0.12 m endpose offset, and conversion of absolute EE
-wire actions into canonical joint-position ``ActionChunk`` values.
+and conversion of absolute EE wire actions into canonical joint-position
+``ActionChunk`` values. Wire poses are the YAM grasp-site / ABC TCP frame.
 
 Gripper is the same normalized ``[0, 1]`` stroke as YAM. Model loading lives
 in ``XPolicyLab.policy.SAPolicy``.
@@ -113,54 +113,25 @@ def _parse_model_frame_transforms(
     raw = options.get("model_from_kinematics")
     if raw is None:
         return {group: np.eye(4, dtype=np.float64) for group in group_order}
-    if not isinstance(raw, dict) or set(raw) != set(group_order):
-        raise ValueError(
-            "policy.options.model_from_kinematics must contain exactly "
-            f"{list(group_order)}"
-        )
-    result: dict[str, np.ndarray] = {}
-    for group in group_order:
-        transform = np.asarray(raw[group], dtype=np.float64)
-        if transform.shape != (4, 4) or not np.isfinite(transform).all():
-            raise ValueError(
-                f"model_from_kinematics for {group!r} must be a finite 4x4 matrix"
-            )
-        if not np.allclose(transform[3], [0.0, 0.0, 0.0, 1.0], atol=1e-9):
-            raise ValueError(
-                f"model_from_kinematics for {group!r} must have homogeneous last row"
-            )
-        rotation = transform[:3, :3]
-        if not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-6) or not np.isclose(
-            np.linalg.det(rotation), 1.0, atol=1e-6
-        ):
-            raise ValueError(
-                f"model_from_kinematics for {group!r} must contain an SO(3) rotation"
-            )
-        result[group] = np.ascontiguousarray(transform)
-    return result
+    return {
+        group: np.ascontiguousarray(raw[group], dtype=np.float64)
+        for group in group_order
+    }
 
 
-def _pose_to_wire_endpose(pose: np.ndarray, offset_m: float) -> np.ndarray:
-    """FK pose → grasp-site ``pos3 + quat_xyzw`` (scipy convention)."""
+def _pose_to_wire_endpose(pose: np.ndarray) -> np.ndarray:
+    """FK grasp-site pose → ``pos3 + quat_xyzw`` (scipy convention)."""
     pose = np.asarray(pose, dtype=np.float64)
-    if pose.shape != (4, 4) or not np.isfinite(pose).all():
-        raise ValueError(f"SAPolicy FK pose must be a finite 4x4 matrix, got {pose.shape}")
-    rotation = pose[:3, :3]
-    position = pose[:3, 3] - rotation @ np.array([offset_m, 0.0, 0.0])
-    quaternion_xyzw = Rotation.from_matrix(rotation).as_quat()
-    return np.concatenate([position, quaternion_xyzw]).astype(np.float64)
+    quaternion_xyzw = Rotation.from_matrix(pose[:3, :3]).as_quat()
+    return np.concatenate([pose[:3, 3], quaternion_xyzw]).astype(np.float64)
 
 
-def _wire_endpose_to_pose(endpose: np.ndarray, offset_m: float) -> np.ndarray:
-    """Grasp-site ``pos3 + quat_xyzw`` → 4x4 pose for local-arm IK."""
+def _wire_endpose_to_pose(endpose: np.ndarray) -> np.ndarray:
+    """``pos3 + quat_xyzw`` → 4x4 grasp-site pose for local-arm IK."""
     values = np.asarray(endpose, dtype=np.float64).reshape(-1)
-    if values.shape != (7,) or not np.isfinite(values).all():
-        raise ValueError(f"SAPolicy endpose must have 7 finite values, got {values.shape}")
-    quaternion_xyzw = values[3:7]
-    rotation = Rotation.from_quat(quaternion_xyzw).as_matrix()
     pose = np.eye(4, dtype=np.float64)
-    pose[:3, :3] = rotation
-    pose[:3, 3] = values[:3] + rotation @ np.array([offset_m, 0.0, 0.0])
+    pose[:3, :3] = Rotation.from_quat(values[3:7]).as_matrix()
+    pose[:3, 3] = values[:3]
     return pose
 
 
@@ -186,11 +157,6 @@ class SAPolicyYamAdapter:
             group: np.linalg.inv(transform)
             for group, transform in self._model_from_kinematics.items()
         }
-        self._server_offset_m = float(
-            policy.options.get("endpose_forward_offset_m", 0.12)
-        )
-        if self._server_offset_m < 0 or not np.isfinite(self._server_offset_m):
-            raise ValueError("policy.options.endpose_forward_offset_m must be finite and >= 0")
 
         kinematics_name = _string_option(policy.options, "kinematics", "yam")
         kinematics_options = policy.options.get("kinematics_options", {})
@@ -227,9 +193,7 @@ class SAPolicyYamAdapter:
             state = np.asarray(snapshot.state.groups[group], dtype=np.float64)
             local_pose = self._kinematics.fk(state[:ARM_JOINTS], float(state[-1]))
             pose = self._model_from_kinematics[group] @ local_pose
-            payload[f"{side}_endpose"] = _pose_to_wire_endpose(
-                pose, self._server_offset_m
-            )
+            payload[f"{side}_endpose"] = _pose_to_wire_endpose(pose)
             payload[f"{side}_gripper"] = float(state[-1])
 
         model_cameras = tuple(self._camera_map)
@@ -306,16 +270,16 @@ class SAPolicyYamAdapter:
     ) -> np.ndarray:
         horizon = actions.shape[0]
         out = np.empty((horizon, GROUP_DIM), dtype=np.float64)
-        current = np.asarray(seed, dtype=np.float64).copy()
+        current = self._kinematics.clip_arm_joints(seed)
         failures = 0
         for step, row in enumerate(actions):
             gripper = float(row[7])
-            model_target = _wire_endpose_to_pose(row[:7], self._server_offset_m)
+            model_target = _wire_endpose_to_pose(row[:7])
             target = self._kinematics_from_model[group] @ model_target
             converged, raw_solved = self._kinematics.ik(target, current, float(gripper))
             solved = np.asarray(raw_solved, dtype=np.float64)
             if converged and solved.shape == (ARM_JOINTS,) and np.isfinite(solved).all():
-                current = solved
+                current = self._kinematics.clip_arm_joints(solved)
             else:
                 failures += 1
             out[step, :ARM_JOINTS] = current

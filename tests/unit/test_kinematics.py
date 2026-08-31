@@ -98,3 +98,12 @@ def test_fk_matches_the_recorded_episode_convention(yam) -> None:
 def test_ik_rejects_a_malformed_target(yam) -> None:
     with pytest.raises(ValueError, match="4x4"):
         yam.ik(np.eye(3), START_JOINTS, 0.5)
+
+
+def test_clip_arm_joints_projects_mink_overshoot_onto_model_stops(yam) -> None:
+    lower, upper = yam.joint_position_limits()
+    overshot = lower.copy()
+    overshot[3] = lower[3] - 8.53e-4
+    clipped = yam.clip_arm_joints(overshot)
+    assert clipped[3] == lower[3]
+    np.testing.assert_allclose(yam.clip_arm_joints(upper + 1e-3), upper)

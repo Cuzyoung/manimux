@@ -25,12 +25,13 @@ def _snapshot(now_ns: int) -> ObservationSnapshot:
             sequence=1,
         ),
         frames={
-            "front_camera": SensorFrame(
-                name="front_camera",
+            name: SensorFrame(
+                name=name,
                 data=np.zeros((48, 64, 3), dtype=np.uint8),
                 capture_monotonic_ns=now_ns,
                 sequence=1,
             )
+            for name in ("front_camera", "left_camera", "right_camera")
         },
     )
 
@@ -63,4 +64,5 @@ def test_sapolicy_adapter_prepares_xpolicylab_additional_info() -> None:
     sap = prepared.xpolicylab_additional_info["sapolicy"]
     assert np.asarray(sap["left_endpose"]).shape == (7,)
     assert np.asarray(sap["right_endpose"]).shape == (7,)
-    assert np.asarray(sap["intrinsics"]["agentview"]).shape == (3, 3)
+    assert np.asarray(sap["intrinsics"]["top"]).shape == (3, 3)
+    assert set(sap["intrinsics"]) == {"top", "left", "right"}

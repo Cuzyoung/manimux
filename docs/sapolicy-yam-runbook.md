@@ -4,9 +4,9 @@
 
 SAPolicy 经 **XPolicyLab WebSocket** 接入 ManiMux：
 
-- `XPolicyLab/policy/SAPolicy`：加载 SpatialAlign 权重并推理；
+- `XPolicyLab/policy/SAPolicy`：薄封装，推理走本机 `~/sa/SpatialAlignPolicy`；
 - ManiMux `worker: xpolicylab_ws`：通用 WS 传输；
-- ManiMux `adapter: sapolicy_yam`：相机/内参、YAM FK/IK、0.12 m endpose，以及绝对 EE wire → `joint_position ActionChunk`。
+- ManiMux `adapter: sapolicy_yam`：相机/内参、YAM FK/IK，以及绝对 EE wire → `joint_position ActionChunk`。
 
 ## 数据流
 
@@ -25,18 +25,19 @@ SpatialAlign 代码与依赖保留在独立仓库/环境；ManiMux 不 import to
 ## 启动
 
 ```bash
-# SpatialAlign venv
-cd /path/to/SpatialAlignVLA && source .venv/bin/activate
-pip install -e /path/to/manimux/XPolicyLab
-# 编辑 configs/sapolicy/yam/server/abc-bottles.yaml：填 cfg_file，dry_run: false
-python /path/to/manimux/scripts/sapolicy_yam_server.py \
-  --config configs/sapolicy/yam/server/abc-bottles.yaml
+# SpatialAlign venv（加载 3cam_tcp.ckpt）
+cd /home/ubuntu/sa/SpatialAlignPolicy && source .venv/bin/activate
+pip install -e /home/ubuntu/manimux/XPolicyLab
+python /home/ubuntu/manimux/scripts/sapolicy_yam_server.py \
+  --config /home/ubuntu/manimux/configs/sapolicy/yam/server/abc-bottles.yaml
 
-# ManiMux yam venv
-manimux run --config configs/sapolicy/yam/infra/manimux-xpl.yaml
+# 相机必须 640x480；模型内部再裁到训练分辨率
+envs/yam/.venv/bin/manimux-camera-server --config configs/sapolicy/yam/cameras.yaml
+envs/yam/.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
+envs/yam/.venv/bin/manimux run --config configs/sapolicy/yam/infra/manimux-xpl.yaml
 ```
 
-`abc_tcp.ckpt` 的 Hydra `cfg_file` 必须与训练架构一致。
+权重默认 `3cam_tcp.ckpt`（仓库根目录）。`cfg_file` 必须与该 checkpoint 的训练架构一致。
 
 ## 契约
 
@@ -50,18 +51,18 @@ manimux run --config configs/sapolicy/yam/infra/manimux-xpl.yaml
 | depth | 不支持 |
 | IK | 失败 hold 上一步；过期步由 Timeline 裁切 |
 
-RoboTwin-compatible endpose：grasp site 沿局部 `+x` 前方 0.12 m（`endpose_forward_offset_m`）。
+Wire endpose 是 YAM `grasp_site` / ABC TCP，不再做 RoboTwin 的 0.12 m 前向偏移。
 
 ## 本机 mock（无真机）
 
-`abc-bottles.yaml` 默认 `dry_run: true`，策略服务回放当前 EE（xyzw hold），不加载权重。
+无权重联调用 `server/mock.yaml`（`dry_run: true`，回放当前 EE）。
 
 ```bash
 # 缺 mink/i2rt 时脚本会把 IK 退化成 hold-seed
 python scripts/sapolicy_yam_mock_run.py
 
 # 已有 envs/yam 时也可拆成两进程
-python scripts/sapolicy_yam_server.py --config configs/sapolicy/yam/server/abc-bottles.yaml
+python scripts/sapolicy_yam_server.py --config configs/sapolicy/yam/server/mock.yaml
 envs/yam/.venv/bin/manimux run --config configs/sapolicy/yam/infra/mock.yaml
 ```
 

@@ -15,6 +15,11 @@ class RuntimeState(StrEnum):
     FAULT = "fault"
 
 
+# Mink IK and encoder quantization sit ~1 mrad past a joint stop. Abort only
+# when the command is a real excursion, not that numerical slop.
+_POSITION_LIMIT_TOLERANCE = 1e-3
+
+
 class SafetyGuard:
     def __init__(
         self,
@@ -63,9 +68,8 @@ class SafetyGuard:
 
     def _validate_positions(self, name: str, values: FloatArray, *, label: str) -> None:
         if self._position_lower:
-            tolerance = 1e-6
-            below = values < self._position_lower[name] - tolerance
-            above = values > self._position_upper[name] + tolerance
+            below = values < self._position_lower[name] - _POSITION_LIMIT_TOLERANCE
+            above = values > self._position_upper[name] + _POSITION_LIMIT_TOLERANCE
             if np.any(below | above):
                 index = int(np.flatnonzero(below | above)[0])
                 raise ValueError(
