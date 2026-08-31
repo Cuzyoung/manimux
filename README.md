@@ -334,7 +334,8 @@ copied per model. See [Architecture](docs/architecture.md) for the complete cont
 - [Pi05](docs/pi05-yam-runbook.md) · [GR00T](docs/gr00t-yam-runbook.md) · [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md)
 - [LingBot-VLA2](docs/lingbot-vla2-yam-runbook.md) · [SAPolicy](docs/sapolicy-yam-runbook.md) · [CAN bus](docs/can-bus.md)
 - [Cosmos3 offline](docs/cosmos3-offline-runbook.md) · [ManiUniCon simulation](docs/maniunicon-sim.md)
-- [Architecture](docs/architecture.md)
+- [Program progress](docs/program-progress.md)
+- [Architecture](docs/architecture.md) · [Development conventions](AGENT.md)
 
 ## Safety
 
