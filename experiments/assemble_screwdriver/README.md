@@ -40,7 +40,4 @@ DeepSpeed training entrypoint. W&B and job time limits are disabled.
 Run `smoke.sh` before `train.sh`. Each smoke performs one optimizer step,
 saves a checkpoint, and reloads it with the model's native loader.
 
-Previous smoke, 3k, 4-GPU, and absolute-action variants are retained under
-`legacy/20260829/`. They are not current submission entrypoints.
-
 Monitoring is documented in `monitor/README.md`.
