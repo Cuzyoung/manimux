@@ -1,0 +1,13 @@
+[Unit]
+Description=Persistent YAM training dashboard tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/manimux-training-clean/training_dashboard.sh foreground
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
