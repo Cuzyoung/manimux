@@ -283,10 +283,10 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
 ```bash
 # Terminal 4: probe, then runtime service
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/pi05/yam/infra/serial-assemble-screwdriver-step15000.yaml
+  --config configs/pi05/yam/infra/manimux-assemble-screwdriver-step15000.yaml
 
 envs/yam/.venv/bin/manimux serve \
-  --config configs/pi05/yam/infra/serial-assemble-screwdriver-step15000.yaml
+  --config configs/pi05/yam/infra/manimux-assemble-screwdriver-step15000.yaml
 ```
 
 To use Pi05's inference-time RTC strategy, keep the same policy server running and use the
@@ -304,7 +304,7 @@ envs/yam/.venv/bin/manimux serve \
   --config configs/pi05/yam/infra/rtc-assemble-screwdriver-step15000.yaml
 ```
 
-The ordinary Pi05 recipe uses `serial-assemble-screwdriver-step15000.yaml` (`runtime: manimux`);
+The ordinary Pi05 recipe uses `manimux-assemble-screwdriver-step15000.yaml` (`runtime: manimux`);
 the RTC recipe uses `rtc-assemble-screwdriver-step15000.yaml` (`runtime: rtc`). Choose one
 runtime for a rollout, never both at the same time.
 
@@ -319,10 +319,10 @@ bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
 ```bash
 # Terminal 4: probe, then runtime service
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/lingbot-vla2/yam/infra/serial-assemble-screwdriver-step15000.yaml
+  --config configs/lingbot-vla2/yam/infra/manimux-assemble-screwdriver-step15000.yaml
 
 envs/yam/.venv/bin/manimux serve \
-  --config configs/lingbot-vla2/yam/infra/serial-assemble-screwdriver-step15000.yaml
+  --config configs/lingbot-vla2/yam/infra/manimux-assemble-screwdriver-step15000.yaml
 ```
 
 #### Xiaomi XR-1 step-15000

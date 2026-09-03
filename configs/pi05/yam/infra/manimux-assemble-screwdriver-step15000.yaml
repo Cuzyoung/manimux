@@ -80,7 +80,7 @@ execution:
 viewer:
   enabled: true
   robot_adapter: yam
-  policy_label: Pi05 YAM screwdriver step-15000 · Serial
+  policy_label: Pi05 YAM screwdriver step-15000 · ManiMux
 
 recording:
   enabled: true

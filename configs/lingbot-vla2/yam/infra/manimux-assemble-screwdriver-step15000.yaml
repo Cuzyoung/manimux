@@ -76,7 +76,7 @@ execution:
 viewer:
   enabled: true
   robot_adapter: yam
-  policy_label: LingBot-VLA2 YAM screwdriver step-15000 · Serial
+  policy_label: LingBot-VLA2 YAM screwdriver step-15000 · ManiMux
 
 recording:
   enabled: true

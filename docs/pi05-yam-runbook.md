@@ -79,9 +79,9 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
 ```bash
 cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
-  --config configs/pi05/yam/infra/serial-assemble-screwdriver-step15000.yaml
+  --config configs/pi05/yam/infra/manimux-assemble-screwdriver-step15000.yaml
 envs/yam/.venv/bin/manimux serve \
-  --config configs/pi05/yam/infra/serial-assemble-screwdriver-step15000.yaml
+  --config configs/pi05/yam/infra/manimux-assemble-screwdriver-step15000.yaml
 ```
 
 Pi-guided RTC runtime（仍复用上面的同一个 policy server）：
@@ -94,7 +94,7 @@ envs/yam/.venv/bin/manimux serve \
   --config configs/pi05/yam/infra/rtc-assemble-screwdriver-step15000.yaml
 ```
 
-两种 runtime 只能选一种运行。`serial-...` 是普通 `runtime: manimux`，`rtc-...` 是
+两种 runtime 只能选一种运行。`manimux-...` 是普通 `runtime: manimux`，`rtc-...` 是
 `runtime: rtc`；不要同时启动两个 ManiMux runtime，也不要为 RTC 再启动一个 policy server。
 
 Pi05 上的训练免推理方法由方法文档单独维护：
