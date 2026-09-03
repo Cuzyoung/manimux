@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 OPENPI_SRC = XPOLICY_ROOT / "policy/Pi_05/openpi/src"
 DEFAULT_CONFIG = REPO_ROOT / "configs/pi05/yam/server/finetune.yaml"

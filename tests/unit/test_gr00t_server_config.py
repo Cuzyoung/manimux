@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-import scripts.gr00t_yam_server as gr00t_server
+import scripts.servers.gr00t_yam_server as gr00t_server
 from manimux.config import load_config
-from scripts.gr00t_yam_server import _runtime_readiness, _validate_checkpoint
+from scripts.servers.gr00t_yam_server import _runtime_readiness, _validate_checkpoint
 
 STATE_KEYS = ("left_arm", "left_gripper", "right_arm", "right_gripper")
 DIMS = {"left_arm": 6, "left_gripper": 1, "right_arm": 6, "right_gripper": 1}

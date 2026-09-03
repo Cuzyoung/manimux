@@ -12,7 +12,7 @@ def test_xr1_sampler_check_runs_without_model_or_gpu() -> None:
     if not python.is_file():
         pytest.skip("XR-1 environment is not installed")
     result = subprocess.run(
-        [str(python), "scripts/check_xr1_rtc_sampler.py"],
+        [str(python), "scripts/validation/check_xr1_rtc_sampler.py"],
         check=True,
         capture_output=True,
         text=True,

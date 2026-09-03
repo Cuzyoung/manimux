@@ -98,5 +98,5 @@ policy 最新的有效 episode。手动离线分析命令为：
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/analyze_chunk_boundaries.py
+envs/yam/.venv/bin/python scripts/validation/analyze_chunk_boundaries.py
 ```

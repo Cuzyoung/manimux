@@ -158,7 +158,7 @@ Generation command:
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/compute_yam_aac_ee_stats.py \
+envs/yam/.venv/bin/python scripts/datasets/compute_yam_aac_ee_stats.py \
   --episodes /home/ubuntu/yam-abc-reproduce/data/episodes \
   --out src/manimux/integrations/xpolicylab/norm_stats/yam_60ep_ee_increment.json
 ```
@@ -233,8 +233,8 @@ selectors are ManiMux concerns and are not sent to the model server.
 | `src/manimux/integrations/xpolicylab/ws_client.py` | Preserve the structured candidate response |
 | `src/manimux/runtime/aac.py` | Official synchronous query cadence and selected-chunk metadata |
 | `src/manimux/config.py` | Typed AAC config and required stats validation |
-| `scripts/compute_yam_aac_ee_stats.py` | Reproducible embodiment stats and motion calibration |
-| `scripts/xpolicylab_yam_forward_probe.py` | Hardware-free AAC request and selected-horizon report |
+| `scripts/datasets/compute_yam_aac_ee_stats.py` | Reproducible embodiment stats and motion calibration |
+| `scripts/validation/xpolicylab_yam_forward_probe.py` | Hardware-free AAC request and selected-horizon report |
 | `configs/groot/yam/infra/aac.yaml` | Complete GR00T/YAM experiment composition |
 | `configs/pi05/yam/infra/aac.yaml` | Robocurve 16-step Pi05/YAM composition |
 | `configs/pi05/yam/infra/aac-pick-red-ball-box-step1000.yaml` | Local 50-step Pi05/YAM composition |
@@ -327,8 +327,8 @@ envs/yam/.venv/bin/ruff check \
   src/manimux/integrations/xpolicylab/aac.py \
   src/manimux/integrations/xpolicylab/policy_plugin.py \
   src/manimux/runtime/aac.py \
-  scripts/compute_yam_aac_ee_stats.py \
-  scripts/xpolicylab_yam_forward_probe.py \
+  scripts/datasets/compute_yam_aac_ee_stats.py \
+  scripts/validation/xpolicylab_yam_forward_probe.py \
   tests/unit/test_aac.py tests/unit/test_xpolicylab_plugins.py
 git diff --check
 ```
@@ -339,7 +339,7 @@ Operator starts the existing GR00T server using the GR00T environment, then runs
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config configs/groot/yam/infra/aac.yaml
 ```
 

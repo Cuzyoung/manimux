@@ -11,7 +11,7 @@ from typing import Any
 
 import torch
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 XPOLICY_XR1_ROOT = (
     REPO_ROOT / "XPolicyLab/policy/Xiaomi_Robotics_1/xiaomi_robotics_1/xr1"
 )

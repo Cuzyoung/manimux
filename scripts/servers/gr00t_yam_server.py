@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 GR00T_ROOT = XPOLICY_ROOT / "policy/GR00T_N17/gr00t_n17"
 DEFAULT_CONFIG = REPO_ROOT / "configs/groot/yam/server/finetune.yaml"

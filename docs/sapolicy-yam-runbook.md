@@ -28,7 +28,7 @@ SpatialAlign 代码与依赖保留在独立仓库/环境；ManiMux 不 import to
 # SpatialAlign venv（加载 3cam_tcp.ckpt）
 cd /home/ubuntu/sa/SpatialAlignPolicy && source .venv/bin/activate
 pip install -e /home/ubuntu/manimux/XPolicyLab
-python /home/ubuntu/manimux/scripts/sapolicy_yam_server.py \
+python /home/ubuntu/manimux/scripts/servers/sapolicy_yam_server.py \
   --config /home/ubuntu/manimux/configs/sapolicy/yam/server/abc-bottles.yaml
 
 # 相机必须 640x480；模型内部再裁到训练分辨率
@@ -59,16 +59,16 @@ Wire endpose 是 YAM `grasp_site` / ABC TCP，不再做 RoboTwin 的 0.12 m 前�
 
 ```bash
 # 缺 mink/i2rt 时脚本会把 IK 退化成 hold-seed
-python scripts/sapolicy_yam_mock_run.py
+python scripts/validation/sapolicy_yam_mock_run.py
 
 # 已有 envs/yam 时也可拆成两进程
-python scripts/sapolicy_yam_server.py --config configs/sapolicy/yam/server/mock.yaml
+python scripts/servers/sapolicy_yam_server.py --config configs/sapolicy/yam/server/mock.yaml
 envs/yam/.venv/bin/manimux run --config configs/sapolicy/yam/infra/mock.yaml
 ```
 
 ## 分层验证
 
 1. 离线：wire / IK 契约与 adapter 单测
-2. 本机 mock：`scripts/sapolicy_yam_mock_run.py`
+2. 本机 mock：`scripts/validation/sapolicy_yam_mock_run.py`
 3. GPU：server `--check` 后真实 forward（非 dry_run）
 4. 只读 preflight → 短真机

@@ -1,7 +1,7 @@
 # Hardware-free SAPolicy loop: mock dual-arm + mock camera + XPolicyLab WS.
 #
-#   python scripts/sapolicy_yam_server.py --config configs/sapolicy/yam/server/abc-bottles.yaml
-#   python scripts/sapolicy_yam_mock_run.py
+#   python scripts/servers/sapolicy_yam_server.py --config configs/sapolicy/yam/server/abc-bottles.yaml
+#   python scripts/validation/sapolicy_yam_mock_run.py
 #
 # Or, with envs/yam (mink/i2rt present):
 #   envs/yam/.venv/bin/manimux run --config configs/sapolicy/yam/infra/mock.yaml

@@ -211,6 +211,7 @@ Status: ✅ running · 🧪 experimental · 🚧 not deployable yet · 🔌 infr
 | ✅ | LingBot-VLA2 + YAM | `50×14` arm-relative + absolute gripper → joints | `configs/lingbot-vla2/yam/` | [Runbook](docs/lingbot-vla2-yam-runbook.md) |
 | 🔌 | SAPolicy + YAM (XPolicyLab WS) | absolute dual-EE → YAM joints via `sapolicy_yam` | `configs/sapolicy/yam/` | [Runbook](docs/sapolicy-yam-runbook.md) |
 | 🧪 | Cosmos3 DROID | `32×8` single-arm absolute joints; offline only | `XPolicyLab/policy/Cosmos3/` | [Offline runbook](docs/cosmos3-offline-runbook.md) |
+| 🚧 | Isaac 0.5 LIBERO | `8×7` checkpoint-native absolute EE; model-only | `configs/isaac05/libero/` | [Offline runbook](docs/isaac05-offline-runbook.md) |
 | 🔌 | XPolicy bridge | Observation/action wire contract | `configs/xpolicylab/yam/` | [Runbook](docs/xpolicylab-runbook.md) |
 
 Here ✅ means the GPU/server, camera, adapter, scheduling, robot and Recorder path has been exercised;
@@ -270,20 +271,42 @@ recipes or two ManiMux runtimes for the same robot simultaneously.
 #### Pi05 step-15000
 
 ```bash
+# Run every command from the repository root:
+cd /home/ubuntu/manimux
+
 # Terminal 3: policy server
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/pi05_yam_server.py \
+  scripts/servers/pi05_yam_server.py \
   --config configs/pi05/yam/server/finetune-assemble-screwdriver-step15000.yaml
 ```
 
 ```bash
 # Terminal 4: probe, then runtime service
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config configs/pi05/yam/infra/serial-assemble-screwdriver-step15000.yaml
 
 envs/yam/.venv/bin/manimux serve \
   --config configs/pi05/yam/infra/serial-assemble-screwdriver-step15000.yaml
 ```
+
+To use Pi05's inference-time RTC strategy, keep the same policy server running and use the
+RTC runtime configuration below. The server is started only once; do not start a second Pi05
+server on port `8500`.
+
+```bash
+# Terminal 4: optional no-CAN probe against the RTC contract
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
+  --config configs/pi05/yam/infra/rtc-assemble-screwdriver-step15000.yaml
+
+# Terminal 5: ManiMux + Pi-guided RTC runtime
+envs/yam/.venv/bin/manimux serve \
+  --config configs/pi05/yam/infra/rtc-assemble-screwdriver-step15000.yaml
+```
+
+The ordinary Pi05 recipe uses `serial-assemble-screwdriver-step15000.yaml` (`runtime: manimux`);
+the RTC recipe uses `rtc-assemble-screwdriver-step15000.yaml` (`runtime: rtc`). Choose one
+runtime for a rollout, never both at the same time.
 
 #### LingBot-VLA2 step-15000
 
@@ -295,7 +318,7 @@ bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
 
 ```bash
 # Terminal 4: probe, then runtime service
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config configs/lingbot-vla2/yam/infra/serial-assemble-screwdriver-step15000.yaml
 
 envs/yam/.venv/bin/manimux serve \
@@ -306,13 +329,13 @@ envs/yam/.venv/bin/manimux serve \
 
 ```bash
 # Terminal 3: policy server
-envs/xr1/.venv/bin/python scripts/xiaomi_xr1_yam_server.py \
+envs/xr1/.venv/bin/python scripts/servers/xiaomi_xr1_yam_server.py \
   --config configs/xiaomi-xr1/yam/server/finetune-assemble-screwdriver-step15000.yaml
 ```
 
 ```bash
 # Terminal 4: probe, then runtime service
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config configs/xiaomi-xr1/yam/infra/manimux-assemble-screwdriver-step15000.yaml \
   --instruction "Assemble the screwdriver."
 
@@ -377,7 +400,7 @@ copied per model. See [Architecture](docs/architecture.md) for the complete cont
 - [MolmoAct2](docs/molmoact-yam-runbook.md) · [ABC](docs/abc-yam-runbook.md)
 - [Pi05](docs/pi05-yam-runbook.md) · [GR00T](docs/gr00t-yam-runbook.md) · [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md)
 - [LingBot-VLA2](docs/lingbot-vla2-yam-runbook.md) · [SAPolicy](docs/sapolicy-yam-runbook.md) · [CAN bus](docs/can-bus.md)
-- [Cosmos3 offline](docs/cosmos3-offline-runbook.md) · [ManiUniCon simulation](docs/maniunicon-sim.md)
+- [Cosmos3 offline](docs/cosmos3-offline-runbook.md) · [Isaac 0.5 offline](docs/isaac05-offline-runbook.md) · [ManiUniCon simulation](docs/maniunicon-sim.md)
 - [Architecture](docs/architecture.md)
 
 ## Safety

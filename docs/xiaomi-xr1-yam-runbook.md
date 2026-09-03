@@ -99,16 +99,16 @@ base 权重使用独立 server config，不覆盖未来的 YAM finetune；执行
 ```bash
 # offline contract check
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/xiaomi_xr1_yam_server.py \
+envs/yam/.venv/bin/python scripts/servers/xiaomi_xr1_yam_server.py \
   --config configs/xiaomi-xr1/yam/server/base.yaml \
   --check
 
 # terminal 1: model server
-envs/xr1/.venv/bin/python scripts/xiaomi_xr1_yam_server.py \
+envs/xr1/.venv/bin/python scripts/servers/xiaomi_xr1_yam_server.py \
   --config configs/xiaomi-xr1/yam/server/base.yaml
 
 # terminal 2: no-CAN GPU/WS/FK/IK probe
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config configs/xiaomi-xr1/yam/infra/manimux.yaml
 ```
 
@@ -138,7 +138,7 @@ XR-1 server 或 RTC runtime。
 
 ```bash
 cd /home/ubuntu/manimux
-envs/xr1/.venv/bin/python scripts/xiaomi_xr1_yam_server.py \
+envs/xr1/.venv/bin/python scripts/servers/xiaomi_xr1_yam_server.py \
   --config configs/xiaomi-xr1/yam/server/base.yaml
 ```
 
@@ -146,7 +146,7 @@ envs/xr1/.venv/bin/python scripts/xiaomi_xr1_yam_server.py \
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config configs/xiaomi-xr1/yam/infra/manimux.yaml
 ```
 
@@ -195,7 +195,7 @@ XPolicy 输出、再由 YAM FK/IK 转换得到的关节命令。正常停止时�
 先用离线脚本验证 XPolicy 使用的 sampler guidance hook：
 
 ```bash
-envs/xr1/.venv/bin/python scripts/check_xr1_rtc_sampler.py
+envs/xr1/.venv/bin/python scripts/validation/check_xr1_rtc_sampler.py
 ```
 
 它不构造 5B 模型、不访问 GPU。只有 base server 的 ManiMux forward 和默认 runtime

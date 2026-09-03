@@ -6,11 +6,11 @@
 # capture is what gets the GUI column, the task prompt, and the camera panels
 # into the clip, so that is what this script does.
 #
-#   scripts/record-viewer.sh                 # 2K 60 fps, click the window to record
-#   scripts/record-viewer.sh --screen        # whole screen instead of one window
-#   scripts/record-viewer.sh --duration 15   # stop automatically after 15 s
-#   scripts/record-viewer.sh --gif           # also write a README-ready GIF
-#   scripts/record-viewer.sh --delay 5       # 5 s to raise the window first
+#   scripts/media/record-viewer.sh                 # 2K 60 fps, click the window to record
+#   scripts/media/record-viewer.sh --screen        # whole screen instead of one window
+#   scripts/media/record-viewer.sh --duration 15   # stop automatically after 15 s
+#   scripts/media/record-viewer.sh --gif           # also write a README-ready GIF
+#   scripts/media/record-viewer.sh --delay 5       # 5 s to raise the window first
 #
 # Stop a running capture with a single Ctrl-C; ffmpeg finalizes the file.
 

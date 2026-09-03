@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""Convert recorded YAM episodes into the LeRobot v3 dataset used by Pi05.
+
+This is a standalone copy of the conversion path used for
+``yam_assemble_screwdriver_20260825_v1``.  It preserves the recorded data
+contract:
+
+* measured joints/grippers become ``observation.state``;
+* commanded joints/grippers become ``action``;
+* camera videos become ``observation.images.<role>_<image_key>``;
+* all values written here remain absolute.  Pi05 converts arm joints to
+  anchor-relative actions and normalizes them later in its training pipeline.
+
+Source implementation:
+``yam-abc-reproduce/yam_abc_reproduce/data/formats/lerobot_format.py`` at
+commit ``e65f7e4dba718e99913a7bd02385b30110b49540``.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+
+WRITE_COMPLETE_FLAG = "write_complete.flag"
+
+
+def _lerobot_image_name(role: str, image_key: str) -> str:
+    return f"observation.images.{role}_{image_key}"
+
+
+def _nearest_indices(reference_timestamps: np.ndarray, source_timestamps: np.ndarray) -> np.ndarray:
+    """Return the nearest source-frame index for every reference timestamp."""
+    source_timestamps = np.asarray(source_timestamps)
+    if source_timestamps.shape[0] <= 1:
+        return np.zeros(len(reference_timestamps), dtype=int)
+    indices = np.clip(
+        np.searchsorted(source_timestamps, reference_timestamps),
+        1,
+        source_timestamps.shape[0] - 1,
+    )
+    prefer_left = (
+        reference_timestamps - source_timestamps[indices - 1]
+        <= source_timestamps[indices] - reference_timestamps
+    )
+    return indices - prefer_left.astype(int)
+
+
+def _read_video(path: Path) -> list[np.ndarray]:
+    """Decode an MP4 into HWC RGB uint8 frames."""
+    import av
+
+    with av.open(str(path)) as container:
+        return [frame.to_ndarray(format="rgb24") for frame in container.decode(video=0)]
+
+
+def _load_metadata(episode_dir: Path) -> dict[str, Any]:
+    with (episode_dir / "metadata.json").open() as handle:
+        metadata = json.load(handle)
+    if "arm_names" not in metadata and "arm_name" in metadata:
+        metadata["arm_names"] = [metadata["arm_name"]]
+    return metadata
+
+
+def _load_episode(episode_dir: Path, metadata: dict[str, Any]) -> dict[str, Any]:
+    buffers: dict[str, Any] = {}
+    for path in sorted(episode_dir.glob("*.npy")):
+        buffers[path.stem] = np.load(path)
+    for camera in metadata.get("cameras", []):
+        role = camera["role"]
+        for image_key in camera.get("image_keys", []):
+            key = f"{role}-images-{image_key}"
+            buffers[key] = _read_video(episode_dir / f"{key}.mp4")
+    return buffers
+
+
+def _build_features(metadata: dict[str, Any]) -> dict[str, Any]:
+    features: dict[str, Any] = {}
+    for camera in metadata.get("cameras", []):
+        for image_key in camera.get("image_keys", []):
+            features[_lerobot_image_name(camera["role"], image_key)] = {
+                "dtype": "video",
+                "shape": (camera["height"], camera["width"], 3),
+                "names": ["height", "width", "channels"],
+            }
+
+    arms = metadata.get("arm_names") or ["left"]
+    num_joints = int(metadata["num_arm_joints"])
+    names = [
+        name
+        for arm in arms
+        for name in (
+            *[f"{arm}_joint_{index}" for index in range(num_joints)],
+            f"{arm}_gripper",
+        )
+    ]
+    features["observation.state"] = {
+        "dtype": "float32",
+        "shape": (len(names),),
+        "names": names,
+    }
+    features["action"] = {
+        "dtype": "float32",
+        "shape": (len(names),),
+        "names": names,
+    }
+    return features
+
+
+def _episode_dirs(source: Path) -> list[Path]:
+    if (source / WRITE_COMPLETE_FLAG).exists():
+        return [source]
+    return sorted(path for path in source.iterdir() if (path / WRITE_COMPLETE_FLAG).exists())
+
+
+def _add_episode(dataset: Any, episode_dir: Path) -> None:
+    metadata = _load_metadata(episode_dir)
+    buffers = _load_episode(episode_dir, metadata)
+    arms = metadata.get("arm_names") or ["left"]
+
+    state = np.concatenate(
+        [part for arm in arms for part in (buffers[f"{arm}-joint_pos"], buffers[f"{arm}-gripper_pos"])],
+        axis=1,
+    ).astype(np.float32)
+    action = np.concatenate(
+        [
+            part
+            for arm in arms
+            for part in (buffers[f"action-{arm}-joint"], buffers[f"action-{arm}-gripper"])
+        ],
+        axis=1,
+    ).astype(np.float32)
+
+    cameras = metadata.get("cameras", [])
+    reference_role = cameras[0]["role"] if cameras else None
+    reference_timestamps = buffers[f"{reference_role}-timestamp"] if reference_role else None
+    num_frames = len(reference_timestamps) if reference_timestamps is not None else len(state)
+
+    camera_indices: dict[str, np.ndarray] = {}
+    for camera in cameras:
+        role = camera["role"]
+        timestamps = buffers[f"{role}-timestamp"]
+        if reference_timestamps is not None and len(timestamps) != num_frames:
+            camera_indices[role] = _nearest_indices(reference_timestamps, timestamps)
+        else:
+            camera_indices[role] = np.arange(num_frames)
+
+    for frame_index in range(num_frames):
+        frame: dict[str, Any] = {
+            "observation.state": state[frame_index],
+            "action": action[frame_index],
+            "task": metadata.get("task_name") or "task",
+        }
+        for camera in cameras:
+            role = camera["role"]
+            camera_frame_index = int(camera_indices[role][frame_index])
+            for image_key in camera.get("image_keys", []):
+                frame[_lerobot_image_name(role, image_key)] = buffers[
+                    f"{role}-images-{image_key}"
+                ][camera_frame_index]
+        dataset.add_frame(frame)
+    dataset.save_episode()
+
+
+def convert(source: Path, repo_id: str, output_root: Path | None) -> None:
+    """Convert one completed episode or a directory of completed episodes."""
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    episodes = _episode_dirs(source)
+    if not episodes:
+        raise FileNotFoundError(f"No completed YAM episodes found under {source}")
+
+    first_metadata = _load_metadata(episodes[0])
+    dataset = LeRobotDataset.create(
+        repo_id=repo_id,
+        fps=max(1, int(round(float(first_metadata["control_hz"])))),
+        features=_build_features(first_metadata),
+        root=output_root,
+        use_videos=True,
+    )
+    for episode_dir in episodes:
+        print(f"Converting {episode_dir}")
+        _add_episode(dataset, episode_dir)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("source", type=Path, help="Completed YAM episode or parent directory")
+    parser.add_argument("--repo-id", required=True, help="LeRobot dataset repo ID")
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=None,
+        help="LeRobot dataset root; omit to use LeRobot's default location",
+    )
+    args = parser.parse_args()
+    convert(args.source, args.repo_id, args.output_root)
+
+
+if __name__ == "__main__":
+    main()

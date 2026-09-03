@@ -2,7 +2,7 @@
 #
 # Prerequisites:
 #   1. SpatialAlign venv running:
-#        python scripts/sapolicy_yam_server.py --config configs/sapolicy/yam/server/abc-bottles.yaml
+#        python scripts/servers/sapolicy_yam_server.py --config configs/sapolicy/yam/server/abc-bottles.yaml
 #   2. camera server at 640x480:
 #        envs/yam/.venv/bin/manimux-camera-server --config configs/sapolicy/yam/cameras.yaml
 #   3. viewer as in docs/sapolicy-yam-runbook.md

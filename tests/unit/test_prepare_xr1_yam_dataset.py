@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 
-SCRIPT = Path(__file__).parents[2] / "scripts/prepare_xr1_yam_dataset.py"
+SCRIPT = Path(__file__).parents[2] / "scripts/datasets/prepare_xr1_yam_dataset.py"
 SPEC = importlib.util.spec_from_file_location("prepare_xr1_yam_dataset", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)

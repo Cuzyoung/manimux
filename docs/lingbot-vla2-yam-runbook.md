@@ -79,9 +79,9 @@ sampler: XPolicyLab/policy/LingBot_VLA2/rtc.py
 server:  XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh
 profile: XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_absolute.yaml
 source:  XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/  # pinned nested submodule
-check:   scripts/check_lingbot_vla2_yam.py
-audit:   scripts/lingbot_vla2_yam_audit.py
-prepare: scripts/prepare_lingbot_vla2_base_assets.py
+check:   scripts/validation/check_lingbot_vla2_yam.py
+audit:   scripts/validation/lingbot_vla2_yam_audit.py
+prepare: scripts/datasets/prepare_lingbot_vla2_base_assets.py
 stats:   src/manimux/integrations/lingbot_vla2_yam/norm_stats/yam_60ep.json
 ```
 
@@ -153,7 +153,7 @@ checkpoints/pretrained/lingbot-vla-v2-yam/
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/check_lingbot_vla2_yam.py
+envs/yam/.venv/bin/python scripts/validation/check_lingbot_vla2_yam.py
 ```
 
 检查器读取 server config 中的显式路径；缺少任何权重 shard、训练配置、robot
@@ -172,7 +172,7 @@ config 或 norm stats 都会返回 `status: blocked`，且不会加载 GPU 模�
 RTC 配置使用同一个检查入口：
 
 ```bash
-envs/yam/.venv/bin/python scripts/check_lingbot_vla2_yam.py \
+envs/yam/.venv/bin/python scripts/validation/check_lingbot_vla2_yam.py \
   --infra-config configs/lingbot-vla2/yam/infra/rtc.yaml
 ```
 
@@ -182,7 +182,7 @@ buffer，以及 `delay <= min_execute_steps <= horizon - delay`。
 审计现有 foundation checkpoint 的 55 维投影：
 
 ```bash
-envs/yam/.venv/bin/python scripts/lingbot_vla2_yam_audit.py
+envs/yam/.venv/bin/python scripts/validation/lingbot_vla2_yam_audit.py
 ```
 
 ## Base 权重能力实验
@@ -217,9 +217,9 @@ PYTHONPATH=src envs/yam/.venv/bin/python -m \
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/prepare_lingbot_vla2_base_assets.py
+envs/yam/.venv/bin/python scripts/datasets/prepare_lingbot_vla2_base_assets.py
 
-envs/yam/.venv/bin/python scripts/check_lingbot_vla2_yam.py \
+envs/yam/.venv/bin/python scripts/validation/check_lingbot_vla2_yam.py \
   --config configs/lingbot-vla2/yam/server/base.yaml \
   --infra-config configs/lingbot-vla2/yam/infra/manimux.yaml
 ```
@@ -251,7 +251,7 @@ bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
   configs/lingbot-vla2/yam/server/base.yaml
 
 # terminal 2: no-CAN forward probe
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config configs/lingbot-vla2/yam/infra/manimux.yaml
 ```
 
@@ -285,7 +285,7 @@ bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config configs/lingbot-vla2/yam/infra/manimux.yaml
 ```
 

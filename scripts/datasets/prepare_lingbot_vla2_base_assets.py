@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPO_ROOT / "XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2"
 DEFAULT_CHECKPOINT = REPO_ROOT / "checkpoints/pretrained/lingbot-vla-v2-6b"
 DEFAULT_PROCESSOR = REPO_ROOT / "checkpoints/pretrained/qwen3_vl_4b_processor"

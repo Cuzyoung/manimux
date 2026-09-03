@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-import scripts.xiaomi_xr1_yam_server as xr1_server
-from scripts.xiaomi_xr1_yam_server import _validate
+import scripts.servers.xiaomi_xr1_yam_server as xr1_server
+from scripts.servers.xiaomi_xr1_yam_server import _validate
 
 
 def _minimal_config(**overrides: object) -> dict[str, object]:

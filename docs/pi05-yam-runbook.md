@@ -34,7 +34,7 @@ checkpoints/finetuned/ziyang/pi05-yam-pick-red-ball-box-b384/1000/
 ```bash
 cd /home/ubuntu/manimux
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/pi05_yam_server.py --check \
+  scripts/servers/pi05_yam_server.py --check \
   --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
 ```
 
@@ -43,7 +43,7 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
 ```bash
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
   XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/pi05_yam_offline_infer.py \
+  scripts/validation/pi05_yam_offline_infer.py \
   --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml \
   --infra-config configs/pi05/yam/infra/manimux-pick-red-ball-box-step1000.yaml
 ```
@@ -52,7 +52,7 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false \
 
 ```bash
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/pi05_yam_server.py \
+  scripts/servers/pi05_yam_server.py \
   --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
 ```
 
@@ -63,6 +63,40 @@ envs/yam/.venv/bin/manimux run \
   --config configs/pi05/yam/infra/manimux-pick-red-ball-box-step1000.yaml
 ```
 
+## 螺丝刀 step-15000：ManiMux 与 RTC
+
+先在 `/home/ubuntu/manimux` 启动同一个 Pi05 policy server：
+
+```bash
+cd /home/ubuntu/manimux
+XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
+  scripts/servers/pi05_yam_server.py \
+  --config configs/pi05/yam/server/finetune-assemble-screwdriver-step15000.yaml
+```
+
+普通 ManiMux chunk runtime：
+
+```bash
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
+  --config configs/pi05/yam/infra/serial-assemble-screwdriver-step15000.yaml
+envs/yam/.venv/bin/manimux serve \
+  --config configs/pi05/yam/infra/serial-assemble-screwdriver-step15000.yaml
+```
+
+Pi-guided RTC runtime（仍复用上面的同一个 policy server）：
+
+```bash
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
+  --config configs/pi05/yam/infra/rtc-assemble-screwdriver-step15000.yaml
+envs/yam/.venv/bin/manimux serve \
+  --config configs/pi05/yam/infra/rtc-assemble-screwdriver-step15000.yaml
+```
+
+两种 runtime 只能选一种运行。`serial-...` 是普通 `runtime: manimux`，`rtc-...` 是
+`runtime: rtc`；不要同时启动两个 ManiMux runtime，也不要为 RTC 再启动一个 policy server。
+
 Pi05 上的训练免推理方法由方法文档单独维护：
 
 - ACT temporal ensemble：[`act-temporal-ensemble.md`](act-temporal-ensemble.md)；
@@ -70,7 +104,7 @@ Pi05 上的训练免推理方法由方法文档单独维护：
 - PAINT：[`reproductions/paint-pi05.md`](reproductions/paint-pi05.md)；
 - AutoHorizon：[`reproductions/autohorizon-pi05.md`](reproductions/autohorizon-pi05.md)。
 - DVAC：[`reproductions/dvac-pi05.md`](reproductions/dvac-pi05.md)。
-  先用 `scripts/xpolicylab_yam_dvac_probe.py --requests 3` 验证同一 session 内的滚动阈值，
+  先用 `scripts/validation/xpolicylab_yam_dvac_probe.py --requests 3` 验证同一 session 内的滚动阈值，
   再决定是否开放真机命令。
 
 以下章节记录先前 Robocurve 16-step checkpoint 的独立实验，不要与本地 50-step 配置混用。
@@ -122,7 +156,7 @@ horizon 没有被推理延迟耗尽。当前 ManiMux infra 配置使用与 Molmo
 ```bash
 cd /home/ubuntu/manimux
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/pi05_yam_server.py --check \
+  scripts/servers/pi05_yam_server.py --check \
   --config configs/pi05/yam/server/finetune.yaml
 ```
 
@@ -131,7 +165,7 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
 ```bash
 XLA_PYTHON_CLIENT_PREALLOCATE=false \
   XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/pi05_yam_offline_infer.py \
+  scripts/validation/pi05_yam_offline_infer.py \
   --config configs/pi05/yam/server/finetune.yaml
 ```
 
@@ -140,7 +174,7 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false \
 ```bash
 cd /home/ubuntu/manimux
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/pi05_yam_server.py \
+  scripts/servers/pi05_yam_server.py \
   --config configs/pi05/yam/server/finetune.yaml
 ```
 
@@ -175,7 +209,7 @@ envs/yam/.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/pi05_base_yam_preflight.py \
+envs/yam/.venv/bin/python scripts/validation/pi05_base_yam_preflight.py \
   --config configs/pi05/yam/infra/manimux.yaml
 ```
 
@@ -228,7 +262,7 @@ policy 最新的有效 episode。也可以手动离线查看：
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/analyze_chunk_boundaries.py
+envs/yam/.venv/bin/python scripts/validation/analyze_chunk_boundaries.py
 ```
 
 ## Pi05 YAM finetune + RTC
@@ -238,7 +272,7 @@ envs/yam/.venv/bin/python scripts/analyze_chunk_boundaries.py
 ```bash
 cd /home/ubuntu/manimux
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/pi05_yam_server.py \
+  scripts/servers/pi05_yam_server.py \
   --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
 ```
 

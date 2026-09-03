@@ -40,7 +40,7 @@ Pi05 的 stats、XPolicy 原 ARX modality config 或 base 模型默认 embodimen
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/gr00t_yam_server.py \
+envs/yam/.venv/bin/python scripts/servers/gr00t_yam_server.py \
   --config configs/groot/yam/server/finetune.yaml \
   --check
 ```
@@ -79,7 +79,7 @@ Terminal 1：
 ```bash
 cd /home/ubuntu/manimux
 XPolicyLab/policy/GR00T_N17/gr00t_n17/.venv/bin/python \
-  scripts/gr00t_yam_server.py \
+  scripts/servers/gr00t_yam_server.py \
   --config configs/groot/yam/server/finetune.yaml
 ```
 
@@ -89,7 +89,7 @@ Terminal 2：先运行不接相机、不接 CAN 的单次 forward probe。它发
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config configs/groot/yam/infra/manimux.yaml
 ```
 
@@ -105,7 +105,7 @@ cd /home/ubuntu/manimux
 
 for i in 1 2 3; do
   echo "===== Probe $i ====="
-  envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+  envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
     --config configs/groot/yam/infra/manimux.yaml
 done
 ```
@@ -139,7 +139,7 @@ done
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/pi05_base_yam_preflight.py \
+envs/yam/.venv/bin/python scripts/validation/pi05_base_yam_preflight.py \
   --config configs/groot/yam/infra/manimux.yaml
 ```
 

@@ -1,5 +1,5 @@
 # XPolicyLab Pi_05 server: official pi05_base weights, YAM normalization, and
-# an absolute-joint data transform. Launch with scripts/pi05_yam_server.py.
+# an absolute-joint data transform. Launch with scripts/servers/pi05_yam_server.py.
 policy_name: Pi_05
 protocol: ws
 host: 127.0.0.1

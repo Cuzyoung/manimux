@@ -148,7 +148,7 @@ XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m pytest -q \
 Operator-run real GPU gate, after starting the matching Pi05 server:
 
 ```bash
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config configs/pi05/yam/infra/aac-pick-red-ball-box-step1000.yaml
 ```
 

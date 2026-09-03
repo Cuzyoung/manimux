@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 DEFAULT_CONFIG = REPO_ROOT / "configs/sapolicy/yam/server/abc-bottles.yaml"
 

@@ -148,7 +148,7 @@ Start the unchanged Pi05 server:
 ```bash
 cd /home/ubuntu/manimux
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/pi05_yam_server.py \
+  scripts/servers/pi05_yam_server.py \
   --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
 ```
 
@@ -156,7 +156,7 @@ Before any robot process, run the forward probe:
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config configs/pi05/yam/infra/autohorizon-pick-red-ball-box-step1000.yaml
 ```
 

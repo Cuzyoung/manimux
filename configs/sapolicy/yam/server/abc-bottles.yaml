@@ -3,7 +3,7 @@
 # Launch inside the SpatialAlignPolicy Python environment after:
 #   pip install -e XPolicyLab
 #
-#   python scripts/sapolicy_yam_server.py --config configs/sapolicy/yam/server/abc-bottles.yaml
+#   python scripts/servers/sapolicy_yam_server.py --config configs/sapolicy/yam/server/abc-bottles.yaml
 
 policy_name: SAPolicy
 protocol: ws

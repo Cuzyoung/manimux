@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from scripts.check_lingbot_vla2_yam import _validate
+from scripts.validation.check_lingbot_vla2_yam import _validate
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

@@ -11,7 +11,7 @@ from manimux.integrations.lingbot_vla2_yam.compute_norm_stats import (
     episode_features,
     usable_episodes,
 )
-from scripts.prepare_lingbot_vla2_base_assets import prepare_assets
+from scripts.datasets.prepare_lingbot_vla2_base_assets import prepare_assets
 
 
 def _write_episode(path: Path) -> None:

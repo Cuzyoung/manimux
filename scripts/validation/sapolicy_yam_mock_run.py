@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_INFRA = REPO_ROOT / "configs/sapolicy/yam/infra/mock.yaml"
 DEFAULT_SERVER = REPO_ROOT / "configs/sapolicy/yam/server/mock.yaml"
 DEFAULT_HOST = "127.0.0.1"
@@ -55,7 +55,7 @@ def _start_server(config: Path) -> subprocess.Popen:
     env["PYTHONPATH"] = pythonpath
     env["PYTHONUNBUFFERED"] = "1"
     return subprocess.Popen(
-        [sys.executable, str(REPO_ROOT / "scripts/sapolicy_yam_server.py"), "--config", str(config)],
+        [sys.executable, str(REPO_ROOT / "scripts/servers/sapolicy_yam_server.py"), "--config", str(config)],
         cwd=str(REPO_ROOT),
         env=env,
     )

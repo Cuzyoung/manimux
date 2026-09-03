@@ -255,10 +255,10 @@ runtime。每组都按照“模型服务 → 无 CAN forward/adapter probe → V
 
 ```bash
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
-  scripts/pi05_yam_server.py \
+  scripts/servers/pi05_yam_server.py \
   --config configs/pi05/yam/server/finetune-assemble-screwdriver-step15000.yaml
 
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config configs/pi05/yam/infra/serial-assemble-screwdriver-step15000.yaml
 
 envs/yam/.venv/bin/manimux serve \
@@ -271,7 +271,7 @@ envs/yam/.venv/bin/manimux serve \
 bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
   configs/lingbot-vla2/yam/server/finetune-assemble-screwdriver-step15000.yaml
 
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config configs/lingbot-vla2/yam/infra/serial-assemble-screwdriver-step15000.yaml
 
 envs/yam/.venv/bin/manimux serve \
@@ -281,10 +281,10 @@ envs/yam/.venv/bin/manimux serve \
 #### Xiaomi XR-1 step-15000
 
 ```bash
-envs/xr1/.venv/bin/python scripts/xiaomi_xr1_yam_server.py \
+envs/xr1/.venv/bin/python scripts/servers/xiaomi_xr1_yam_server.py \
   --config configs/xiaomi-xr1/yam/server/finetune-assemble-screwdriver-step15000.yaml
 
-envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+envs/yam/.venv/bin/python scripts/validation/xpolicylab_yam_forward_probe.py \
   --config configs/xiaomi-xr1/yam/infra/manimux-assemble-screwdriver-step15000.yaml \
   --instruction "Assemble the screwdriver."
 

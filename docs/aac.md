@@ -79,7 +79,7 @@ GR00T N1.7 or Pi05 official backbone + denoise
 - GR00T 在官方 action head 的 post-backbone feature 处扩 batch；Pi05 在官方 prefix KV cache
   建好后扩 batch。两者都只增加显式 multi-sample hook，denoise loop 不改。
 - `src/manimux/integrations/xpolicylab/aac.py` 复用共享 FK，并实现官方选择顺序与双臂平均。
-- `scripts/compute_yam_aac_ee_stats.py` 从指定本体数据离线生成固定 EE 增量 stats；AAC config
+- `scripts/datasets/compute_yam_aac_ee_stats.py` 从指定本体数据离线生成固定 EE 增量 stats；AAC config
   必须显式声明 `execution.aac.ee_stats_path`，缺失时拒绝启动。
 - XPolicy WebSocket 声明 `aac` capability，避免普通模型误跑 AAC。
 - ManiMux bridge 在选择后附加 `chunk_id / entropy_elbow / motion_floor`，Runtime 将这些

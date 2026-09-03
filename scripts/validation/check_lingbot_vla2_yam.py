@@ -14,7 +14,7 @@ import yaml
 
 sys.dont_write_bytecode = True
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 DEFAULT_CONFIG = REPO_ROOT / "configs/lingbot-vla2/yam/server/base.yaml"
 DEFAULT_INFRA_CONFIG = REPO_ROOT / "configs/lingbot-vla2/yam/infra/manimux.yaml"

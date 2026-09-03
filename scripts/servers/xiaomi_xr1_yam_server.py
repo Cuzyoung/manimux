@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 XR1_ROOT = XPOLICY_ROOT / "policy/Xiaomi_Robotics_1/xiaomi_robotics_1/xr1"
 DEFAULT_CONFIG = REPO_ROOT / "configs/xiaomi-xr1/yam/server/base.yaml"
