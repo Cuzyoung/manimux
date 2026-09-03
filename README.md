@@ -400,6 +400,7 @@ copied per model. See [Architecture](docs/architecture.md) for the complete cont
 - [MolmoAct2](docs/molmoact-yam-runbook.md) · [ABC](docs/abc-yam-runbook.md)
 - [Pi05](docs/pi05-yam-runbook.md) · [GR00T](docs/gr00t-yam-runbook.md) · [XPolicy XR-1](docs/xiaomi-xr1-yam-runbook.md)
 - [LingBot-VLA2](docs/lingbot-vla2-yam-runbook.md) · [SAPolicy](docs/sapolicy-yam-runbook.md) · [CAN bus](docs/can-bus.md)
+- [YAM 三模型训练流程](docs/yam-training-pipeline.md)
 - [Cosmos3 offline](docs/cosmos3-offline-runbook.md) · [Isaac 0.5 offline](docs/isaac05-offline-runbook.md) · [ManiUniCon simulation](docs/maniunicon-sim.md)
 - [Architecture](docs/architecture.md)
 

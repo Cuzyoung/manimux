@@ -1,6 +1,6 @@
 run:
   task: Assemble the screwdriver.
-  output_dir: ./data/experiments/lingbot-vla2-assemble-screwdriver-step15000/serial
+  output_dir: ./data/experiments/lingbot-vla2-assemble-screwdriver-step15000/manimux
   max_steps: 12000
 
 robot:
