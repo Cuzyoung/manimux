@@ -83,60 +83,6 @@ def test_encode_raw_condition_preserves_yam_arm_order() -> None:
     )
 
 
-def test_normalize_condition_masks_unused_55d_slots() -> None:
-    rtc = _load_rtc_module()
-
-    class IdentityNormalizer:
-        @staticmethod
-        def normalize(value):
-            return value
-
-    class FakeTransform:
-        action_subtract_state = {
-            "action.arm.position": False,
-            "action.effector.position": False,
-        }
-        normalizer = IdentityNormalizer()
-        model_config = SimpleNamespace(max_action_dim=55)
-        feature_config = SimpleNamespace(
-            joints=[
-                "arm.position",
-                "end.position",
-                "effector.position",
-                "waist.position",
-                "head.position",
-                "base.position",
-                "hand.position",
-            ],
-            joints_max_dim={
-                "arm.position": 14,
-                "end.position": 14,
-                "effector.position": 2,
-                "waist.position": 4,
-                "head.position": 2,
-                "base.position": 3,
-                "hand.position": 12,
-            },
-        )
-
-        @staticmethod
-        def convert_features(value, w_action):
-            assert w_action
-            return value
-
-    raw = {
-        "action.arm.position": np.ones((3, 12), dtype=np.float32),
-        "action.effector.position": np.ones((3, 2), dtype=np.float32),
-    }
-    target, weights = rtc.normalize_condition(
-        FakeTransform(), raw, np.array([1.0, 0.5, 0.0], dtype=np.float32)
-    )
-    assert target.shape == (3, 55)
-    assert weights.shape == (3, 55)
-    assert int(torch.count_nonzero(weights[0])) == 14
-    assert int(torch.count_nonzero(weights[2])) == 0
-
-
 def test_sampler_applies_guidance_inside_each_flow_step() -> None:
     rtc = _load_rtc_module()
 

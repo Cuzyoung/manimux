@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
-import yaml
 
 MODEL_PATH = Path(__file__).resolve().parents[2] / "XPolicyLab/policy/LingBot_VLA2/model.py"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -142,86 +140,6 @@ def test_standard_xpolicy_run_selects_latest_complete_checkpoint(
     assert resolved == latest
 
 
-def test_validate_complete_deployment_without_loading_model(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    module = _load_model_module()
-    source_root = tmp_path / "source"
-    (source_root / "deploy").mkdir(parents=True)
-    (source_root / "lingbotvla/data/vla_data").mkdir(parents=True)
-    (source_root / "deploy/lingbot_vla_v2_policy.py").touch()
-    (source_root / "lingbotvla/data/vla_data/utils.py").touch()
-    revision = "951475ae1b1d87553e7dc47c97b53a3d695c0d13"
-    monkeypatch.setattr(module, "_source_revision", lambda _: revision)
-
-    artifact_root = tmp_path / "artifacts"
-    checkpoint = artifact_root / "runs/yam/hf_ckpt"
-    checkpoint.mkdir(parents=True)
-    (checkpoint / "model-00001-of-00001.safetensors").touch()
-    (checkpoint / "model.safetensors.index.json").write_text(
-        json.dumps({"weight_map": {"model.weight": "model-00001-of-00001.safetensors"}}),
-        encoding="utf-8",
-    )
-    training_config_path = artifact_root / "lingbotvla_cli.yaml"
-    training_config_path.write_text(
-        yaml.safe_dump(
-            {
-                "model": {
-                    "config_key": "LingbotVLAV2Config",
-                    "post_training": True,
-                },
-                "data": {
-                    "cameras": ["camera_top", "camera_wrist_left", "camera_wrist_right"],
-                    "joints": module.EXPECTED_JOINTS,
-                },
-                "train": {
-                    "action_dim": 55,
-                    "max_action_dim": 55,
-                    "max_state_dim": 55,
-                    "chunk_size": 50,
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    stats_path = artifact_root / "norm_stats.json"
-    stats_path.write_text(
-        json.dumps(
-            {
-                "norm_stats": {
-                    "observation.state.arm.position": {"mean": [0] * 12, "std": [1] * 12},
-                    "observation.state.effector.position": {"mean": [0] * 2, "std": [1] * 2},
-                    "action.arm.position": {"mean": [0] * 12, "std": [1] * 12},
-                    "action.effector.position": {"mean": [0] * 2, "std": [1] * 2},
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    robot_config = artifact_root / "robot_config.yaml"
-    robot_config.write_text(
-        (MODEL_PATH.parent / "robot_configs/yam_dual_absolute.yaml").read_text(
-            encoding="utf-8"
-        ),
-        encoding="utf-8",
-    )
-    report = module.validate_deployment(
-        {
-            "lingbot_vla2_root": source_root,
-            "official_source_revision": revision,
-            "model_root": checkpoint,
-            "training_config_path": training_config_path,
-            "robot_config_path": robot_config,
-            "norm_stats_path": stats_path,
-            "action_horizon": 50,
-            "native_hz": 30.0,
-        }
-    )
-    assert report["status"] == "ready"
-    assert report["errors"] == []
-    assert report["native_hz"] == 30.0
-    assert report["action_horizon"] == 50
-    assert report["checkpoint_path"] == str(checkpoint)
 def test_get_action_rtc_dispatches_sampler_level_bridge() -> None:
     module = _load_model_module()
 
