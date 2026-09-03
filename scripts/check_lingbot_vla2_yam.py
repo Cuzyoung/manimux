@@ -44,31 +44,36 @@ def _validate(
     if config.get("action_type") != "joint":
         raise ValueError("action_type must be joint")
     _prepare_imports()
-    from XPolicyLab.policy.LingBot_VLA2.model import validate_bundle
+    from XPolicyLab.policy.LingBot_VLA2.model import validate_deployment
 
-    report = validate_bundle(config)
+    report = validate_deployment(config)
     infra_errors: list[str] = []
     if infra_config is not None:
-        robot = infra_config.get("robot", {})
         policy = infra_config.get("policy", {})
         execution = infra_config.get("execution", {})
         configured_horizon = int(policy.get("horizon_steps", 0))
         if report["status"] == "ready":
             native_hz = float(report["native_hz"])
             action_horizon = int(report["action_horizon"])
-            if float(robot.get("control_hz", 0.0)) != native_hz:
-                infra_errors.append(
-                    f"infra robot.control_hz must equal bundle native_hz {native_hz}"
-                )
             if configured_horizon != action_horizon:
                 infra_errors.append(
-                    "infra policy.horizon_steps must equal bundle action_horizon "
+                    "infra policy.horizon_steps must equal server action_horizon "
                     f"{action_horizon}"
                 )
             action_dt_s = float(policy.get("action_dt_s", 0.0))
             if abs(action_dt_s - 1.0 / native_hz) > 1e-9:
                 infra_errors.append(
                     f"infra policy.action_dt_s must equal 1/native_hz ({1.0 / native_hz})"
+                )
+            expected_adapter = (
+                "lingbot_vla2_yam"
+                if report.get("action_semantics")
+                == "anchor_relative_arm_absolute_gripper"
+                else "xpolicylab"
+            )
+            if policy.get("adapter") != expected_adapter:
+                infra_errors.append(
+                    f"infra policy.adapter must be {expected_adapter} for this checkpoint"
                 )
         runtime = execution.get("runtime")
         if runtime not in {"manimux", "rtc"}:

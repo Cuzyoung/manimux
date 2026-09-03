@@ -17,6 +17,10 @@ XPOLICY_ROOT = REPO_ROOT / "XPolicyLab"
 XR1_ROOT = XPOLICY_ROOT / "policy/Xiaomi_Robotics_1/xiaomi_robotics_1/xr1"
 DEFAULT_CONFIG = REPO_ROOT / "configs/xiaomi-xr1/yam/server/base.yaml"
 MODEL_PYTHON = REPO_ROOT / "envs/xr1/.venv/bin/python"
+YAM_FINETUNED_VARIANTS = {
+    "xiaomi_xr1_yam_assemble_screwdriver_step_12000",
+    "xiaomi_xr1_yam_assemble_screwdriver_step_15000",
+}
 
 
 def _load_config(path: Path) -> dict[str, Any]:
@@ -76,6 +80,8 @@ def _validate(config: dict[str, Any]) -> dict[str, Any]:
     if shapes != expected:
         raise ValueError(f"XR-1 normalization shapes must be {expected}, got {shapes}")
 
+    checkpoint_variant = str(config.get("checkpoint_variant", "yam_finetuned"))
+    is_yam_finetuned = checkpoint_variant in YAM_FINETUNED_VARIANTS
     return {
         "contract_status": "ready",
         "runtime_status": (
@@ -87,7 +93,7 @@ def _validate(config: dict[str, Any]) -> dict[str, Any]:
         "model_python": str(MODEL_PYTHON),
         "xpolicylab_root": str(XPOLICY_ROOT),
         "policy_name": "Xiaomi_Robotics_1",
-        "checkpoint_variant": config.get("checkpoint_variant", "yam_finetuned"),
+        "checkpoint_variant": checkpoint_variant,
         "checkpoint": str(checkpoint),
         "checkpoint_tensor_records": len(tensor_records),
         "processor": str(processor),
@@ -97,10 +103,16 @@ def _validate(config: dict[str, Any]) -> dict[str, Any]:
         "manimux_action_space": "absolute_joint_position",
         "manimux_action_shape": [30, 14],
         "denoise_steps": 5,
-        "checkpoint_role": "post_training_start_point_not_yam_policy",
+        "checkpoint_role": (
+            "yam_finetuned_policy"
+            if is_yam_finetuned
+            else "post_training_start_point_not_yam_policy"
+        ),
         "policy_status": (
-            "base_checkpoint_capability_unvalidated"
-            if "base_with_yam_stats" in str(config.get("checkpoint_variant"))
+            "yam_finetune_not_evaluated"
+            if is_yam_finetuned
+            else "base_checkpoint_capability_unvalidated"
+            if "base_with_yam_stats" in checkpoint_variant
             else "blocked_for_yam_task_without_finetune"
         ),
         "norm_stats_role": config.get("norm_stats_role"),

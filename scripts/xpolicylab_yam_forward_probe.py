@@ -61,10 +61,25 @@ def _snapshot(config_path: Path, height: int, width: int) -> ObservationSnapshot
         "left_arm": _repo_path(config.robot.config),
         "right_arm": _repo_path(config.robot.options["right_config"]),
     }
-    groups = {
-        name: _start_joints(robot_configs[name], int(config.robot.group_dims[name]))
-        for name in group_order
-    }
+    configured_start = config.robot.options.get("start_joints")
+    if configured_start is None:
+        groups = {
+            name: _start_joints(robot_configs[name], int(config.robot.group_dims[name]))
+            for name in group_order
+        }
+    else:
+        packed_start = np.asarray(configured_start, dtype=np.float64)
+        expected_dim = sum(int(config.robot.group_dims[name]) for name in group_order)
+        if packed_start.shape != (expected_dim,) or not np.isfinite(packed_start).all():
+            raise ValueError(
+                f"robot.options.start_joints must contain {expected_dim} finite values"
+            )
+        groups = {}
+        offset = 0
+        for name in group_order:
+            width = int(config.robot.group_dims[name])
+            groups[name] = packed_start[offset : offset + width]
+            offset += width
 
     camera_map = config.policy.options["camera_map"]
     camera_names = list(dict.fromkeys(str(name) for name in camera_map.values()))
@@ -183,6 +198,7 @@ def main() -> int:
 
     model = build_policy_model(config.policy)
     adapter = build_policy_adapter(config.robot, config.policy)
+    request = adapter.prepare_request(request)
     started = time.perf_counter()
     try:
         model.reset(session_id)

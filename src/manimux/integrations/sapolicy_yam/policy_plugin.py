@@ -94,7 +94,7 @@ def _parse_intrinsics(
             raise ValueError(f"camera intrinsics for {name!r} must be a finite 3x3 matrix")
         if matrix[0, 0] <= 0 or matrix[1, 1] <= 0 or not np.isclose(matrix[2, 2], 1.0):
             raise ValueError(f"camera intrinsics for {name!r} are not a valid pinhole matrix")
-        result[name] = np.ascontiguousarray(matrix)
+        result[name] = matrix
     return result
 
 
@@ -114,7 +114,7 @@ def _parse_model_frame_transforms(
     if raw is None:
         return {group: np.eye(4, dtype=np.float64) for group in group_order}
     return {
-        group: np.ascontiguousarray(raw[group], dtype=np.float64)
+        group: np.asarray(raw[group], dtype=np.float64)
         for group in group_order
     }
 
@@ -184,7 +184,7 @@ class SAPolicyYamAdapter:
                 for name in self._group_order
             ]
         )
-        self._anchors[request.request_seq] = np.ascontiguousarray(anchor)
+        self._anchors[request.request_seq] = anchor
         while len(self._anchors) > 8:
             self._anchors.popitem(last=False)
 
@@ -202,10 +202,7 @@ class SAPolicyYamAdapter:
             "right_endpose": payload["right_endpose"],
             "left_gripper": payload["left_gripper"],
             "right_gripper": payload["right_gripper"],
-            "intrinsics": {
-                name: np.ascontiguousarray(matrix)
-                for name, matrix in self._intrinsics.items()
-            },
+            "intrinsics": dict(self._intrinsics),
             "camera_names": list(model_cameras),
         }
         return SAPolicyXPolicyRequest(
@@ -288,7 +285,7 @@ class SAPolicyYamAdapter:
             log.warning("%s: IK did not converge on %d/%d chunk steps", group, failures, horizon)
         if not np.isfinite(out).all():
             raise ValueError(f"SAPolicy IK produced non-finite joints for {group}")
-        return np.ascontiguousarray(out)
+        return out
 
     def validate(self, robot: RobotConfig, policy: PolicyConfig) -> None:
         del policy

@@ -26,7 +26,7 @@ MolmoAct2 和 ABC 是已经跑通的参考基线，不是本轮 XPolicy 模型�
 ## 本阶段责任
 
 我负责把四个模型的 **I0-I6 推理 infra 全部打通**，并在模型原生支持时完成 I7 RTC；
-同时负责 T3/T4 的部署 bundle 规范与回载接口。模型训练侧负责 T0-T3 的数据转换、stats、
+同时负责 T3/T4 的部署产物规范与回载接口。模型训练侧负责 T0-T3 的数据转换、stats、
 fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现有 XPolicy server 直接加载，
 不能为每个新 checkpoint 临时改 ManiMux core。
 
@@ -52,8 +52,8 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 | T0 数据 | YAM episode 能转换为模型原生训练格式，字段和时间频率明确 |
 | T1 统计 | 从同一训练集生成与 checkpoint 配套的 norm stats |
 | T2 训练 | 最小训练 smoke 能保存 checkpoint，不要求先有高成功率 |
-| T3 导出 | 权重、stats、processor/training config 组成完整部署 bundle |
-| T4 回载 | XPolicy server 不改代码即可加载新 bundle 并完成 GPU forward |
+| T3 导出 | 权重、stats、processor/training config 形成完整部署产物 |
+| T4 回载 | XPolicy server 不改代码即可加载新 checkpoint 并完成 GPU forward |
 | T5 评估 | 默认 ManiMux 保存 rollout，任务效果与 infra 指标分开报告 |
 
 状态含义：✅ 已有对应证据；🟡 代码/离线契约完成但缺运行证据；⛔ 缺必要训练产物；
@@ -66,7 +66,7 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 | OpenPI Pi05 YAM | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ 20条YAM示教完成训练、stats导出、回载和真机部署 |
 | GR00T N1.7 YAM | ✅ | ✅ | ✅ | ✅ | ✅ | ➖ | 🟡 有 YAM finetune 和匹配 stats，尚未重跑训练 |
 | Xiaomi XR-1 YAM | 🟡 权重不是 YAM policy | ✅ | ✅ | ✅ | 🟡 | 🟡 XPolicy sampler hook 离线通过 | ⛔ 缺 YAM fine-tune 权重和配套 stats |
-| LingBot-VLA2 YAM | 🟡 base projection bundle | ✅ | ✅ | ✅ | ✅ | 🟡 sampler RTC 离线完成 | ⛔ 缺 YAM post-training 权重和配套 stats |
+| LingBot-VLA2 YAM | 🟡 base projection assets | ✅ | ✅ | ✅ | ✅ | 🟡 sampler RTC 离线完成 | 🟡 15k YAM checkpoint 待 GPU/真机验证 |
 
 ## 分模型进度
 
@@ -103,7 +103,7 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 - RTC 条件链是 `30 x 14` joint -> 以新观测做 FK re-anchor -> `30 x 60` EE delta ->
   5-step Euler 内 PiGDM VJP guidance；条件进入模型原生 sampler，不是 chunk splice。
 - 当前 `30 Hz` / `action_dt_s: 0.033333` 是部署假设；官方公开训练格式没有声明控制频率，
-  后续 YAM fine-tune bundle 必须携带训练时的 native Hz，不能把当前值当官方参数。
+  后续 YAM fine-tune 部署配置必须记录训练时的 native Hz，不能把当前值当官方参数。
 - 当前官方 `Xiaomi-Robotics-1-5B` 是 post-training 起点，不是 YAM policy。
 - base 权重使用 `server/base.yaml` 与标准 `infra/manimux.yaml`；继续使用从 60 个 YAM
   episode 计算的官方格式 `30 x 60` action 与 `1 x 60` state stats，不使用 washer demo。
@@ -112,24 +112,24 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
   冷请求 `953.0 ms`，热态三次 `164.5 / 151.7 / 152.5 ms`，均返回有限的原生
   `30 x 60` 与 canonical `30 x 14` action。
 - 2026-08-20 首次 YAM 闭环观察到左臂绕向本体背面；这说明 shape、finite 和 IK 收敛
-  不能证明 EE 坐标语义、IK 分支或 checkpoint/bundle 匹配正确。I6 继续保持未通过，停止
+  不能证明 EE 坐标语义、IK 分支或 checkpoint/stats 匹配正确。I6 继续保持未通过，停止
   后续真机测试，直到离线回放复现并完成左右臂目标位姿、坐标系和 joint-limit 审计。
 - 这次闭环确认机械臂执行的是官方 5B 模型经 XPolicy 返回的真实动作，不是启动姿态、
   预录轨迹或 mock；因此 I5 ManiMux infra 记为通过，I6 仍按动作语义未通过处理。
 - 当前阻塞：真实 5B checkpoint 的 GPU conditioned RTC forward、左臂 EE/IK 语义审计
-  和 YAM fine-tune bundle。CPU 虚拟 flow 已证明两条 guidance 分支，但不等于真实 RTC。
+  和 YAM fine-tune checkpoint/stats。CPU 虚拟 flow 已证明两条 guidance 分支，但不等于真实 RTC。
 - 在没有 YAM 权重前，可以验收 infra shape/latency，但不能把任务失败归为 ManiMux 问题。
 
 ### [LingBot-VLA2](lingbot-vla2-yam-runbook.md)
 
 - 官方源码已经固定为 XPolicyLab 内的 nested submodule，正式 V2 adapter、YAM profile、
   server/infra config 和 fail-closed 检查已经完成。
-- 已固定 v1 bundle schema、模板、官方 source commit、相对 artifact 路径、训练 Hz/horizon
-  和 server 无改码回载接口。
+- server config 显式声明 checkpoint、training config、robot config、norm stats、
+  native Hz 和 horizon，不使用 LingBot 专属 manifest。
 - 当前本地 `lingbot-vla-v2-6b` 是 foundation checkpoint，不是 YAM post-training 权重。
-- base bundle 使用 60 个 YAM episode、25,743 条 transition 计算的 12D arm + 2D
+- base assets 使用 60 个 YAM episode、25,743 条 transition 计算的 12D arm + 2D
   gripper mean/std，并以符号链接复用 foundation shards；runtime 仍是标准 ManiMux。
-- base projection bundle 已能加载 foundation `hf_ckpt`，但它的 YAM stats 不是与权重配套的
+- base projection assets 已能加载 foundation `hf_ckpt`，但它的 YAM stats 不是与权重配套的
   post-training stats；正式训练仍缺 YAM finetune 权重和真实训练 native Hz。
 - 独立 `uv` 环境已完成：Python 3.12.13、PyTorch 2.8.0+cu128、FlashAttention 2.8.3，
   RTX 4090 可见。
@@ -144,14 +144,14 @@ fine-tune 和权重导出。两边最终在 T4 汇合：训练产物必须由现
 - 官方 sampler 没有原生 RTC API，但公开了 prefix cache 和 `predict_velocity`；XPolicy 已完成
   每个 denoise step 的 VJP soft-mask guidance，不是 chunk splice。
 - `get_action_rtc`、14D raw -> normalized/padded 55D、RTC infra config 和 CPU 离线测试已完成。
-- RTC 仍缺真实 bundle forward、WS 和 steady latency；静态 delay 参数不能当真机证据。
+- RTC 仍缺真实 checkpoint forward、WS 和 steady latency；静态 delay 参数不能当真机证据。
 
 ## ManiMux Infra TODO
 
 按以下顺序推进，不同时改 runtime 设计和模型参数：
 
 1. **XR-1 默认链路**：完成 XPolicy GPU forward -> WS -> EE codec/FK/IK 记录；训练权重另行推进。
-2. **LingBot 训练产物**：按现有 v1 bundle schema 完成最小训练导出与回载。
+2. **LingBot 训练产物**：用显式 server config 完成 15k checkpoint 的 GPU、WS 与真机回载。
 3. **统一训练交付**：每个模型 runbook 都补齐 T0-T4 的可执行命令和产物检查。
 4. **统一验收记录**：每个模型保存同样的 latency、chunk gap、action shape、数值有限性、
    Recorder 输出和真机结果，policy 成功率单独记录。

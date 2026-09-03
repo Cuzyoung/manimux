@@ -1,1 +1,1 @@
-"""LingBot-VLA2 helpers for the dual-arm YAM embodiment."""
+"""LingBot-VLA2 action adaptation for the dual-arm YAM robot."""

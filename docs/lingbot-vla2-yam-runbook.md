@@ -15,7 +15,7 @@ zero-shot 不是官方承诺的使用方式。为了测它是否已经学到跨�
 ## 上游基线
 
 - 官方源码：<https://github.com/Robbyant/lingbot-vla-v2>
-- 本次审计 revision：`951475ae1b1d87553e7dc47c97b53a3d695c0d13`
+- 当前集成 revision：`187f84061ba312acab3bca05a6ee26a8d75968da`
 - 官方 foundation weights：`robbyant/lingbot-vla-v2-6b`
 - 官方 RoboTwin 后训练 weights：`robbyant/lingbot-vla-v2-6b-robotwin`
 - 源码许可证：Apache-2.0
@@ -49,10 +49,18 @@ official LingbotVLAv2Server
   - official flow sampling
       |
       v
-absolute arm.position[12] + effector.position[2]
+model-native arm action[12] + absolute gripper[2]
       |
       v
-XPolicy per-step joint dictionaries -> ManiMux chunk
+XPolicy per-step dictionaries
+      |
+      v
+ManiMux PolicyAdapter
+  - absolute checkpoint: direct decode
+  - relative checkpoint: request-time joints + arm deltas
+      |
+      v
+canonical absolute joint ActionChunk
 ```
 
 上游源码负责模型、FeatureTransform、normalization 和 flow sampling；XPolicy
@@ -71,11 +79,9 @@ sampler: XPolicyLab/policy/LingBot_VLA2/rtc.py
 server:  XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh
 profile: XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_absolute.yaml
 source:  XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/  # pinned nested submodule
-schema:  XPolicyLab/policy/LingBot_VLA2/bundle.schema.json
-example: configs/lingbot-vla2/yam/bundle.example.yaml
 check:   scripts/check_lingbot_vla2_yam.py
 audit:   scripts/lingbot_vla2_yam_audit.py
-prepare: scripts/prepare_lingbot_vla2_base_bundle.py
+prepare: scripts/prepare_lingbot_vla2_base_assets.py
 stats:   src/manimux/integrations/lingbot_vla2_yam/norm_stats/yam_60ep.json
 ```
 
@@ -88,7 +94,7 @@ stats:   src/manimux/integrations/lingbot_vla2_yam/norm_stats/yam_60ep.json
 保持官方 10-step Euler flow loop，在每个 denoise step 对 clean action estimate 做
 VJP soft-mask guidance。它没有修改已生成 chunk，也不做 chunk splice。
 
-## 完整部署 bundle
+## 显式部署配置
 
 要把 server check 变成 `ready`，必须同时提供：
 
@@ -99,37 +105,33 @@ VJP soft-mask guidance。它没有修改已生成 chunk，也不做 chunk splice
 5. 与训练完全一致的 YAM robot config；
 6. 训练使用的 native control frequency 和 action horizon。
 
-这六项由一个 `bundle.yaml` 统一声明。server config 只保存
-`bundle_manifest_path`，adapter 不再分别接收 checkpoint、stats、robot config
-和 horizon 路径。训练导出只要符合 bundle schema，现有 server 无需改代码即可
-回载。
+与其他模型一致，这些信息直接写在 server config：
 
-规范文件：
+```yaml
+lingbot_vla2_root: lingbot_vla_v2
+model_root: /path/to/checkpoints/global_step_15000/hf_ckpt
+training_config_path: /path/to/lingbotvla_cli.yaml
+qwen3vl_path: /path/to/qwen3_vl_4b_processor
+robot_config_path: /path/to/robot_config.yaml
+norm_stats_path: /path/to/norm_stats.json
+action_horizon: 50
+native_hz: 30.0
+```
 
-- JSON Schema：`XPolicyLab/policy/LingBot_VLA2/bundle.schema.json`；
-- YAML 模板：`configs/lingbot-vla2/yam/bundle.example.yaml`；
-- schema version：`xpolicylab.lingbot_vla2_yam_bundle.v1`。
-
-Manifest 的职责固定如下：
-
-| 区域 | 必须声明 | 检查内容 |
-| --- | --- | --- |
-| `model` | family、官方 source commit | checkout 必须正好位于该 commit |
-| `artifacts` | training YAML、checkpoint、stats、robot config | 只能使用 bundle 内相对路径 |
-| `control` | native Hz、action horizon、absolute joint | 与训练 chunk 和 ManiMux infra 一致 |
-| `embodiment` | YAM 双臂维度、gripper、三相机顺序 | 固定为 6+1 / 6+1 与官方 feature names |
+`robot_config.yaml` 决定模型输出是 absolute joint，还是 arm-relative + absolute
+gripper。XPolicy 保留模型原生输出语义，ManiMux 再选择对应的 `PolicyAdapter`；server
+不会把 relative action 偷偷转换成 absolute action。
 
 官方 source 已作为 pinned nested submodule 放在
 `XPolicyLab/policy/LingBot_VLA2/lingbot_vla_v2/`，revision 为
-`951475ae1b1d87553e7dc47c97b53a3d695c0d13`。首次 clone 必须使用
+`187f84061ba312acab3bca05a6ee26a8d75968da`。首次 clone 必须使用
 `--recursive`；已有 checkout 使用 `git submodule update --init --recursive`。
 
 官方 loader 固定从 `checkpoint_path.parent.parent.parent / "lingbotvla_cli.yaml"`
-读取训练 config。因此 bundle 建议保持如下目录：
+读取训练 config。因此 checkpoint 建议保持如下目录：
 
 ```text
 checkpoints/pretrained/lingbot-vla-v2-yam/
-├── bundle.yaml
 ├── lingbotvla_cli.yaml
 ├── norm_stats.json
 ├── robot_config.yaml
@@ -138,24 +140,12 @@ checkpoints/pretrained/lingbot-vla-v2-yam/
     └── model-*.safetensors
 ```
 
-`bundle.yaml` 中的 checkpoint 固定写成 `runs/yam/hf_ckpt`。这样官方 loader
-向上三级后正好得到 bundle root，并读取同目录的 `lingbotvla_cli.yaml`。不接受
-绝对 artifact 路径、`..` 逃逸路径或只复制 `config.json` 的不完整 checkpoint。
-
-训练导出完成后，以模板生成 manifest，并把训练时实际使用的 robot config 一起
-放入 bundle：
-
-```bash
-cp configs/lingbot-vla2/yam/bundle.example.yaml \
-  checkpoints/pretrained/lingbot-vla-v2-yam/bundle.yaml
-cp XPolicyLab/policy/LingBot_VLA2/robot_configs/yam_dual_absolute.yaml \
-  checkpoints/pretrained/lingbot-vla-v2-yam/robot_config.yaml
-```
-
-模板中的 `native_hz` 和 `action_horizon` 必须改成数据采集/训练的真实值。
+`hf_ckpt` 向上三级后必须正好得到含 `lingbotvla_cli.yaml` 的目录，这是官方 loader
+的路径约束。server config 中的 `native_hz` 和 `action_horizon` 必须使用采集/训练的
+真实值。
 `lingbotvla_cli.yaml` 必须保留 `model.post_training: true`、
 `model.config_key: LingbotVLAV2Config`、55 维 canonical 配置、三相机顺序，以及
-与 manifest horizon 完全相同的 `train.chunk_size`。
+与 server config 完全相同的 `train.chunk_size`。
 
 ## 离线检查
 
@@ -166,14 +156,14 @@ cd /home/ubuntu/manimux
 envs/yam/.venv/bin/python scripts/check_lingbot_vla2_yam.py
 ```
 
-当前预期输出是 `status: blocked`、退出码 `2`。这不是脚本失败，而是准确说明
-本机还没有 YAM post-training bundle。
+检查器读取 server config 中的显式路径；缺少任何权重 shard、训练配置、robot
+config 或 norm stats 都会返回 `status: blocked`，且不会加载 GPU 模型。
 
 检查器同时读取 `configs/lingbot-vla2/yam/infra/manimux.yaml`，要求：
 
-- `robot.control_hz == bundle.control.native_hz`；
 - `policy.action_dt_s == 1 / native_hz`；
-- `policy.horizon_steps == bundle.control.action_horizon`；
+- `policy.horizon_steps == action_horizon`；
+- relative checkpoint 必须使用 `policy.adapter: lingbot_vla2_yam`；
 - baseline `execution.runtime == manimux`。
 
 所以训练产物与执行时序不一致时会在模型加载前失败，而不是在真机循环中静默
@@ -187,8 +177,7 @@ envs/yam/.venv/bin/python scripts/check_lingbot_vla2_yam.py \
 ```
 
 除相同的 Hz/dt/horizon 契约外，它还验证 sampler capability、`beta > 0`、delay
-buffer，以及 `delay <= min_execute_steps <= horizon - delay`。当前仍会因为缺少
-YAM bundle 返回 `blocked`。
+buffer，以及 `delay <= min_execute_steps <= horizon - delay`。
 
 审计现有 foundation checkpoint 的 55 维投影：
 
@@ -221,14 +210,14 @@ PYTHONPATH=src envs/yam/.venv/bin/python -m \
   --out /path/to/norm_stats.json
 ```
 
-### 准备 bundle
+### 准备 Base 资产
 
 以下命令不会复制 6B 权重，只在 ignored checkpoint 目录中创建相对符号链接，并从
 固定 revision 的官方 `real_robot.yaml` 生成 loader 必需的 `lingbotvla_cli.yaml`：
 
 ```bash
 cd /home/ubuntu/manimux
-envs/yam/.venv/bin/python scripts/prepare_lingbot_vla2_base_bundle.py
+envs/yam/.venv/bin/python scripts/prepare_lingbot_vla2_base_assets.py
 
 envs/yam/.venv/bin/python scripts/check_lingbot_vla2_yam.py \
   --config configs/lingbot-vla2/yam/server/base.yaml \
@@ -362,10 +351,11 @@ Viewer。新 rollout 保存在 config 指定的 `data/experiments/.../session-*/
 链路记为已通过。记录里的 runtime success 只代表 rollout 生命周期完整结束，不代表
 完成了 pick 任务，也不改变 foundation checkpoint 缺少 YAM post-training 的事实。
 
-## Finetune bundle 就绪后的命令
+## Finetune 权重就绪后的命令
 
-把完整 bundle 放到 server config 已声明的目录，并让 ManiMux infra 的 Hz、dt、
-horizon 与 manifest 一致，再运行离线检查。无需修改 adapter 或 server 代码。
+在 server config 中填写 checkpoint、training config、robot config 和 norm stats 的
+绝对路径，并让 ManiMux infra 的 dt、horizon 与训练设置一致。无需修改 adapter 或
+server 代码。
 只有检查显示 `ready` 后，才允许按顺序启动：
 
 ```bash
@@ -407,8 +397,8 @@ ManiMux RtcRuntime
 范围、YAM 14D 拆分、55D padding/mask，以及 guidance 确实在 flow loop 内逐步
 执行。
 
-当前 base bundle 已完成 GPU、官方模型 forward 和 XPolicy WS 验证；缺少的是匹配 YAM
+当前 base 资产已完成 GPU、官方模型 forward 和 XPolicy WS 验证；缺少的是匹配 YAM
 post-training 的 checkpoint/stats，以及 RTC 真机实测。`rtc.yaml` 的
 `initial_delay_steps: 12` 和 `min_execute_steps: 20` 当前只满足静态约束，不代表已完成
-RTC 参数标定。因此默认先使用 `infra/manimux.yaml`，拿到 finetune bundle 后再单独验证
+RTC 参数标定。因此默认先使用 `infra/manimux.yaml`，拿到 finetune 权重后再单独验证
 RTC。

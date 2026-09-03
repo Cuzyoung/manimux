@@ -31,5 +31,4 @@ use_ema: true
 ckpt_type: ema
 camera_names: [top, left, right]
 device: cuda:0
-warmup_iterations: 3
 dry_run: false

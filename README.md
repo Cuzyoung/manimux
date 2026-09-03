@@ -208,7 +208,7 @@ Status: ✅ running · 🧪 experimental · 🚧 not deployable yet · 🔌 infr
 | ✅ | OpenPI Pi05 + YAM | 16/50 × 14 absolute joint positions | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
 | ✅ | GR00T N1.7 + YAM | 16 × 14 absolute joint positions | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
 | ✅ | XR-1 + YAM | `30×60` EE delta → `30×14` joints | `configs/xiaomi-xr1/yam/` | [Runbook](docs/xiaomi-xr1-yam-runbook.md) |
-| ✅ | LingBot-VLA2 + YAM | `50×14` joints; limited base capability | `configs/lingbot-vla2/yam/` | [Runbook](docs/lingbot-vla2-yam-runbook.md) |
+| ✅ | LingBot-VLA2 + YAM | `50×14` arm-relative + absolute gripper → joints | `configs/lingbot-vla2/yam/` | [Runbook](docs/lingbot-vla2-yam-runbook.md) |
 | 🔌 | SAPolicy + YAM (XPolicyLab WS) | absolute dual-EE → YAM joints via `sapolicy_yam` | `configs/sapolicy/yam/` | [Runbook](docs/sapolicy-yam-runbook.md) |
 | 🧪 | Cosmos3 DROID | `32×8` single-arm absolute joints; offline only | `XPolicyLab/policy/Cosmos3/` | [Offline runbook](docs/cosmos3-offline-runbook.md) |
 | 🔌 | XPolicy bridge | Observation/action wire contract | `configs/xpolicylab/yam/` | [Runbook](docs/xpolicylab-runbook.md) |
@@ -249,12 +249,12 @@ The core development environment uses `./.venv`, the YAM runtime uses `envs/yam/
 servers use isolated environments. Follow [the environment guide](envs/README.md) and one model
 runbook for CUDA, Torch, checkpoints, preflight and safe shutdown.
 
-### Real-Robot Quick Start: Pi05 + YAM
+### Real-Robot Quick Start: YAM
 
-Open four terminals in the repository root and run one command in each:
+Start the two model-independent services once:
 
 ```bash
-# Terminal 1: camera
+# Terminal 1: cameras
 envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
 ```
 
@@ -263,17 +263,61 @@ envs/yam/.venv/bin/manimux-camera-server --config configs/cameras.yaml
 envs/yam/.venv/bin/manimux-viewer --robot yam --host 0.0.0.0 --port 8086
 ```
 
+Then choose exactly one model recipe. Each recipe starts its model server, performs one
+no-CAN forward/adapter probe, and starts the Viewer-controlled runtime. Do not run two model
+recipes or two ManiMux runtimes for the same robot simultaneously.
+
+#### Pi05 step-15000
+
 ```bash
 # Terminal 3: policy server
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   scripts/pi05_yam_server.py \
-  --config configs/pi05/yam/server/finetune-pick-red-ball-box-step1000.yaml
+  --config configs/pi05/yam/server/finetune-assemble-screwdriver-step15000.yaml
 ```
 
 ```bash
-# Terminal 4: ManiMux runtime service
+# Terminal 4: probe, then runtime service
+envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+  --config configs/pi05/yam/infra/serial-assemble-screwdriver-step15000.yaml
+
 envs/yam/.venv/bin/manimux serve \
-  --config configs/pi05/yam/infra/rtc-pick-red-ball-box-step1000.yaml
+  --config configs/pi05/yam/infra/serial-assemble-screwdriver-step15000.yaml
+```
+
+#### LingBot-VLA2 step-15000
+
+```bash
+# Terminal 3: policy server
+bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
+  configs/lingbot-vla2/yam/server/finetune-assemble-screwdriver-step15000.yaml
+```
+
+```bash
+# Terminal 4: probe, then runtime service
+envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+  --config configs/lingbot-vla2/yam/infra/serial-assemble-screwdriver-step15000.yaml
+
+envs/yam/.venv/bin/manimux serve \
+  --config configs/lingbot-vla2/yam/infra/serial-assemble-screwdriver-step15000.yaml
+```
+
+#### Xiaomi XR-1 step-15000
+
+```bash
+# Terminal 3: policy server
+envs/xr1/.venv/bin/python scripts/xiaomi_xr1_yam_server.py \
+  --config configs/xiaomi-xr1/yam/server/finetune-assemble-screwdriver-step15000.yaml
+```
+
+```bash
+# Terminal 4: probe, then runtime service
+envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+  --config configs/xiaomi-xr1/yam/infra/manimux-assemble-screwdriver-step15000.yaml \
+  --instruction "Assemble the screwdriver."
+
+envs/yam/.venv/bin/manimux serve \
+  --config configs/xiaomi-xr1/yam/infra/manimux-assemble-screwdriver-step15000.yaml
 ```
 
 Open `http://localhost:8086`, then operate Viewer in this order:

@@ -198,6 +198,8 @@ class XR1YamAdapter:
         return replace(request, action_condition=native_condition)
 
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
+        # {"actions", "state"} is test-only. Live inference returns a bare
+        # (horizon, 60) matrix; the observation anchor is looked up below.
         if isinstance(raw, dict) and "actions" in raw and "state" in raw:
             actions = np.asarray(raw["actions"], dtype=np.float64)
             anchor = np.asarray(raw["state"], dtype=np.float64).reshape(-1)

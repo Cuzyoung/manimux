@@ -193,10 +193,10 @@ OpenPI 官方 `pi05_base` 仍保留在 `checkpoints/pretrained/`。
 |---|---|---|---|---|
 | ✅ | MolmoAct2 + YAM | 30 × 14 关节位置 | `configs/molmoact2/yam/` | [MolmoAct2](docs/molmoact-yam-runbook.md) |
 | ✅ | ABC + YAM | 30 × 14 关节位置 | `configs/abc/yam/` | [ABC](docs/abc-yam-runbook.md) |
-| ✅ | OpenPI Pi05 + YAM | 16 × 14 绝对关节位置 | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
+| ✅ | OpenPI Pi05 + YAM | 16/50 × 14 绝对关节位置 | `configs/pi05/yam/` | [Pi05](docs/pi05-yam-runbook.md) |
 | ✅ | GR00T N1.7 + YAM | 16 × 14 绝对关节位置 | `configs/groot/yam/` | [GR00T](docs/gr00t-yam-runbook.md) |
 | ✅ | XR-1 + YAM | `30×60` 末端增量 → `30×14` 关节 | `configs/xiaomi-xr1/yam/` | [运行手册](docs/xiaomi-xr1-yam-runbook.md) |
-| ✅ | LingBot-VLA2 + YAM | `50×14` 关节；base 任务能力有限 | `configs/lingbot-vla2/yam/` | [运行手册](docs/lingbot-vla2-yam-runbook.md) |
+| ✅ | LingBot-VLA2 + YAM | `50×14` 臂相对量 + 绝对夹爪 → 关节 | `configs/lingbot-vla2/yam/` | [运行手册](docs/lingbot-vla2-yam-runbook.md) |
 | 🔌 | XPolicy bridge | observation/action wire contract | `configs/xpolicylab/yam/` | [运行手册](docs/xpolicylab-runbook.md) |
 
 OpenPI Pi05 已完成真实三相机、YAM norm stats、XPolicy 模型服务、官方 10-step flow、
@@ -223,8 +223,8 @@ git submodule update --init --recursive
 ```
 
 核心开发环境使用 `./.venv`，YAM runtime 使用 `envs/yam/.venv`，不同模型服务使用各自
-隔离环境。CUDA、Torch、checkpoint 和首次启动只看
-[环境说明](envs/README.md)与对应模型 runbook，不从 README 拼接真机命令。
+隔离环境。下面只提供标准启动入口；CUDA、Torch、checkpoint、preflight 和故障处理仍以
+[环境说明](envs/README.md)与对应模型 runbook 为准。
 
 ### YAM 公共服务
 
@@ -245,17 +245,51 @@ envs/yam/.venv/bin/manimux-molmoact-server --host 127.0.0.1 --port 8202
 envs/yam/.venv/bin/manimux run --config configs/molmoact2/yam/infra/manimux.yaml
 ```
 
-### XPolicy 示例：Pi05-YAM
+### 三个 step-15000 XPolicy 模型
+
+以下三组命令只能选择一组；同一台 YAM 不要同时启动两个模型流程或两个 ManiMux
+runtime。每组都按照“模型服务 → 无 CAN forward/adapter probe → Viewer 控制的
+`manimux serve`”执行。
+
+#### Pi05 step-15000
 
 ```bash
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python \
   scripts/pi05_yam_server.py \
-  --config configs/pi05/yam/server/finetune.yaml
+  --config configs/pi05/yam/server/finetune-assemble-screwdriver-step15000.yaml
 
-envs/yam/.venv/bin/manimux run --config configs/pi05/yam/infra/manimux.yaml
+envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+  --config configs/pi05/yam/infra/serial-assemble-screwdriver-step15000.yaml
 
-# Pi-guided RTC 复用同一个微调模型服务。
-envs/yam/.venv/bin/manimux run --config configs/pi05/yam/infra/rtc.yaml
+envs/yam/.venv/bin/manimux serve \
+  --config configs/pi05/yam/infra/serial-assemble-screwdriver-step15000.yaml
+```
+
+#### LingBot-VLA2 step-15000
+
+```bash
+bash XPolicyLab/policy/LingBot_VLA2/setup_eval_policy_server.sh \
+  configs/lingbot-vla2/yam/server/finetune-assemble-screwdriver-step15000.yaml
+
+envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+  --config configs/lingbot-vla2/yam/infra/serial-assemble-screwdriver-step15000.yaml
+
+envs/yam/.venv/bin/manimux serve \
+  --config configs/lingbot-vla2/yam/infra/serial-assemble-screwdriver-step15000.yaml
+```
+
+#### Xiaomi XR-1 step-15000
+
+```bash
+envs/xr1/.venv/bin/python scripts/xiaomi_xr1_yam_server.py \
+  --config configs/xiaomi-xr1/yam/server/finetune-assemble-screwdriver-step15000.yaml
+
+envs/yam/.venv/bin/python scripts/xpolicylab_yam_forward_probe.py \
+  --config configs/xiaomi-xr1/yam/infra/manimux-assemble-screwdriver-step15000.yaml \
+  --instruction "Assemble the screwdriver."
+
+envs/yam/.venv/bin/manimux serve \
+  --config configs/xiaomi-xr1/yam/infra/manimux-assemble-screwdriver-step15000.yaml
 ```
 
 这些只展示入口，不代替 checkpoint 检查、preflight、CAN 检查和停止流程。运行真机前

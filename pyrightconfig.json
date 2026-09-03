@@ -1,0 +1,17 @@
+{
+  "include": ["src", "tests", "scripts"],
+  "exclude": ["XPolicyLab", "envs", "data", "checkpoints", "logs"],
+  "extraPaths": ["src"],
+  "typeCheckingMode": "off",
+  "pythonVersion": "3.12",
+  "pythonPlatform": "Linux",
+  "venvPath": ".",
+  "venv": ".venv",
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": ["src"],
+      "pythonVersion": "3.12"
+    }
+  ]
+}

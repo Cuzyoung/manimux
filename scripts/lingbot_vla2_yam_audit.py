@@ -36,10 +36,10 @@ def main() -> int:
     for path in (REPO_ROOT, REPO_ROOT / "XPolicyLab"):
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
-    from XPolicyLab.policy.LingBot_VLA2.model import validate_bundle
+    from XPolicyLab.policy.LingBot_VLA2.model import validate_deployment
 
     server_config = yaml.safe_load(args.server_config.read_text(encoding="utf-8"))
-    bundle = validate_bundle(server_config)
+    deployment = validate_deployment(server_config)
 
     contract = {
         "checkpoint": str(checkpoint),
@@ -55,20 +55,20 @@ def main() -> int:
             args.source_root / "deploy/lingbot_vla_v2_policy.py"
         ).is_file(),
         "xpolicylab_adapter": "XPolicyLab/policy/LingBot_VLA2",
-        "yam_norm_stats": bundle["norm_stats_path"],
+        "yam_norm_stats": deployment["norm_stats_path"],
         "yam_action_mapping": "absolute 12 arm joints + 2 grippers",
-        "bundle_status": bundle["status"],
-        "status": "ready" if bundle["status"] == "ready" else "blocked",
+        "deployment_status": deployment["status"],
+        "status": "ready" if deployment["status"] == "ready" else "blocked",
         "reason": (
-            "The generated bundle is structurally ready for a base-checkpoint "
+            "The deployment paths are structurally ready for a base-checkpoint "
             "forward. Its YAM statistics are not matched post-training statistics, so "
             "task capability remains unverified."
-            if bundle["status"] == "ready"
-            else "; ".join(bundle["errors"])
+            if deployment["status"] == "ready"
+            else "; ".join(deployment["errors"])
         ),
     }
     print(json.dumps(contract, indent=2))
-    return 0 if bundle["status"] == "ready" else 2
+    return 0 if deployment["status"] == "ready" else 2
 
 
 if __name__ == "__main__":

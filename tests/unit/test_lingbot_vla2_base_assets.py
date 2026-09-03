@@ -11,7 +11,7 @@ from manimux.integrations.lingbot_vla2_yam.compute_norm_stats import (
     episode_features,
     usable_episodes,
 )
-from scripts.prepare_lingbot_vla2_base_bundle import prepare_bundle
+from scripts.prepare_lingbot_vla2_base_assets import prepare_assets
 
 
 def _write_episode(path: Path) -> None:
@@ -46,7 +46,7 @@ def test_lingbot_stats_use_absolute_yam_joint_features(tmp_path: Path) -> None:
     assert len(stats["norm_stats"]["action.effector.position"]["std"]) == 2
 
 
-def test_prepare_base_bundle_reuses_checkpoint_with_symlinks(
+def test_prepare_base_assets_reuses_checkpoint_with_symlinks(
     tmp_path: Path,
 ) -> None:
     checkpoint = tmp_path / "base"
@@ -62,18 +62,17 @@ def test_prepare_base_bundle_reuses_checkpoint_with_symlinks(
     stats = tmp_path / "norm_stats.json"
     stats.write_text(json.dumps({"norm_stats": {}, "count": 0}))
 
-    output = tmp_path / "bundle"
-    manifest_path = prepare_bundle(
+    output = tmp_path / "assets"
+    prepared = prepare_assets(
         checkpoint=checkpoint,
         processor=processor,
         stats=stats,
         output=output,
     )
 
-    manifest = yaml.safe_load(manifest_path.read_text())
     training = yaml.safe_load((output / "lingbotvla_cli.yaml").read_text())
     linked_shard = output / "runs/yam/hf_ckpt/model-00001.safetensors"
-    assert manifest["artifacts"]["checkpoint"] == "runs/yam/hf_ckpt"
+    assert prepared == output
     assert training["data"]["data_name"] == "yam_dual"
     assert training["train"]["chunk_size"] == 50
     assert linked_shard.is_symlink()

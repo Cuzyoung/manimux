@@ -397,6 +397,32 @@ def test_ws_client_preserves_dvac_metadata_envelope(
     assert result["dvac"]["execution_steps"] == 7
 
 
+def test_ws_client_preserves_explicit_action_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = XPolicyLabWsClient(
+        url="ws://127.0.0.1:8500",
+        evaluation_id="evaluation",
+        trial_id="trial",
+    )
+    monkeypatch.setattr(
+        client,
+        "request",
+        lambda *_args, **_kwargs: {
+            "payload": {
+                "actions": _action_steps(5),
+                "action_semantics": "anchor_relative_arm_absolute_gripper",
+            }
+        },
+    )
+
+    result = client.infer({}, sampling={"mode": "default"})
+
+    assert isinstance(result, dict)
+    assert result["action_semantics"] == "anchor_relative_arm_absolute_gripper"
+    assert len(result["actions"]) == 5
+
+
 # --------------------------------------------------------------- model wiring
 
 

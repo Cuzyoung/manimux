@@ -61,3 +61,16 @@ def test_xr1_base_config_does_not_claim_task_capability() -> None:
     assert report["checkpoint_variant"] == "xiaomi_robotics_1_5b_base_with_yam_stats"
     assert report["policy_status"] == "base_checkpoint_capability_unvalidated"
     assert report["norm_stats_role"] == "yam_projection_only_not_checkpoint_matched"
+
+
+def test_xr1_screwdriver_finetune_has_checkpoint_matched_contract() -> None:
+    config = xr1_server._load_config(
+        xr1_server.REPO_ROOT
+        / "configs/xiaomi-xr1/yam/server/finetune-assemble-screwdriver-step12000.yaml"
+    )
+    report = _validate(config)
+
+    assert report["checkpoint_variant"] == "xiaomi_xr1_yam_assemble_screwdriver_step_12000"
+    assert report["checkpoint_role"] == "yam_finetuned_policy"
+    assert report["policy_status"] == "yam_finetune_not_evaluated"
+    assert report["norm_stats_role"] == "checkpoint_matched_yam_finetune"
