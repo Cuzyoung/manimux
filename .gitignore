@@ -1,4 +1,10 @@
 .DS_Store
+
+# Local training jobs, cluster submission payloads, and TensorBoard operations.
+# These are intentionally kept out of the public ManiMux repository.
+/.local/
+/.vscode/
+
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
