@@ -67,7 +67,7 @@ Pi05 的统计由训练 wrapper 在不存在时自动生成；已有匹配文件
 
 ```bash
 cd "$CODE"
-PI05_WORKSPACE="$CODE" bash .local/training/tools/train_pi05_yam_cluster.sh \
+PI05_WORKSPACE="$CODE" bash scripts/training/train_pi05_yam_cluster.sh \
   prepare assemble-screwdriver-v1-s0-8xh100-15k
 ```
 
@@ -91,7 +91,7 @@ cd "$CODE"
 OPENPI_GPU_IDS=0,1,2,3,4,5,6,7 \
 OPENPI_FSDP_DEVICES=8 OPENPI_BATCH_SIZE=64 \
 OPENPI_NUM_TRAIN_STEPS=15000 OPENPI_SAVE_INTERVAL=1000 OPENPI_MAX_TO_KEEP=15 \
-PI05_WORKSPACE="$CODE" bash .local/training/tools/train_pi05_yam_cluster.sh \
+PI05_WORKSPACE="$CODE" bash scripts/training/train_pi05_yam_cluster.sh \
   train assemble-screwdriver-v1-s0-8xh100-15k
 ```
 
