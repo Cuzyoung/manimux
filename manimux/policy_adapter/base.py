@@ -14,6 +14,13 @@ class PolicyAdapter(ABC):
     kinematics is an assembled offline model; passing it does not connect cameras or robots.
     """
 
+    # True when decode_action honors ActionContext.handoff_reference and
+    # handoff_skip_steps (waypoint handoff).
+    supports_waypoint_handoff = False
+
+    # Decode model apertures and invert the mapping for RTC conditioning.
+    supports_gripper_mapping = False
+
     def __init__(self, robot: dict, policy: dict, *, kinematics=None):
         self.robot = robot
         self.policy = policy

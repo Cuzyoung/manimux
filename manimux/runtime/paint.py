@@ -98,7 +98,7 @@ class PaintInferenceStrategy:
         request_state: RequestState,
         runtime_state: RuntimeState,
     ) -> InferenceSubmission | None:
-        if request_state.in_flight or runtime_state != RuntimeState.RUNNING:
+        if runtime_state != RuntimeState.RUNNING:
             return None
 
         deadline_ns = now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000)
@@ -148,6 +148,11 @@ class PaintInferenceStrategy:
                 "delay_steps": delay,
             },
         )
+
+    def decode_handoff(self, *, response: InferenceResponse) -> bool:
+        """response: model output about to be decoded; this strategy keeps its own trajectory."""
+        del response
+        return False
 
     def commit_settings(
         self,

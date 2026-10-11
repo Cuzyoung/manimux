@@ -52,10 +52,9 @@ class SynchronousChunkStrategy:
         request_state,
         runtime_state,
     ) -> InferenceSubmission | None:
-        # Capture the next inference observation only after the current action completes and no request remains in flight.
+        # Selected execution length is an algorithm requirement, even with a scheduler.
         if (
-            request_state.in_flight
-            or runtime_state != RuntimeState.RUNNING
+            runtime_state != RuntimeState.RUNNING
             or timeline.remaining_ns(now_ns) > 0
         ):
             return None
@@ -79,6 +78,11 @@ class SynchronousChunkStrategy:
             blend_steps=self._config["inference"]["blend_policy_steps"],
             anchor_source="measured_state",
         )
+
+    def decode_handoff(self, *, response) -> bool:
+        """response: model output about to be decoded; this strategy keeps its own trajectory."""
+        del response
+        return False
 
     def prepare_chunk(self, *, chunk, response, now_ns) -> ActionChunk:
         del now_ns

@@ -13,7 +13,7 @@ from manimux.runtime.inference import (
     InferenceSubmission,
     RequestState,
 )
-from manimux.runtime.rtc.mask import inpainting_condition
+from manimux.runtime.rtc.mask import inpainting_condition, waypoint_condition
 from manimux.runtime.rtc.request import RtcInferenceRequest
 from manimux.runtime.safety import RuntimeState
 from manimux.runtime.timeline import ActionTimeline, CommitResult
@@ -39,6 +39,11 @@ class RtcInferenceStrategy:
         self._group_order = tuple(config["robot"]["group_dims"])
         self._rtc_beta = float(rtc["beta"])
         self._min_execute_steps = rtc["min_execute_policy_steps"]
+        self._waypoint_skip = (
+            config["inference"]["handoff_skip_steps"]
+            if config["inference"]["handoff"] == "waypoint"
+            else 0
+        )
         initial_delay = rtc["initial_delay_policy_steps"]
         self._initial_delay_steps = None if initial_delay is None else int(initial_delay)
         self._delay_buffer_size = int(rtc["delay_buffer_size"])
@@ -82,6 +87,8 @@ class RtcInferenceStrategy:
         self._request_started_ns = {}
         self._request_observation_ns = {}
         self._request_forecast = {}
+        self._request_reference_seq: dict[int, int] = {}
+        self._active_request_seq = -1
         self._infeasible_reported = False
         self._infeasible_pending = None
         self._latency = []
@@ -129,6 +136,12 @@ class RtcInferenceStrategy:
             condition, weights = inpainting_condition(
                 rows, executed_steps=executed, delay_steps=delay
             )
+            condition, weights = waypoint_condition(
+                condition,
+                weights,
+                model_horizon=horizon,
+                skip_steps=self._waypoint_skip,
+            )
         request = RtcInferenceRequest(
             session_id=session_id,
             request_seq=request_seq,
@@ -158,8 +171,16 @@ class RtcInferenceStrategy:
         request_state: RequestState,
         runtime_state: RuntimeState,
     ) -> InferenceSubmission | None:
-        if request_state.in_flight or runtime_state != RuntimeState.RUNNING:
+        if runtime_state != RuntimeState.RUNNING:
             return None
+
+        if request_state.multi_flight:
+            # Coalesced uploads never return a model result. Retire their bookkeeping
+            # once their deadlines pass, just as the runtime rejects late responses.
+            timeout_ns = int(self._config["policy"]["timeout_s"] * 1_000_000_000)
+            for seq, started_ns in list(self._request_started_ns.items()):
+                if now_ns - started_ns > timeout_ns:
+                    self._forget_request(seq)
 
         active = self._active_rows
         condition = None
@@ -182,6 +203,12 @@ class RtcInferenceStrategy:
                         executed_steps=executed,
                         delay_steps=delay,
                     )
+                    condition, weights = waypoint_condition(
+                        condition,
+                        weights,
+                        model_horizon=self._config["policy"]["horizon_policy_steps"],
+                        skip_steps=self._waypoint_skip,
+                    )
                     forecast_used = delay
         if not ready:
             return None
@@ -203,12 +230,17 @@ class RtcInferenceStrategy:
         self._request_started_ns[request_seq] = now_ns
         self._request_observation_ns[request_seq] = snapshot.state.monotonic_ns
         self._request_forecast[request_seq] = forecast_used
+        if request_state.multi_flight:
+            self._request_reference_seq[request_seq] = timeline.accepted_request_seq
         return InferenceSubmission(
             request=request,
             event_fields={
                 "executed_steps": executed,
                 "forecast_delay": forecast_used,
                 "conditioned": condition is not None,
+                "condition_handoff_skip_steps": (
+                    self._waypoint_skip if condition is not None else 0
+                ),
             },
         )
 
@@ -233,6 +265,11 @@ class RtcInferenceStrategy:
             anchor_source="last_command",
         )
 
+    def decode_handoff(self, *, response: InferenceResponse) -> bool:
+        """response: model output to decode; conditioned chunks are also joined by waypoint."""
+        del response
+        return self._config["inference"]["handoff"] == "waypoint"
+
     def clear_condition(self, request_seq: int) -> None:
         """A history adapter can discover that no committed overlap remains."""
         self._conditioned_requests.discard(request_seq)
@@ -245,8 +282,23 @@ class RtcInferenceStrategy:
         response: InferenceResponse,
         now_ns: int,
     ) -> ActionChunk:
-        del response, now_ns
-        source_horizon = chunk.source_offset_steps + chunk.horizon_steps
+        del now_ns
+        if self._config["inference"]["inference_schedule"] == "multi_inflight" and (
+            self._request_reference_seq.get(response.request_seq) != self._active_request_seq
+        ):
+            raise ValueError("rtc_condition_plan_replaced")
+        skipped = 0 if chunk.handoff is None else chunk.handoff.skipped_steps
+        if chunk.handoff is not None and skipped != self._waypoint_skip:
+            raise ValueError("RTC waypoint handoff skip differs from the configured skip")
+        if (
+            self._waypoint_skip
+            and response.request_seq in self._conditioned_requests
+            and chunk.handoff is None
+        ):
+            # The model received a shifted condition. Without the matching
+            # waypoint, its guided rows would execute at the wrong timestamps.
+            raise ValueError("RTC shifted condition requires its waypoint handoff")
+        source_horizon = chunk.source_offset_steps + chunk.horizon_steps + skipped
         if source_horizon != self._config["policy"]["horizon_policy_steps"]:
             raise ValueError("RTC decoded suffix must retain the configured source horizon")
         if chunk.hold_from_step:
@@ -262,10 +314,13 @@ class RtcInferenceStrategy:
         now_ns: int,
     ) -> dict[str, object]:
         rows = np.concatenate([chunk.groups[name] for name in self._group_order], axis=1)
-        # Restore source indices only. The discarded prefix is never executable
-        # or conditioned: executed always starts beyond these zero-weight rows.
+        # Restore executable time-slot indices, not skipped model-row indices.
+        # A waypoint puts source row k+skip in slot k; its tail loses skip slots.
+        # Do not fabricate a repeated/zero-weight executable tail to restore H.
         self._active_rows = np.pad(rows, ((chunk.source_offset_steps, 0), (0, 0)))
         self._active_offset = chunk.source_offset_steps + result.trimmed_steps
+        self._active_request_seq = response.request_seq
+        self._request_reference_seq.pop(response.request_seq, None)
         started_ns = self._request_started_ns.pop(response.request_seq, now_ns)
         observation_ns = self._request_observation_ns.pop(response.request_seq, started_ns)
         forecast_used = self._request_forecast.pop(response.request_seq, 0)
@@ -287,17 +342,25 @@ class RtcInferenceStrategy:
             "forecast_delay": forecast_used,
             "server_ms": round(response.inference_ms, 1),
             "trimmed_steps": result.trimmed_steps,
-            "rtc_source_horizon": len(self._active_rows),
+            "rtc_source_horizon": self._config["policy"]["horizon_policy_steps"],
+            "rtc_effective_horizon": len(self._active_rows),
+            "rtc_handoff_skip_steps": (
+                0 if chunk.handoff is None else chunk.handoff.skipped_steps
+            ),
             "rtc_executed_steps_at_commit": self._active_offset,
             "request_to_commit_ms": (now_ns - started_ns) / 1e6,
             "rtc_delay_ms": delay_ns / 1e6,
         }
 
     def on_response_rejected(self, response: InferenceResponse) -> None:
-        self._conditioned_requests.discard(response.request_seq)
-        self._request_started_ns.pop(response.request_seq, None)
-        self._request_observation_ns.pop(response.request_seq, None)
-        self._request_forecast.pop(response.request_seq, None)
+        self._forget_request(response.request_seq)
+
+    def _forget_request(self, request_seq: int) -> None:
+        self._conditioned_requests.discard(request_seq)
+        self._request_started_ns.pop(request_seq, None)
+        self._request_observation_ns.pop(request_seq, None)
+        self._request_forecast.pop(request_seq, None)
+        self._request_reference_seq.pop(request_seq, None)
 
     def take_runtime_events(self, *, step: int) -> list[tuple[str, dict[str, object]]]:
         pending = self._infeasible_pending

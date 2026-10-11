@@ -75,6 +75,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
     from manimux.runtime.aac import aac_parameters
     from manimux.runtime.paint import paint_parameters
     from manimux.runtime.rtc.strategy import rtc_parameters
+    from manimux.runtime.scheduling import resolve_request_schedule
     from manimux.runtime.temporal_ensemble import temporal_ensemble_parameters
 
     unsupported = {
@@ -121,9 +122,15 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "chunk_policy_steps": None,
         "inference_schedule": "deadline",
         "refill_threshold_s": 0.4,
+        "observation_hz": None,
+        "request_trigger": None,
+        "handoff_skip_steps": 0,
         "max_plan_age_s": 1.0,
         "blend_policy_steps": 2,
         "action_start_mode": "drop_infer_latency",
+        # Chunk handoff: blend joints at commit, or an adapter EE waypoint before dense IK.
+        "handoff": "blend",
+        "handoff_margin_s": 0.0,
         "max_chunk_policy_steps": None,
         "independent_group_decoding": False,
         "decode_budget_ms": 40.0,
@@ -145,18 +152,27 @@ def inference_parameters(*, executor: dict, **options) -> dict:
     if values.get("paint") is not None:
         values["paint"] = paint_parameters(**values["paint"])
     # The dictionary may already contain defaults; do not mistake scheduling defaults for user-supplied options for other modes.
-    inactive_defaults = {"inference_schedule": "deadline", "refill_threshold_s": 0.4}
+    inactive_defaults = {
+        "inference_schedule": "deadline", "refill_threshold_s": 0.4,
+        "observation_hz": None, "request_trigger": None,
+    }
     provided = {
         key
         for key in options
         if key not in inactive_defaults or options[key] != inactive_defaults[key]
     }
+    resolve_request_schedule(values)
     validate_inference_parameters(values, executor, provided=provided)
     return values
 
 
 def validate_runtime_parameters(config: dict) -> None:
     """Preserve the necessary constraints between scheduling, action decoding and execution limits."""
+    if (
+        config["inference"]["inference_schedule"] == "multi_inflight"
+        and config["policy"]["action_decoding"] != "inline"
+    ):
+        raise ValueError("multi_inflight currently requires inline action decoding")
     if config["run"].get("warmup_before_start", False):
         if not config["robogui"]["enabled"]:
             raise ValueError("run.warmup_before_start requires RoboGUI Start control")
@@ -184,6 +200,11 @@ def validate_runtime_parameters(config: dict) -> None:
         and config["inference"]["chunk_policy_steps"] > config["policy"]["horizon_policy_steps"]
     ):
         raise ValueError("inference.chunk_policy_steps must not exceed policy.horizon_policy_steps")
+    if (
+        config["inference"]["handoff"] == "waypoint"
+        and config["policy"]["action_decoding"] != "process"
+    ):
+        raise ValueError("inference.handoff=waypoint requires process action decoding")
     if (
         config["inference"]["independent_group_decoding"]
         and config["policy"]["action_decoding"] != "process"
@@ -220,10 +241,23 @@ def validate_runtime_parameters(config: dict) -> None:
                 )
     if config["inference"]["algorithm"] == "rtc":
         delay = config["inference"]["rtc"]["initial_delay_policy_steps"]
+        skip = (
+            config["inference"]["handoff_skip_steps"]
+            if config["inference"]["handoff"] == "waypoint"
+            else 0
+        )
+        horizon = config["policy"]["horizon_policy_steps"]
+        if skip >= horizon:
+            raise ValueError("RTC waypoint handoff_skip_steps must be smaller than the horizon")
         if delay is not None and 2 * delay > config["policy"]["horizon_policy_steps"]:
             raise ValueError(
                 "RTC requires 2 * initial_delay_policy_steps "
                 "<= policy.horizon_policy_steps"
+            )
+        if delay is not None and skip and 2 * delay > horizon - skip:
+            raise ValueError(
+                "RTC requires 2 * initial_delay_policy_steps <= "
+                "policy.horizon_policy_steps - handoff_skip_steps for waypoint handoff"
             )
     if config["inference"]["algorithm"] == "act_temporal_ensemble":
         query_interval = config["inference"]["temporal_ensemble"]["query_interval_policy_steps"]
@@ -245,6 +279,12 @@ def validate_runtime_parameters(config: dict) -> None:
 
 def validate_inference_parameters(values: dict, executor: dict, *, provided=frozenset()) -> None:
     """Check scheduling/execution combinations; provided identifies explicitly supplied YAML fields only."""
+    from manimux.runtime.scheduling import validate_request_schedule
+
+    validate_request_schedule(values, provided=provided)
+    skip_steps = values["handoff_skip_steps"]
+    if type(skip_steps) is not int or skip_steps < 0:
+        raise ValueError("inference.handoff_skip_steps must be a non-negative integer")
     if values["action_start_mode"] not in ACTION_START_MODES:
         raise ValueError(
             "inference.action_start_mode must be one of "
@@ -252,13 +292,20 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         )
     if values["decode_forecast_mode"] not in FORECAST_MODES:
         raise ValueError(f"inference.decode_forecast_mode must be one of {FORECAST_MODES}")
-    if values["inference_schedule"] == "serial":
-        if values["algorithm"] != "serial":
-            raise ValueError("serial scheduling requires inference.algorithm=serial")
-        if "refill_threshold_s" in provided:
-            raise ValueError("serial scheduling does not use refill_threshold_s")
-    elif values["algorithm"] == "serial":
-        raise ValueError("inference.algorithm=serial requires inference_schedule=serial")
+    if values["handoff"] not in {"blend", "waypoint"}:
+        raise ValueError("inference.handoff must be blend or waypoint")
+    if not values["handoff_margin_s"] >= 0:
+        raise ValueError("inference.handoff_margin_s must be non-negative")
+    if values["handoff"] == "waypoint" and (
+        values["algorithm"] not in {"async", "rtc"} or values["blend_policy_steps"] != 0
+    ):
+        raise ValueError(
+            "inference.handoff=waypoint requires the async or rtc algorithm and "
+            "blend_policy_steps=0"
+        )
+    # The handoff time lies on the source row grid, which first_step_when_ready discards.
+    if values["handoff"] == "waypoint" and values["action_start_mode"] != "drop_infer_latency":
+        raise ValueError("inference.handoff=waypoint requires action_start_mode=drop_infer_latency")
     if values["independent_group_decoding"] and (
         values["algorithm"] != "async"
         or executor["type"] != "smooth"
@@ -274,19 +321,5 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         or executor["type"] not in {"smooth", "direct", "mpc"}
     ):
         raise ValueError("max_chunk_policy_steps requires the Serial/Async joint timeline")
-    # These strategies choose request timing themselves and do not use ordinary timeline replenishment options.
-    names = {
-        "rtc": "RTC",
-        "act_temporal_ensemble": "ACT temporal ensembling",
-        "aac": "AAC",
-        "paint": "PAINT",
-        "autohorizon": "AutoHorizon",
-    }
-    runtime = values["algorithm"]
-    if runtime == "aac" and not values["aac"]["ee_stats_path"]:
+    if values["algorithm"] == "aac" and not values["aac"]["ee_stats_path"]:
         raise ValueError("inference.aac.ee_stats_path is required by AAC")
-    if runtime in names:
-        ignored = {"inference_schedule", "refill_threshold_s"}.intersection(provided)
-        if ignored:
-            fields = ", ".join(sorted(ignored))
-            raise ValueError(f"inference fields are not used by {names[runtime]}: {fields}")

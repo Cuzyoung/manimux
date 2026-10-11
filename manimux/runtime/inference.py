@@ -23,6 +23,7 @@ class RequestState:
     in_flight: bool
     last_submitted_seq: int
     last_deadline_ns: int
+    multi_flight: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +72,8 @@ class InferenceStrategy(Protocol):
         last_command: GroupVector,
     ) -> CommitSettings: ...
 
+    def decode_handoff(self, *, response: InferenceResponse) -> bool: ...
+
     def prepare_chunk(
         self,
         *,
@@ -102,6 +105,10 @@ class DefaultChunkStrategy:
         self._config = config
 
     @property
+    def discard_plans_while_paused(self) -> bool:
+        return self._config["inference"]["inference_schedule"] == "multi_inflight"
+
+    @property
     def name(self) -> str:
         return "serial" if self._config["inference"]["inference_schedule"] == "serial" else "async"
 
@@ -114,7 +121,7 @@ class DefaultChunkStrategy:
         return frozenset({"default"})
 
     def reset(self) -> None:
-        return None
+        pass
 
     def build_submission(
         self,
@@ -128,24 +135,7 @@ class DefaultChunkStrategy:
         request_state: RequestState,
         runtime_state: RuntimeState,
     ) -> InferenceSubmission | None:
-        schedule = self._config["inference"]["inference_schedule"]
-        if schedule == "serial":
-            if (
-                runtime_state != RuntimeState.RUNNING
-                or request_state.in_flight
-                or timeline.remaining_ns(now_ns) > 0
-            ):
-                return None
-        else:
-            refill_ns = int(self._config["inference"]["refill_threshold_s"] * 1_000_000_000)
-            request_expired = now_ns > request_state.last_deadline_ns
-            request_ready = (
-                not request_state.in_flight
-                if schedule == "single_inflight"
-                else request_state.last_submitted_seq < 0 or request_expired
-            )
-            if timeline.remaining_ns(now_ns) >= refill_ns or not request_ready:
-                return None
+        # RequestScheduler owns transport admission and ordinary refill timing.
         deadline_ns = now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000)
         request = InferenceRequest(
             session_id=session_id,
@@ -170,6 +160,11 @@ class DefaultChunkStrategy:
             blend_steps=self._config["inference"]["blend_policy_steps"],
             anchor_source="measured_state",
         )
+
+    def decode_handoff(self, *, response: InferenceResponse) -> bool:
+        """response: model output about to be decoded; True requests a waypoint handoff."""
+        del response
+        return self._config["inference"]["handoff"] == "waypoint"
 
     def prepare_chunk(
         self,
