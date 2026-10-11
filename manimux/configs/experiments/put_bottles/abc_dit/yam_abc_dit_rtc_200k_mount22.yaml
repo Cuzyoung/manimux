@@ -19,7 +19,7 @@
 control_profile: ../../../embodiment/robot/yam_control_unlimited.yaml
 
 run:
-  task: throw plastic bottles in bin
+  task: put bottle in bin
   output_dir: ./data/experiments/abc-dit-put-bottles-pretrained-200k/rtc-abc-prefix-mount22
   max_control_steps: 12000
   warmup_before_start: true

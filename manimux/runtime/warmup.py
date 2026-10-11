@@ -33,7 +33,7 @@ class PolicyWarmup:
         self.adapter = adapter
         self.session_id = session_id
         self.clock = clock
-        self.phase = "warming"
+        self.phase = "idle"
         self.completed_requests = 0
         self.latest_branch: str | None = None
         self.error = ""
@@ -48,6 +48,13 @@ class PolicyWarmup:
         self._was_paused = True
         self._events: list[tuple[str, dict]] = []
         self._preview: tuple[ActionChunk, float, dict] | None = None
+
+    def activate(self) -> None:
+        """Explicitly enable display-only warmup; repeated activation is harmless."""
+        if self.phase == "idle":
+            self.phase = "warming"
+            self._was_paused = True
+            self._event("warmup_activated")
 
     @property
     def complete(self) -> bool:
@@ -90,7 +97,7 @@ class PolicyWarmup:
     def _advance(self, *, paused: bool, snapshot: ObservationSnapshot) -> None:
         start_requested = self._was_paused and not paused
         self._was_paused = paused
-        if self.complete:
+        if self.complete or self.phase == "idle":
             return
         if not self.worker.is_alive:
             self.phase = "error"

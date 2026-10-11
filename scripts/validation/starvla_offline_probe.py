@@ -239,7 +239,7 @@ def main():
             result = build_runtime(config, run_dir).run()
             report["runtime"] = asdict(result)
             report["rollout_directory"] = str(run_dir)
-            if not result.success or result.rejected_plans or result.accepted_plans < 1:
+            if not result.run_completed or result.rejected_plans or result.accepted_plans < 1:
                 raise RuntimeError(f"Offline runtime did not accept a clean plan: {result}")
         report["status"] = "passed"
     except Exception as exc:

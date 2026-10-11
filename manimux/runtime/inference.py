@@ -96,14 +96,14 @@ class InferenceStrategy(Protocol):
 
 
 class DefaultChunkStrategy:
-    """Original ManiMux latest-chunk scheduling, isolated from the control loop."""
+    """Shared Serial/Async chunk scheduling, isolated from the control loop."""
 
     def __init__(self, config: dict) -> None:
         self._config = config
 
     @property
     def name(self) -> str:
-        return self._config["inference"].get("algorithm", "manimux")
+        return "serial" if self._config["inference"]["inference_schedule"] == "serial" else "async"
 
     @property
     def control_mode(self) -> str:
@@ -207,7 +207,6 @@ InferenceStrategyFactory = Callable[[dict], InferenceStrategy]
 
 
 _STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory | str] = {
-    "manimux": DefaultChunkStrategy,
     "async": DefaultChunkStrategy,
     "serial": DefaultChunkStrategy,
     "rtc": "manimux.runtime.rtc.strategy:RtcInferenceStrategy",
@@ -216,6 +215,8 @@ _STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory | str] = {
     "paint": "manimux.runtime.paint:PaintInferenceStrategy",
     "autohorizon": "manimux.runtime.autohorizon:AutoHorizonInferenceStrategy",
 }
+
+INFERENCE_ALGORITHMS = frozenset(_STRATEGY_BUILTINS)
 
 
 def build_inference_strategy(config: dict) -> InferenceStrategy:

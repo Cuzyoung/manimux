@@ -272,7 +272,7 @@ class PaintInferenceStrategy:
             trip = sum(item[3] for item in recent) / len(recent)
             inference = (
                 f"| infer server {server:5.0f}ms trip {trip:5.0f}ms "
-                f"d={delay:4.1f}/{forecast:4.1f}步"
+                f"d={delay:4.1f}/{forecast:4.1f} steps"
             )
         else:
             inference = "| infer --"
@@ -286,7 +286,7 @@ class PaintInferenceStrategy:
 
 
 def paint_parameters(**options) -> dict:
-    """保留 PAINT 执行前缀与延迟估计的默认步数。"""
+    """Preserve default PAINT execution-prefix and delay-estimation step counts."""
 
     unsupported = {"execution_steps", "initial_delay_steps"}.intersection(options)
     if unsupported:

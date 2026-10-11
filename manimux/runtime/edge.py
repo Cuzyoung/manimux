@@ -16,7 +16,7 @@ from manimux.clock import Clock, SystemClock
 from manimux.embodiments.robot import RobotBase, build_robot
 from manimux.embodiments.sensor import build_sensor
 from manimux.embodiments.sensor.reader import SensorReader
-from manimux.evaluation.identity import rollout_identity
+from manimux.evaluation.identity import rollout_identity, start_identity
 from manimux.evaluation.rubric import evaluation_parameters
 from manimux.policies import ActionDecoderClient, PolicyCapabilities, metadata_mismatches
 from manimux.policies.base import action_interval
@@ -121,11 +121,13 @@ def _exception_detail(exc: BaseException, *, depth: int = 3) -> str:
 
 @dataclass(frozen=True, slots=True)
 class RunResult:
+    """Runtime completion only; human task outcomes are stored separately."""
+
     episode_dir: Path
     steps: int
     accepted_plans: int
     rejected_plans: int
-    success: bool
+    run_completed: bool
     terminal_reason: str
 
 
@@ -161,7 +163,7 @@ class EdgeRuntime:
         self._control_dt_ns = int(1_000_000_000 / config["robot"]["control_hz"])
         self._robot = self._build_robot()
         self._sensors = [build_sensor(sensor, self._clock) for sensor in config["sensors"]]
-        # 运行时直接复用整机的运动学；解码子进程从同一配置加载离线模型。
+        # Runtime reuses robot kinematics; decoding subprocesses load the offline model from the same configuration.
         self._adapter = self._build_adapter()
         self._decode_seed_source = getattr(
             self._adapter, "decode_seed_source", "execution_reference"
@@ -180,8 +182,8 @@ class EdgeRuntime:
         if config["policy"]["action_decoding"] == "process":
             # A plugin may wrap the default strategy (the UMI history plugin
             # does); the constructed strategy decides, not the plugin path.
-            if self._strategy.name not in {"manimux", "rtc"}:
-                raise ValueError("process action decoding requires the manimux or rtc strategy")
+            if self._strategy.name not in {"async", "rtc"}:
+                raise ValueError("process action decoding requires the async or rtc strategy")
             self._decoder = ActionDecoderClient(
                 config["robot"],
                 config["policy"],
@@ -360,6 +362,7 @@ class EdgeRuntime:
                 "blend_steps": self._config["inference"]["blend_policy_steps"],
                 "action_start_mode": self._config["inference"]["action_start_mode"],
                 **self._rollout_identity,
+                "identity_frozen": False,
                 "launch_mode": self._launch_mode,
                 "policy_backend": {},
             },
@@ -384,6 +387,7 @@ class EdgeRuntime:
         robot_connected = False
         steps = 0
         formal_start_recorded = False
+        identity_frozen = False
         last_control_status = None
         completed = False
         terminal_reason = "completed"
@@ -435,6 +439,7 @@ class EdgeRuntime:
             self._state = RuntimeState.RUNNING
             robogui_episode_metadata = {
                 "episode_active": True,
+                "identity_frozen": False,
                 "episode_id": episode_id,
                 "episode_dir": str(recorder.final_dir.resolve()),
                 "run_dir": str(self._run_dir.resolve()),
@@ -450,7 +455,7 @@ class EdgeRuntime:
                 "launch_mode": self._launch_mode,
                 **({"warmup": warmup.metadata()} if warmup is not None else {}),
             }
-            # 当前整机未提供手动拖动恢复；RoboGUI 不展示已退役的驱动能力。
+            # The current robot does not offer manual-drag recovery; RoboGUI does not expose retired driver capabilities.
             robogui_episode_metadata["recovery_available"] = False
             self._robogui.set_state_metadata(robogui_episode_metadata)
             with stage("robogui_publish_event"):
@@ -525,9 +530,29 @@ class EdgeRuntime:
                     next_tick_ns = self._clock.now_ns()
                     timing.end()
                     continue
+                if not identity_frozen and not robogui_control.paused:
+                    if self._config["robogui"].get("enabled", False):
+                        if (robogui_control.episode_id != episode_id
+                                or robogui_control.control_run_dir != robogui_episode_metadata["run_dir"]
+                                or robogui_control.start_identity is None):
+                            raise ValueError("Start requires a selection for the active episode")
+                        self._rollout_identity = start_identity(
+                            self._rollout_identity, robogui_control.start_identity,
+                        )
+                    identity_frozen = True
+                    self._config["run"].update(self._rollout_identity)
+                    recorder.update_metadata(**self._rollout_identity, identity_frozen=True)
+                    recorder.event("rollout_identity_frozen", **self._rollout_identity)
+                    robogui_episode_metadata.update(self._rollout_identity, identity_frozen=True)
+                    self._robogui.set_state_metadata(robogui_episode_metadata)
                 if warmup is not None and not warmup.complete:
                     self._state = RuntimeState.PAUSED
                     before = warmup.metadata()
+                    if (not self._config["robogui"].get("enabled", False)
+                            or (robogui_control.episode_id == episode_id
+                                and robogui_control.control_run_dir == robogui_episode_metadata["run_dir"]
+                                and robogui_control.warmup_requested)):
+                        warmup.activate()
                     with stage("warmup_advance"):
                         warmup.advance(
                             paused=robogui_control.paused,
@@ -770,7 +795,8 @@ class EdgeRuntime:
                                             # adapter drop elapsed rows before decoding.
                                             execution_time_ns=(
                                                 now_ns
-                                                if self._strategy.name in {"manimux", "rtc"}
+                                                if self._strategy.name
+                                                in {"async", "serial", "rtc"}
                                                 and self._config["inference"]["action_start_mode"]
                                                 == "drop_infer_latency"
                                                 else None
@@ -1273,7 +1299,7 @@ class EdgeRuntime:
 
             timing.end(completed=False)
             episode_dir = recorder.finish(
-                success=True,
+                run_completed=True,
                 terminal_reason=terminal_reason,
                 steps=steps,
                 wall_time_s=time.perf_counter() - started_wall,
@@ -1297,7 +1323,7 @@ class EdgeRuntime:
                 steps=steps,
                 accepted_plans=accepted_plans,
                 rejected_plans=rejected_plans,
-                success=True,
+                run_completed=True,
                 terminal_reason=terminal_reason,
             )
         except KeyboardInterrupt:

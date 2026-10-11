@@ -176,7 +176,7 @@ class TopViewOverlay:
                 self._load_slots()
 
     def freeze_selection(self) -> dict[str, Any]:
-        """Freeze the reference shown for this Prepare; no work runs on control ticks."""
+        """Snapshot and lock the selected reference; no work runs on control ticks."""
         with self._lock:
             if self.task.value == EMPTY_TASK or self.slot.value == EMPTY_SLOT:
                 raise ValueError("Select a task and a saved reference image first.")

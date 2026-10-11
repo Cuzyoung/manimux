@@ -1,7 +1,7 @@
 # Experiment configuration
 
 To connect your own installation of a supported robot, start with
-[local station setup](../../docs/usage/station.md). Put devices, service addresses and local paths in
+[local station setup](../../.agents/skills/manimux-station-setup/references/station.md). Put devices, service addresses and local paths in
 one private `manimux/configs/local/station.yaml`. The guide explains which entry points
 read it automatically and which still use separate configuration.
 
@@ -32,7 +32,7 @@ ignored `training/` directory, outside the package. Deployment still retains che
 metadata and normalization references needed for inference. Private cluster-job payloads
 may also live under `.local/`. Old directory paths have no forwarding aliases.
 
-[Python environments](../../docs/usage/environments.md) describes local dependency environments.
+[Python environments](../../.agents/skills/manimux-station-setup/references/environments.md) describes local dependency environments.
 Model-side action dimensions and batch size belong in [policy recipes](policy/README.md#model-layout-passed-to-xpolicylab),
 resolved through the experiment's `policy_server` section. No root `env_cfg/` registry
 is required by the shipped ManiMux deployment recipes.
@@ -128,7 +128,7 @@ The Xiaomi Robotics 1 pass-ball checkpoint on Tianji-TacCap uses
 `experiments/pass_ball/xiaomi-xr1/tianji_taccap_xiaomi_xr1_step50000.yaml` and the policy recipe at
 `policy/xiaomi-xr1/tianji/pass_ball/step50000.yaml`. Its Cartesian action adapter is selected
 by the experiment and performs inline FK/IK using the assembled Tianji robot kinematics.
-See the [XR-1 Tianji-TacCap runbook](../../docs/deployment/xiaomi-xr1-tianji-taccap.md).
+See the [XR-1 Tianji-TacCap runbook](../../.agents/skills/manimux-inference/references/deployment/xiaomi-xr1-tianji-taccap.md).
 
 ## Arm motion limiting
 
@@ -172,7 +172,7 @@ acceleration setting; position, velocity and finite-value checks still apply.
 
 Without a shared profile, Direct takes the mode from `executor.motion_limits.arm`, while
 Smooth takes `mode` / `max_step_dt_s` under `executor.smooth`. Local and profile values must
-not conflict. See [Tianji motion-limit provenance](../../docs/advanced/tianji-control.md).
+not conflict. See [Tianji motion-limit provenance](../../.agents/skills/manimux-development/references/tianji-control.md).
 
 ## Common experiment fields
 
@@ -238,30 +238,30 @@ An accepted, decoded chunk takes effect at commit time without an additional swi
 
 | Algorithm section | Main fields |
 | --- | --- |
-| `rtc` | Initial delay, delay history, guidance and chunk execution threshold; see [RTC](../../docs/deployment/xpolicylab.md#rtc-规则). |
+| `rtc` | Initial delay, delay history, guidance and chunk execution threshold; see [RTC](../../.agents/skills/manimux-inference/references/deployment/xpolicylab.md#rtc-contract). |
 | `temporal_ensemble` | `coefficient: 0.01`; `query_interval_policy_steps: 1`. |
 | `aac` | `num_samples: 20`, `motion_threshold`, required `ee_stats_path`, `chunk_id_selector`, `backward_beta: 0.99`. |
 | `paint` | `execution_policy_steps: 10`, `initial_delay_policy_steps: 4`, `delay_buffer_size: 10`. |
 
 ACT uses official exponential weights `w_i ∝ exp(-coefficient × i)` from commit `742c753`.
 Its queries are asynchronous; `blend_policy_steps: 0` prevents an extra seam blend after aggregation.
-See [ACT temporal ensembling](../../docs/advanced/inference.md).
+See [ACT temporal ensembling](../../.agents/skills/manimux-inference/references/inference.md).
 
 AAC requires short-horizon support and `blend_policy_steps: 0`. The YAM recipes adapt its scoring
 to 14D absolute joints: shared FK produces per-arm EE increments, matched fixed statistics
 normalize those increments, and the arm scores are averaged. The selected joint chunk
 remains the executed representation. These are YAM adaptations, not official Pi05/YAM
-recipes. See [AAC](../../docs/advanced/reproductions/aac.md) and [Pi05 AAC](../../docs/advanced/reproductions/aac-pi05.md).
+recipes. See [AAC](../../.agents/skills/manimux-inference/references/reproductions/aac.md) and [Pi05 AAC](../../.agents/skills/manimux-inference/references/reproductions/aac-pi05.md).
 
 PAINT requires `d <= s <= H-d` and `blend_policy_steps: 0`. ManiMux submits the old chunk's
 `A[s:s+d]` prefix; the model sampler implements the repaint sequence. Responses are rejected
-when delay would discard more than the anchored prefix. See [PAINT](../../docs/advanced/reproductions/paint-pi05.md).
+when delay would discard more than the anchored prefix. See [PAINT](../../.agents/skills/manimux-inference/references/reproductions/paint-pi05.md).
 
 AutoHorizon has no configurable method parameters: the Pi05 sampler selects an execution
 prefix from the action expert's third denoising-step self-attention. It requires
 `blend_policy_steps: 0` and synchronous prefix execution. The JAX port uses upstream commit
 `c7504f1`; numerical parity with the upstream PyTorch implementation remains a separate
-validation boundary. See [AutoHorizon](../../docs/advanced/reproductions/autohorizon-pi05.md).
+validation boundary. See [AutoHorizon](../../.agents/skills/manimux-inference/references/reproductions/autohorizon-pi05.md).
 
 ### Executors
 
@@ -297,6 +297,6 @@ validation boundary. See [AutoHorizon](../../docs/advanced/reproductions/autohor
 
 `run.experiment_name`, `run.condition` and `run.notes` are editable in RoboGUI and
 frozen at Prepare. `run.experiment_template` optionally constrains study layouts,
-repeat counts and reference images. See the [workflow and schema example](../../docs/usage/research.md).
+repeat counts and reference images. See the [workflow and schema example](../../guideline.html#experiments).
 Keep outputs under the repository-level `data/`; `run.output_dir` or the private
 station's `paths.output_dir` chooses the actual destination.

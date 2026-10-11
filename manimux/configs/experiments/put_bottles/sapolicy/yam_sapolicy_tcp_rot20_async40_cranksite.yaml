@@ -2,7 +2,7 @@
 #   Virtual grasp_site = true site - 4.1 cm along site x via kinematics_options.assets_root (policy/sapolicy/yam/tcp_rot20/crank_site_assets).
 # Inference = ManiMux async as in the Sep MV51 runs (prefix 40 [MV51 used 25], blend 4, refill 0.2 s).
 # SAPolicy tcp_rot20 put-bottles evaluation, aligned to Pi05 Joint 30k RTC
-# (put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml; docs/experiments.md §5).
+# (put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml; experiments.md §5).
 # Model-specific: SAPolicy adapter/camera map, run.task prompt, startup_timeout_s, expected_backend.
 # Model-specific start: ABC-130k bottles real 'ready' pose cluster (median of 58/200 sampled
 #   episodes, MCAP first frame); Pi05 starts at zero, which never occurs in ABC data. start_duration 4 s.
@@ -14,7 +14,7 @@
 # IK decoding runs in a separate process (inline IK stalled the 100 Hz loop 30-100 ms per handoff);
 #   pre-Start warmup is off because it requires inline decoding.
 # Not aligned yet: SAPolicy backend has no inference_seed / seeded RESET.
-# Policy server: manimux/configs/policy/sapolicy/yam/tcp_rot20/raw-50k.yaml (port 8510); docs/deployment/sapolicy-yam.md "tcp_rot20".
+# Policy server: manimux/configs/policy/sapolicy/yam/tcp_rot20/raw-50k.yaml (port 8510); .agents/skills/manimux-inference/references/deployment/sapolicy-yam.md "tcp_rot20".
 run:
   task: put the plastic bottles in the bin
   output_dir: ./data/experiments/sapolicy-put-bottles-tcp-rot20-step50000/async40-cranksite-z22
@@ -97,16 +97,9 @@ policy:
 robogui: {enabled: true, robot: yam, policy_label: SAPolicy tcp_rot20 RAW 50k - ManiMux async prefix 40 | ABC ready start |
     braking arm 0.6/1.5+blend4 | crank-site -4.1cm | z+2.2cm | IK process}
 recording: {enabled: true, video_fps: 30.0}
-inference: {algorithm: manimux, config: ../../../inference/yam_manimux_single.yaml, refill_threshold_s: 0.2,
+inference: {algorithm: async, config: ../../../inference/yam_manimux_single.yaml, refill_threshold_s: 0.2,
   max_plan_age_s: 2.0, blend_policy_steps: 4, max_chunk_policy_steps: 40}
 executor:
-  type: smooth
-  smooth:
-    cutoff_hz: 8.0
-    tracking_mode: braking
-    max_velocity: 0.6
-    max_acceleration: 1.5
-    position_limit_abs: 3.14
-    gripper: {mode: continuous, max_velocity: null, max_acceleration: null, max_closing_velocity: null, closed_value: 0.0,
-      open_value: 1.0}
+  type: direct
+
 camera_server: {config: ../../../embodiment/sensor/cameras/realsense_3_views.yaml}

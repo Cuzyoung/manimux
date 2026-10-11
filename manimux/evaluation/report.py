@@ -20,7 +20,8 @@ from pathlib import Path
 
 import yaml
 
-from manimux.evaluation.rubric import count_result, evaluation_parameters
+from manimux.evaluation.manual import completion_annotation
+from manimux.evaluation.rubric import count_result, evaluation_parameters, stage_option
 from manimux.evaluation.trajectory import METRICS
 
 
@@ -77,6 +78,12 @@ def _human(path, eligible, recorded_evaluation=None):
         ):
             raise ValueError("unsupported human label schema, result or review mode")
         count_fields = {}
+        if (
+            (recorded_evaluation or {}).get("kind") == "stages"
+            and evaluation_parameters(d.get("evaluation"))
+            != evaluation_parameters(recorded_evaluation)
+        ):
+            raise ValueError("human stage rubric differs from recorded evaluation")
         if d.get("evaluation", {}).get("kind") == "count":
             profile = evaluation_parameters(d["evaluation"])
             if profile != evaluation_parameters(recorded_evaluation):
@@ -92,8 +99,33 @@ def _human(path, eligible, recorded_evaluation=None):
                     "rubric_id": profile["rubric_id"],
                     "rubric_signature": json.dumps(profile, sort_keys=True),
                 }
+        if d.get("evaluation", {}).get("kind") == "stages":
+            profile = evaluation_parameters(d["evaluation"])
+            if profile != evaluation_parameters(recorded_evaluation):
+                raise ValueError("human stage rubric differs from recorded evaluation")
+            if d["task_result"] != "invalid":
+                option = stage_option(profile, d.get("stage_id"))
+                result = "success" if option["success"] else "failure"
+                if result != d["task_result"] or d.get("score") != option["score"]:
+                    raise ValueError("inconsistent human stage/score/result")
+                count_fields = {
+                    "score": option["score"], "stage_id": option["id"],
+                    "rubric_id": profile["rubric_id"],
+                    "rubric_signature": json.dumps(profile, sort_keys=True),
+                }
+        completion = {"status": "missing", "reason": "completion_not_annotated", "seconds": None}
+        if d.get("completion_time") is not None:
+            try:
+                c = d["completion_time"]
+                checked = completion_annotation(c["seconds"], d["task_result"])
+                if checked != c:
+                    raise ValueError("unsupported completion time definition")
+                completion = {"status": "available", "reason": None, **checked}
+            except (ValueError, TypeError, KeyError) as exc:
+                completion = {"status": "error", "reason": str(exc), "seconds": None}
         return {
             **count_fields,
+            "completion_time": completion,
             "status": "available",
             "reason": None,
             "result": d["task_result"],
@@ -263,7 +295,7 @@ def _experiment_table(config, base):
             continue
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if headers is None:
-            if cells[0] == "Model":
+            if cells[0] == "Method":
                 headers = [c.split()[0] for c in cells]
             continue
         if all(re.fullmatch(r"[-: ]+", c) for c in cells):
@@ -338,6 +370,11 @@ def load_task(task_dir: Path):
 
 def collect_task(config_path: Path, config: dict):
     base = config_path.parent
+    smoothness_profile = None
+    if config.get("smoothness") is not None:
+        from manimux.evaluation.smoothness import make_profile
+
+        smoothness_profile = make_profile(config["smoothness"], base)
     groups, episodes, seen_episodes, raw_roots = [], [], set(), []
     for group in config["groups"]:
         discoveries, notes = {}, []
@@ -421,6 +458,19 @@ def collect_task(config_path: Path, config: dict):
             row["human"] = _human(
                 episode / "evaluation/human-label.json", eligible, meta.get("evaluation")
             )
+            row["smoothness"] = {"status": "missing", "reason": "smoothness_profile_not_configured"}
+            if not eligible or row["human"].get("result") == "invalid":
+                row["smoothness"] = {
+                    "status": "excluded",
+                    "reason": "attempt_not_eligible_or_invalid",
+                }
+            elif smoothness_profile is not None:
+                from manimux.evaluation.smoothness import analyze_episode
+
+                try:
+                    row["smoothness"] = analyze_episode(episode, *smoothness_profile)
+                except (OSError, ValueError, KeyError, TypeError) as exc:
+                    row["smoothness"] = {"status": "missing", "reason": str(exc)}
             overlap_path = (
                 _path(base, entry["overlap_metrics"]) if entry.get("overlap_metrics") else None
             )
@@ -478,13 +528,22 @@ def _group_summary(group, episodes, notes):
             score_groups.append(
                 {
                     "rubric_id": selected[0]["rubric_id"],
-                    "target_count": selected[0]["target_count"],
+                    **({"target_count": selected[0]["target_count"]}
+                       if "target_count" in selected[0] else {}),
                     "n": len(selected),
                     "mean": _mean([h["score"] for h in selected]),
                 }
             )
         human[mode] = {
-            "count_scores_by_rubric": score_groups,
+            "completion_time": _stats(
+                [
+                    r["human"]["completion_time"]["seconds"]
+                    for r in episodes
+                    if r["human"].get("review_mode") == mode
+                    and r["human"].get("completion_time", {}).get("status") == "available"
+                ]
+            ),
+            "scores_by_rubric": score_groups,
             "success": count["success"],
             "failure": count["failure"],
             "invalid": count["invalid"],
@@ -536,6 +595,7 @@ def _group_summary(group, episodes, notes):
         "binding_mismatch": sum(r["binding"]["status"] == "mismatch" for r in episodes),
         "processing_errors": sum(bool(r["errors"]) for r in episodes),
         "human": human,
+        "smoothness": _smoothness_summary(episodes),
         "human_status": dict(Counter(r["human"]["status"] for r in episodes)),
         "known_slots": len(slots),
         "unknown_slots": sum(slots.values()) != len(episodes),
@@ -552,6 +612,31 @@ def _group_summary(group, episodes, notes):
         "formal_seam_reason": "execution_boundary_review_not_integrated",
         "prm_reason": "matched_PRM_profile_and_case_import_not_integrated",
     }
+
+
+def _stats(values):
+    n = len(values)
+    mean = _mean(values)
+    se = (sum((v - mean) ** 2 for v in values) / (n * (n - 1))) ** 0.5 if n > 1 else None
+    return {"n": n, "mean": mean, "se": se}
+
+
+def _smoothness_summary(episodes):
+    rows = [r["smoothness"] for r in episodes if r["smoothness"]["status"] == "available"]
+    result = {
+        "missing_reasons": dict(
+            Counter(r["smoothness"]["reason"] for r in episodes if r["smoothness"].get("reason"))
+        )
+    }
+    for metric in ("nldlj", "nsparc"):
+        valid = [r for r in rows if r[metric]["value"] is not None]
+        signatures = {(r["profile_signature"], tuple(r[metric]["channels"])) for r in valid}
+        result[metric] = _stats([r[metric]["value"] for r in valid] if len(signatures) <= 1 else [])
+        result[metric]["reason"] = (
+            "incompatible_profiles_or_active_channels" if len(signatures) > 1 else None
+        )
+        result[metric]["channels"] = valid[0][metric]["channels"] if len(signatures) == 1 else []
+    return result
 
 
 def generate_task_report(task_dir: Path) -> Path:
@@ -590,7 +675,13 @@ def generate_task_report(task_dir: Path) -> Path:
             "task_config_sha256": _hash(config_path),
             "source_code_sha256": {
                 name: _hash(Path(__file__).with_name(name))
-                for name in ("report.py", "report_html.py", "report_template.html")
+                for name in (
+                    "report.py",
+                    "report_html.py",
+                    "report_template.html",
+                    "smoothness.py",
+                    "manual.py",
+                )
             },
             "experiment_table": report["experiment_table"],
             "inputs": [
@@ -599,6 +690,7 @@ def generate_task_report(task_dir: Path) -> Path:
                     "hashes": r["source_hashes"],
                     "overlap": r["overlap"],
                     "human": r["human"],
+                    "smoothness": r["smoothness"],
                     "handoff_figures": r["handoff_figures"],
                 }
                 for r in report["episodes"]
@@ -627,6 +719,10 @@ def generate_task_report(task_dir: Path) -> Path:
             "partial",
             "human_result",
             "human_review_mode",
+            "completion_time_s",
+            "nldlj",
+            "nsparc",
+            "smoothness_reason",
             "overlap_status",
             "overlap_reason",
         ]
@@ -638,6 +734,10 @@ def generate_task_report(task_dir: Path) -> Path:
                 cells.update(
                     human_result=r["human"].get("result"),
                     human_review_mode=r["human"].get("review_mode"),
+                    completion_time_s=r["human"].get("completion_time", {}).get("seconds"),
+                    nldlj=r["smoothness"].get("nldlj", {}).get("value"),
+                    nsparc=r["smoothness"].get("nsparc", {}).get("value"),
+                    smoothness_reason=r["smoothness"].get("reason"),
                     overlap_status=r["overlap"]["status"],
                     overlap_reason=r["overlap"]["reason"],
                 )

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from manimux.runtime.decode_forecast import FORECAST_MODES
-from manimux.runtime.inference import build_inference_strategy
+from manimux.runtime.inference import INFERENCE_ALGORITHMS, build_inference_strategy
 from manimux.types import ACTION_START_MODES
 
 if TYPE_CHECKING:
@@ -43,7 +43,7 @@ __all__ = ["EdgeRuntime", "RunResult", "build_runtime"]
 
 
 def executor_parameters(**options) -> dict:
-    """补齐命令平滑和限幅参数；保留各执行器原有数值与物理含义。"""
+    """Fill in command smoothing and limit parameters, preserving each executor's values and physical meaning."""
     from manimux.runtime.executors.limits import motion_limits_parameters
     from manimux.runtime.executors.mpc import mpc_parameters
     from manimux.runtime.executors.smooth import smooth_parameters
@@ -71,7 +71,7 @@ def executor_parameters(**options) -> dict:
 
 
 def inference_parameters(*, executor: dict, **options) -> dict:
-    """补齐推理调度参数；算法与执行器在实验中分别选择。"""
+    """Fill in inference scheduling parameters; experiments select algorithms and executors independently."""
     from manimux.runtime.aac import aac_parameters
     from manimux.runtime.paint import paint_parameters
     from manimux.runtime.rtc.strategy import rtc_parameters
@@ -84,20 +84,24 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         raise ValueError(f"unsupported inference fields: {sorted(unsupported)}")
     if options.get("algorithm") == "dvac":
         raise ValueError("inference.algorithm=dvac is no longer supported")
-    # chunk_policy_steps 只是各调度方式已有步数参数的统一入口。
+    # chunk_policy_steps is the shared entry point for existing scheduling step counts.
     options = dict(options)
+    options.setdefault(
+        "algorithm", "serial" if options.get("inference_schedule") == "serial" else "async"
+    )
+    if options["algorithm"] not in INFERENCE_ALGORITHMS:
+        raise ValueError(f"inference.algorithm must be one of {sorted(INFERENCE_ALGORITHMS)}")
     if options.get("algorithm") == "serial":
         options.setdefault("inference_schedule", "serial")
     if options.get("chunk_policy_steps") is not None:
         paths = {
-            "manimux": (None, "max_chunk_policy_steps"),
             "async": (None, "max_chunk_policy_steps"),
             "serial": (None, "max_chunk_policy_steps"),
             "rtc": ("rtc", "min_execute_policy_steps"),
             "paint": ("paint", "execution_policy_steps"),
             "act_temporal_ensemble": ("temporal_ensemble", "query_interval_policy_steps"),
         }
-        section, field = paths[options.get("algorithm", "manimux")]
+        section, field = paths[options.get("algorithm", "async")]
         destination = options if section is None else dict(options.get(section, {}))
         if (
             destination.get(field) is not None
@@ -112,7 +116,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
             options[section] = destination
 
     values = {
-        "algorithm": "manimux",
+        "algorithm": "async",
         "strategy": None,
         "chunk_policy_steps": None,
         "inference_schedule": "deadline",
@@ -140,7 +144,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         values["aac"] = aac_parameters(**values["aac"])
     if values.get("paint") is not None:
         values["paint"] = paint_parameters(**values["paint"])
-    # 字典可能已补齐默认值；默认调度字段不应被误认成用户为其他模式新增的参数。
+    # The dictionary may already contain defaults; do not mistake scheduling defaults for user-supplied options for other modes.
     inactive_defaults = {"inference_schedule": "deadline", "refill_threshold_s": 0.4}
     provided = {
         key
@@ -152,7 +156,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
 
 
 def validate_runtime_parameters(config: dict) -> None:
-    """保留调度、动作解码和执行限位之间的必要约束。"""
+    """Preserve the necessary constraints between scheduling, action decoding and execution limits."""
     if config["run"].get("warmup_before_start", False):
         if not config["robogui"]["enabled"]:
             raise ValueError("run.warmup_before_start requires RoboGUI Start control")
@@ -240,7 +244,7 @@ def validate_runtime_parameters(config: dict) -> None:
 
 
 def validate_inference_parameters(values: dict, executor: dict, *, provided=frozenset()) -> None:
-    """检查调度和执行方式的组合；provided 仅用于识别 YAML 中明确给出的字段。"""
+    """Check scheduling/execution combinations; provided identifies explicitly supplied YAML fields only."""
     if values["action_start_mode"] not in ACTION_START_MODES:
         raise ValueError(
             "inference.action_start_mode must be one of "
@@ -249,14 +253,14 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
     if values["decode_forecast_mode"] not in FORECAST_MODES:
         raise ValueError(f"inference.decode_forecast_mode must be one of {FORECAST_MODES}")
     if values["inference_schedule"] == "serial":
-        if values["algorithm"] not in {"manimux", "serial"}:
+        if values["algorithm"] != "serial":
             raise ValueError("serial scheduling requires inference.algorithm=serial")
         if "refill_threshold_s" in provided:
             raise ValueError("serial scheduling does not use refill_threshold_s")
     elif values["algorithm"] == "serial":
         raise ValueError("inference.algorithm=serial requires inference_schedule=serial")
     if values["independent_group_decoding"] and (
-        values["algorithm"] not in {"manimux", "async"}
+        values["algorithm"] != "async"
         or executor["type"] != "smooth"
         or executor["smooth"]["tracking_mode"] != "braking"
         or (executor["smooth"]["gripper"] is None)
@@ -266,11 +270,11 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
             "independent group decoding requires braking smooth with continuous grippers"
         )
     if values["max_chunk_policy_steps"] is not None and (
-        values["algorithm"] not in {"manimux", "async", "serial"}
+        values["algorithm"] not in {"async", "serial"}
         or executor["type"] not in {"smooth", "direct", "mpc"}
     ):
-        raise ValueError("max_chunk_policy_steps requires the ordinary ManiMux joint timeline")
-    # 这些策略自行决定请求时机，不使用普通 timeline 的补充调度参数。
+        raise ValueError("max_chunk_policy_steps requires the Serial/Async joint timeline")
+    # These strategies choose request timing themselves and do not use ordinary timeline replenishment options.
     names = {
         "rtc": "RTC",
         "act_temporal_ensemble": "ACT temporal ensembling",

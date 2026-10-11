@@ -153,7 +153,7 @@ class TianjiTaccapRobot(RobotBase):
         control.pop("rated_joint_velocity_rad_s")
         overrides = dict(component_hardware or {})
         bound = {name: dict(entry["hardware"]) for name, entry in model.components.items()}
-        # 按组件名应用本地绑定；拼错名称时由字典索引直接报错。
+        # Apply local bindings by component name; dictionary lookup reports misspelled names directly.
         for name, options in overrides.items():
             bound[name].update(options)
         # Both arms share one native controller session; groups retain their YAML order.

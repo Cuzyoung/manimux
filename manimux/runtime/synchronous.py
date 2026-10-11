@@ -52,7 +52,7 @@ class SynchronousChunkStrategy:
         request_state,
         runtime_state,
     ) -> InferenceSubmission | None:
-        # 当前动作执行完且无在途请求时，才采集下一次推理的观测。
+        # Capture the next inference observation only after the current action completes and no request remains in flight.
         if (
             request_state.in_flight
             or runtime_state != RuntimeState.RUNNING

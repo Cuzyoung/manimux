@@ -231,7 +231,7 @@ class ACTTemporalEnsembleStrategy:
 
 
 def temporal_ensemble_parameters(**options) -> dict:
-    """保留 ACT 时间融合的权重系数与查询步数。"""
+    """Preserve ACT temporal-ensemble weights and query step counts."""
 
     if "query_interval_steps" in options:
         raise ValueError("unsupported temporal ensemble field: query_interval_steps")

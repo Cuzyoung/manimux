@@ -1,5 +1,5 @@
 # ABC-DiT XL 200k (official pretrain, zero-shot) put-bottles SERIAL, aligned to Pi05 Joint 30k Serial
-# (put_bottles/pi05/yam_pi05_serial_joint_step30000.yaml; docs/experiments.md §5).
+# (put_bottles/pi05/yam_pi05_serial_joint_step30000.yaml; experiments.md §5).
 # Model-specific: horizon 30, execute the first 16 (official --execute-chunk-dim=16; Pi05 50 / 16),
 #   ABC-130k bottles 'ready' start pose (Pi05 starts at zero, ~3 sigma outside ABC's state stats),
 #   run.task = official ABC bottles prompt, policy service/port, startup_timeout_s, expected_backend.
@@ -79,7 +79,7 @@ recording:
   video_fps: 30.0
 
 inference:
-  algorithm: manimux
+  algorithm: serial
   config: ../../../inference/aligned/yam_serial_chunk16.yaml
   chunk_policy_steps: 16
 

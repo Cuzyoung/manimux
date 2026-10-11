@@ -29,7 +29,7 @@ Algorithm-specific prefix handling remains in the inference strategy.
 References resolve relative to each YAML. If you copy this file into
 `experiments/<task>/<model>/`, change component references from `../` to `../../../`.
 Output paths are relative to the launch working directory. Device bindings, service
-addresses and checkpoint roots belong in the [local station file](../../../docs/usage/station.md).
+addresses and checkpoint roots belong in the [local station file](../../../.agents/skills/manimux-station-setup/references/station.md).
 
 ## `run`, `serve` and experiment mode
 
@@ -101,5 +101,5 @@ envs/yam/.venv/bin/python -m manimux run \
 ## Optional research template
 
 The commented `run.experiment_template` in the example shows custom layout IDs,
-repeat counts and optional reference images. The [research guide](../../../docs/usage/research.md)
+repeat counts and optional reference images. The [research guide](../../../guideline.html#experiments)
 explains free/study rollouts, identity fields, record locations and GUI replay.

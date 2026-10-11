@@ -16,8 +16,8 @@ import numpy as np
 import viser
 
 from manimux.evaluation import write_manual_evaluation
-from manimux.evaluation.identity import rollout_identity
-from manimux.evaluation.rubric import count_result, evaluation_parameters
+from manimux.evaluation.identity import rollout_identity, start_identity
+from manimux.evaluation.rubric import count_result, evaluation_parameters, stage_option
 from manimux.types import FloatArray, UInt8Array
 
 from .camera_panel import CameraPanel
@@ -127,6 +127,8 @@ class PolicyRoboGUI:
         self._clear_recovery()
         self.new_rollout_requested = False
         self._rollout_request: dict[str, Any] = {}
+        self._start_identity: dict[str, Any] | None = None
+        self.warmup_requested = False
         self.preparing_rollout = False
         self.service_ready = False
         self.experiment_mode = False
@@ -301,6 +303,9 @@ class PolicyRoboGUI:
             "② Policy control", expand_by_default=True
         )
         with self.policy_control_folder:
+            self.warmup_btn = self.server.gui.add_button(
+                "Activate Warmup", color="blue", disabled=True, visible=False
+            )
             self.warmup_status = self.server.gui.add_markdown("", visible=False)
             self.start_btn = self.server.gui.add_button(
                 "Start rollout", color="blue", disabled=True
@@ -354,6 +359,11 @@ class PolicyRoboGUI:
             )
             self.completion_score = self.server.gui.add_markdown(
                 "Select a completed count.", visible=False
+            )
+            self.completion_time = self.server.gui.add_text(
+                "Completion seconds from Start (optional)", "", disabled=True,
+                hint=("Successful trials only. Time when the task criterion was met, "
+                      "not Finish. Blank = unknown."),
             )
             self.invalid_trial = self.server.gui.add_checkbox(
                 "Invalid trial (exclude from results)", False, disabled=True
@@ -411,6 +421,11 @@ class PolicyRoboGUI:
         self.camera_view.add_diagnostics(expand_by_default=True)
         self._set_setup_controls_enabled(False)
         self._set_stage("waiting")
+
+        @self.warmup_btn.on_click
+        def _warmup(_event: Any) -> None:
+            with self.lock:
+                self._activate_warmup()
 
         @self.start_btn.on_click
         def _start(_event: Any) -> None:
@@ -499,6 +514,11 @@ class PolicyRoboGUI:
         def _skip_evaluation(_event: Any) -> None:
             self._skip_manual_evaluation()
 
+        @self.task_result.on_update
+        def _task_result(_event: Any) -> None:
+            with self.lock:
+                self._refresh_completion_score()
+
         @self.completed_count.on_update
         def _completed_count(_event: Any) -> None:
             with self.lock:
@@ -569,19 +589,52 @@ class PolicyRoboGUI:
             self._update_recovery_controls()
             self.status.content = "🟠 **Finishing rollout and saving episode**"
 
+    def _activate_warmup(self) -> None:
+        if self.warmup_btn.disabled:
+            return
+        self.warmup_requested = True
+        self.warmup_btn.disabled = True
+        self.warmup_status.content = "**Warmup activation requested**"
+
+    def _freeze_start_selection(self) -> dict[str, Any]:
+        selection: dict[str, Any] = {"layout_id": "", "reference_layout": None}
+        if self.experiment_mode:
+            if self.use_reference.value:
+                if self.top_overlay is None:
+                    raise ValueError("Attaching a reference requires a Top camera view.")
+                selection = self.top_overlay.freeze_selection()
+            else:
+                ids = (self.experiment_template or {}).get("layout_ids", [])
+                selection["layout_id"] = (
+                    self.template_layout.value if ids else self.layout_id.value.strip()
+                )
+        identity = start_identity(self._rollout_request, selection)
+        self._show_recorded_identity(identity)
+        return selection
+
     def _start_rollout(self) -> None:
         if self.start_btn.disabled:
             return
+        if not self.rollout_started:
+            try:
+                self._start_identity = self._freeze_start_selection()
+            except (OSError, TypeError, ValueError) as exc:
+                self.status.content = f"🔴 Start was not submitted: {exc}"
+                self._set_layout_controls_enabled(True)
+                return
         self.paused = False
         self.rollout_started = True
         self._clear_warmup_preview()
         self._set_policy_controls_enabled(True)
+        self._set_stage("control")
         self.status.content = self._connected_status()
 
     def _connected_status(self) -> str:
         if self.observe_only:
             return "🔵 **Connected · OBSERVE ONLY**"
         phase = self._warmup.get("phase") if self._warmup is not None else None
+        if phase == "idle":
+            return "🟡 **Prepared · adjust layout, then Activate Warmup**"
         if phase == "error":
             return "🔴 **Warmup / Start error · Pause then Start to retry, or Finish**"
         if phase == "resetting":
@@ -600,13 +653,21 @@ class PolicyRoboGUI:
 
         self._warmup = dict(metadata) if metadata is not None else None
         self.warmup_status.visible = self._warmup is not None
-        if not self._warmup_preview_allowed():
+        self.warmup_btn.visible = self._warmup is not None
+        if self._warmup is None:
+            self.warmup_requested = False
+            self.warmup_btn.disabled = True
+        # Idle precedes explicit activation; it must not close this episode's
+        # preview gate. Start/Finish still permanently reject late previews.
+        idle = self._warmup is not None and self._warmup.get("phase") == "idle"
+        if not idle and not self._warmup_preview_allowed():
             self._clear_warmup_preview()
         if self._warmup is None:
             self.warmup_status.content = ""
             return
         phase = str(self._warmup.get("phase", "warming"))
         title = {
+            "idle": "Warmup inactive · click Activate Warmup",
             "warming": "Warmup running · Start when ready",
             "draining": "Starting · finishing in-flight warmup",
             "resetting": "Starting · waiting for backend reset",
@@ -869,7 +930,9 @@ class PolicyRoboGUI:
     def _set_stage(self, stage: RoboGUIStage) -> None:
         """Expose only the controls that are actionable in the current stage."""
 
-        self.new_rollout_folder.visible = stage in {"waiting", "setup", "preparing"}
+        self.new_rollout_folder.visible = stage in {"waiting", "setup", "preparing"} or (
+            stage == "control" and not self.rollout_started
+        )
         self.policy_control_folder.visible = stage == "control"
         self.recovery_folder.visible = stage == "control" or hasattr(self, "drag_btn")
         self.evaluation_folder.visible = stage == "evaluation"
@@ -891,7 +954,18 @@ class PolicyRoboGUI:
             if self.evaluation_profile.get("task_id") else "General"
         )
         self.scoring_setup.value = self.evaluation_rule.value
+        self._stage_ids = {
+            f"{o['label']} · {o['score']:g}": o["id"]
+            for o in self.evaluation_profile.get("options", [])
+        }
+        self.task_result.value = "unlabeled"
+        self.task_result.options = (
+            ("unlabeled", *self._stage_ids)
+            if self.evaluation_profile["kind"] == "stages"
+            else ("unlabeled", "Completed", "Not completed")
+        )
         self.completed_count.value = "unlabeled"
+        self.completion_time.value = ""
         self.completed_count.options = (
             ("unlabeled",) + tuple(
                 str(value) for value in range(self.evaluation_profile["target_count"] + 1)
@@ -903,14 +977,23 @@ class PolicyRoboGUI:
         )
         self.task_result.visible = not counted
         self.completed_count.visible = counted
-        self.completion_score.visible = counted
+        self.completion_score.visible = counted or bool(self._stage_ids)
         self._refresh_completion_score()
 
     def _refresh_completion_score(self) -> None:
-        if self.evaluation_profile["kind"] != "count":
+        if self.evaluation_profile["kind"] == "binary":
             return
         if self.invalid_trial.value:
             self.completion_score.content = "Invalid trial · excluded from results."
+            return
+        if self.evaluation_profile["kind"] == "stages":
+            selected = self._stage_ids.get(self.task_result.value)
+            if selected is None:
+                self.completion_score.content = "Select a result."
+                return
+            option = stage_option(self.evaluation_profile, selected)
+            status = "Completed" if option["success"] else "Not completed"
+            self.completion_score.content = f"**Score {option['score']:g}** · {status}"
             return
         if self.completed_count.value == "unlabeled":
             self.completion_score.content = "Select a completed count."
@@ -928,10 +1011,12 @@ class PolicyRoboGUI:
             self.invalid_trial,
             self.reviewer_id,
             self.operator_note,
+            self.completion_time,
             *self.failure_tag_inputs.values(),
         ):
             handle.disabled = not enabled
         score_enabled = enabled and not self.invalid_trial.value
+        self.completion_time.disabled = not score_enabled
         counted = self.evaluation_profile["kind"] == "count"
         self.task_result.disabled = not score_enabled or counted
         self.completed_count.disabled = not score_enabled or not counted
@@ -958,8 +1043,15 @@ class PolicyRoboGUI:
         self.use_reference.disabled = not allowed or bool(
             self.experiment_template and self.experiment_template["require_reference"]
         )
+        self._set_layout_controls_enabled(allowed or (
+            self.episode_active and not self.rollout_started and not self.finish_btn.disabled
+        ))
+
+    def _set_layout_controls_enabled(self, enabled: bool) -> None:
+        for handle in (self.layout_id, self.template_layout):
+            handle.disabled = not enabled
         if self.top_overlay is not None:
-            self.top_overlay.set_selection_enabled(allowed)
+            self.top_overlay.set_selection_enabled(enabled)
 
     def _configure_research(self, metadata: dict[str, Any]) -> None:
         """Apply defaults only on a new service, preserving edits across heartbeats."""
@@ -1027,6 +1119,7 @@ class PolicyRoboGUI:
             self._rollout_request = {"task_command": self.task.value.strip(), **identity}
             self._show_recorded_identity(identity)
             self._set_experiment_mode(experiment_mode)
+            self._start_identity = None
             self.new_rollout_requested = True
             self.preparing_rollout = True
             self.service_ready = False
@@ -1045,7 +1138,13 @@ class PolicyRoboGUI:
         formal_started = self.rollout_started and phase in {None, "complete"}
         self.start_btn.label = "Resume rollout" if formal_started else "Start rollout"
         self.start_btn.disabled = (
-            not allowed or not self.paused or phase in {"draining", "resetting"}
+            not allowed or not self.paused or phase in {"idle", "draining", "resetting"}
+        )
+        self.warmup_btn.disabled = (
+            not allowed or not self.paused or phase != "idle" or self.warmup_requested
+        )
+        self._set_layout_controls_enabled(
+            allowed and self.episode_active and not self.rollout_started
         )
         self.pause_btn.disabled = not allowed or self.paused
         self.home_btn.disabled = (
@@ -1066,6 +1165,7 @@ class PolicyRoboGUI:
         self.episode_path.value = episode_dir or "not published"
         self.task_result.value = "unlabeled"
         self.completed_count.value = "unlabeled"
+        self.completion_time.value = ""
         self.invalid_trial.value = False
         self._refresh_completion_score()
         self.reviewer_id.value = "operator"
@@ -1136,8 +1236,16 @@ class PolicyRoboGUI:
             return
         try:
             completed_count = None
+            stage_id = None
             if self.invalid_trial.value:
                 result = "invalid"
+            elif self.evaluation_profile["kind"] == "stages":
+                stage_id = self._stage_ids.get(self.task_result.value)
+                if stage_id is None:
+                    self.evaluation_status.content = "🔴 Select a result."
+                    return
+                option = stage_option(self.evaluation_profile, stage_id)
+                result = "success" if option["success"] else "failure"
             elif self.evaluation_profile["kind"] == "count":
                 if self.completed_count.value == "unlabeled":
                     self.evaluation_status.content = "🔴 Select a completed count."
@@ -1155,6 +1263,12 @@ class PolicyRoboGUI:
                 self.current_episode_dir,
                 task_result=cast(Any, result),
                 completed_count=completed_count,
+                stage_id=stage_id,
+                completion_time_s=(
+                    float(self.completion_time.value)
+                    if result == "success" and self.completion_time.value.strip()
+                    else None
+                ),
                 failure_tags=[
                     name for name, handle in self.failure_tag_inputs.items() if handle.value
                 ],
@@ -1187,6 +1301,10 @@ class PolicyRoboGUI:
             locked_at = time.monotonic()
             state = {
                 "paused": self.paused,
+                "episode_id": self._episode_id,
+                "control_run_dir": self.service_id,
+                "warmup_requested": self.warmup_requested,
+                "start_identity": deepcopy(self._start_identity),
                 "home_requested": self.home_requested,
                 "finish_requested": self.finish_requested,
                 "finish_home": getattr(self, "finish_home", None),
@@ -1521,7 +1639,23 @@ class PolicyRoboGUI:
                 self.records.root.value = incoming_service_id
             self.observe_only = metadata.get("control_mode", "observe") == "observe"
             self.paused = True
-            self.rollout_started = False
+            self.rollout_started = bool(metadata.get("identity_frozen", False))
+            self._start_identity = None
+            self.warmup_requested = False
+            self._rollout_request = {
+                **{key: metadata.get(key, "") for key in
+                   ("experiment_name", "condition", "notes")},
+                **{key: metadata.get(key) for key in
+                   ("layout_id", "repeat_id", "reference_layout")},
+                "experiment_template": metadata.get("experiment_template"),
+                "experiment_mode": bool(metadata.get("experiment_mode", False)),
+            }
+            if metadata.get("layout_id"):
+                if self.template_layout.visible:
+                    self.template_layout.value = metadata["layout_id"]
+                else:
+                    self.layout_id.value = metadata["layout_id"]
+            self.use_reference.value = metadata.get("reference_layout") is not None
             self.service_ready = False
             self.preparing_rollout = False
             self.last_rollout_error = ""
@@ -1529,10 +1663,10 @@ class PolicyRoboGUI:
             self._set_experiment_mode(bool(metadata.get("experiment_mode", False)))
             self._configure_evaluation(metadata.get("evaluation"))
             self.rollout_setup_status.content = (
-                "🟢 **Study rollout ready** · press Start rollout below; "
+                "🟢 **Study rollout ready** · adjust layout before Start; "
                 "save or skip evaluation after Finish."
                 if self.experiment_mode
-                else "🔵 **Free rollout ready** · press Start rollout below; "
+                else "🔵 **Free rollout ready** · adjust layout before Start; "
                 "Finish saves the episode."
             )
             self.prepare_normal_btn.visible = False
@@ -1774,11 +1908,11 @@ def load_robogui_config(path: Path | None = None, *, robot="tianji") -> dict:
     if "model" not in config:
         raise ValueError("RoboGUI YAML must reference a RobotModel using model")
     model_path = (source.parent / config["model"]).resolve()
-    # RoboGUI 和装配 YAML 都随 manimux 发布，源码与 wheel 使用同一相对路径。
+    # RoboGUI and assembly YAML ship with manimux; source and wheel installations share relative paths.
     if not model_path.is_file():
         raise FileNotFoundError(model_path)
     config["model"] = model_path
-    # 支架等场景资源由 RoboGUI 解析；本体和控制进程不读取显示资产。
+    # RoboGUI resolves scene assets such as mounts; embodiment and control processes do not load visual assets.
     for mesh in config.get("scene", {}).get("meshes", {}).values():
         resource = mesh["urdf"]
         if resource.startswith("package://"):

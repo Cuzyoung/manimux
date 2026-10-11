@@ -1,0 +1,17 @@
+kind: stages
+task_id: coin
+rubric_id: coin_stages_v1
+label: Coin deposit
+options:
+  - id: incomplete
+    label: Handover incomplete
+    score: 0
+    success: false
+  - id: handover
+    label: Left-right handover complete
+    score: 0.3
+    success: false
+  - id: deposited
+    label: Coin deposited in target
+    score: 1
+    success: true
