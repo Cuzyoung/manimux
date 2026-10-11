@@ -137,7 +137,10 @@ without revalidating the unused observation state or resampling the reference.
 
 ### Tianji waypoint handoff
 
-The shared `TianjiAbsoluteEEAdapter` (including Pi05) supports the same
+Pi05 and XR-1 own their Tianji decoding in `policy_adapter/pi05/tianji.py` and
+`policy_adapter/xr1/tianji.py`, respectively. Pi05's pass-ball and pack-plate
+adapters share a private base in the Pi05 module; XR-1 does not depend on Pi05.
+Both reuse the robot kinematics, differential IK solver and the same
 `WaypointHandoff` planner as UMI-DP. Opt in with `policy.adapter.handoff_waypoint`
 (`max_pos_speed_m_s`, `max_rot_speed_rad_s`), `ik_backend: diff` and
 `execute_diff_ik_substeps: true`; select `inference.handoff: waypoint` with
