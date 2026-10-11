@@ -1,5 +1,5 @@
 # Continuously upload fresh observations; the server keeps only the newest waiting input.
-algorithm: manimux
+algorithm: async
 inference_schedule: multi_inflight
 request_trigger: continuous
 observation_hz: 30.0

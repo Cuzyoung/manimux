@@ -1,6 +1,6 @@
 # Inference presets
 
-Experiments explicitly select `inference.algorithm`: `manimux`, `rtc`, `aac`,
+Experiments explicitly select `inference.algorithm`: `serial`, `async`, `rtc`, `aac`,
 `paint`, `autohorizon`, `bid_backward`, or `act_temporal_ensemble`. Sampler capability
 requirements remain unchanged.
 
@@ -27,7 +27,7 @@ replanning waits for that prefix; asynchronous request timing comes from the sha
 scheduler. `yam_bid_single_inflight.yaml`, `yam_bid_deadline.yaml`, and
 `yam_bid_multi_inflight.yaml` select time-aligned asynchronous variants.
 `yam_bid_backward.yaml` selects N=16 candidates, rho=0.9, and K=5. This is BID's
-backward-coherence criterion only; see the [integration record](../../../docs/advanced/reproductions/bid-backward.md).
+backward-coherence criterion only; see the [integration record](../../../.agents/skills/manimux-inference/references/reproductions/bid-backward.md).
 
 `action_start_mode` states how a returned action chunk starts:
 
@@ -47,13 +47,13 @@ Aligned experiment presets live in `aligned/`; experiments select them through
 `inference.config`. Alignment does not imply completed hardware validation.
 
 The paired Pi05 Joint 30k bottle experiments enable `run.warmup_before_start`.
-Prepare runs inference continuously while holding the measured robot state; Start
+After Prepare, choose Activate Warmup to run inference while holding the measured robot state. Start
 drains warmup requests and waits for a backend RESET acknowledgement before fresh
 formal inference. There is no minimum count, countdown, or automatic stability gate.
 The RoboGUI displays warmup chunks, predicted end-effector paths and an E2E latency
 curve as display-only previews. Start and Finish clear them. Finish stops new model
 requests and invalidates queued WS work; an already-running model call may finish,
-but its output is discarded. Warmup resumes only after another Prepare.
+but its output is discarded. Warmup resumes only after another Prepare and Activate Warmup.
 
 In `aligned/yam_rtc.yaml`, `rtc.initial_delay_policy_steps: null` selects automatic
 initialization from warmup latency. The first successful call of each sampler branch
@@ -77,4 +77,4 @@ handoff skip/waypoint. The base method still controls request timing. For asynch
 BID+AAC, override `inference_schedule: single_inflight` (or `deadline`, or `multi_inflight` with
 `observation_hz`), and `action_start_mode: drop_infer_latency`. AAC's EE statistics
 must match the selected embodiment; these are selecting examples, not tuned or
-hardware-validated settings. See [composition contracts](../../../docs/advanced/inference.md#optional-algorithm-composition).
+hardware-validated settings. See [composition contracts](../../../guideline.html#optional-algorithm-composition).

@@ -410,7 +410,7 @@ class RtcInferenceStrategy:
             margin = horizon - max(self._delay_forecast) - delay
             inference = (
                 f"| infer server {server:5.0f}ms trip {trip:5.0f}ms "
-                f"d={delay:4.1f} margin={margin:+5.1f}步"
+                f"d={delay:4.1f} margin={margin:+5.1f} steps"
             )
         else:
             inference = "| infer --"
@@ -423,7 +423,7 @@ class RtcInferenceStrategy:
 
 
 def rtc_parameters(**options) -> dict:
-    """RTC 只改变推理与分块时序；执行器限位仍由公共 runtime 管理。"""
+    """RTC changes only inference and chunk timing; shared runtime still manages executor limits."""
 
     unsupported = {"min_execute_steps", "initial_delay_steps"}.intersection(options)
     if unsupported:

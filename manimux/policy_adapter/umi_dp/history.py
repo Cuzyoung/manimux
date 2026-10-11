@@ -171,11 +171,11 @@ class HistoryStrategy:
                 raise ValueError(f"Bind UMI checkpoint {key} before constructing history")
         history = config["inference"]["history"]
         delegate_name = config["inference"]["algorithm"]
-        if delegate_name not in {"manimux", "rtc"}:
-            raise ValueError("UMI history supports the existing manimux and rtc strategies")
+        if delegate_name not in {"async", "serial", "rtc"}:
+            raise ValueError("UMI history supports the existing async, serial and rtc strategies")
         delegate_config = deepcopy(config)
         delegate_config["inference"]["strategy"] = None
-        # 配置已补齐默认值；只复查切换 delegate 后的时间与动作约束。
+        # Configuration defaults are resolved; recheck only timing and action constraints after switching delegates.
         validate_inference_parameters(delegate_config["inference"], delegate_config["executor"])
         validate_runtime_parameters(delegate_config)
         self.delegate = build_inference_strategy(delegate_config)

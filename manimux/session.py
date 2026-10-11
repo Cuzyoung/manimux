@@ -312,13 +312,13 @@ class RuntimeSessionService:
         attempts = 0
         print(f"runtime service ready; run_dir={self._run_dir.resolve()}")
         print(
-            "RoboGUI flow: Prepare free/study rollout -> Start rollout -> "
+            "RoboGUI flow: Prepare -> Activate Warmup (when enabled) -> Start rollout -> "
             "Finish & Home / Finish without homing"
         )
         if self._recovery is not None and self._recovery.available:
             print("Manual recovery is always visible: stop a rollout, drag A/B/AB, or Return Home")
         print(
-            "Free rollouts need no scoring; study rollouts offer evaluation "
+            "Use Prepare Run or Prepare Experiment in RoboGUI; experiments offer evaluation "
             "that can be saved or skipped"
         )
         while max_rollout_attempts is None or attempts < max_rollout_attempts:

@@ -76,7 +76,7 @@ class AacInferenceStrategy(SynchronousChunkStrategy):
 
 
 def aac_parameters(**options) -> dict:
-    """保留自适应分块的采样数量、运动阈值与选择规则。"""
+    """Preserve adaptive chunking sample counts, motion thresholds and selection rules."""
 
     values = {
         "num_samples": 20,

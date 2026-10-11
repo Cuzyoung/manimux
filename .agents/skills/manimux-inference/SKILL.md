@@ -8,7 +8,7 @@ description: Integrate, configure or verify ManiMux inference algorithms across 
 Work from the user's ManiMux checkout. Read its
 `.agents/skills/manimux-development/SKILL.md` and relevant nested `AGENTS.md` before
 editing. The maintained implementation map, selecting commands and validation
-limits live in `docs/advanced/inference-matrix.md`; read that document rather than
+limits live in `.agents/skills/manimux-inference/references/inference-matrix.md`; read that document rather than
 copying a historical capability table into a new answer.
 
 ## Choose the actual path

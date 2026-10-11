@@ -6,11 +6,11 @@ import math
 
 from manimux.runtime.safety import RuntimeState
 
-_CHUNK_STRATEGIES = {"manimux", "async", "serial", "bid_backward"}
+_CHUNK_STRATEGIES = {"async", "serial", "bid_backward"}
 _SINGLE = {"rtc", "paint", "act_temporal_ensemble"}
 _ADAPTIVE = {"aac", "autohorizon"}
 _STREAMING = {
-    "manimux", "async", "rtc", "act_temporal_ensemble", "bid_backward",
+    "async", "rtc", "act_temporal_ensemble", "bid_backward",
     "paint", "aac", "autohorizon",
 }
 
