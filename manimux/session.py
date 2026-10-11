@@ -92,6 +92,7 @@ class _IdleRecovery:
         return {
             "available": self.available,
             "actions": list(self.actions),
+            "selections": list(self._drag_selections),
             "busy": self.busy,
             "state": self._state,
             "ack": self._ack,
@@ -247,9 +248,7 @@ class RuntimeSessionService:
             "last_error": self._last_error,
             "last_failure_id": self._last_failure_id,
             "recovery": (
-                self._recovery.metadata()
-                if self._recovery is not None
-                else {"available": False}
+                self._recovery.metadata() if self._recovery is not None else {"available": False}
             ),
         }
 
@@ -311,12 +310,12 @@ class RuntimeSessionService:
     def serve(self, *, max_rollout_attempts: int | None = None) -> None:
         attempts = 0
         print(f"runtime service ready; run_dir={self._run_dir.resolve()}")
-        print(
-            "RoboGUI flow: Prepare free/study rollout -> Start rollout -> "
-            "Finish & Home / Finish without homing"
-        )
+        print("RoboGUI flow: Prepare free/study rollout -> Start rollout -> Finish")
         if self._recovery is not None and self._recovery.available:
-            print("Manual recovery is always visible: stop a rollout, drag A/B/AB, or Return Home")
+            print(
+                "Manual recovery follows the assembly declaration: "
+                + ", ".join(self._recovery.actions)
+            )
         print(
             "Free rollouts need no scoring; study rollouts offer evaluation "
             "that can be saved or skipped"

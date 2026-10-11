@@ -49,11 +49,12 @@ Document these lifecycle details in the integration's runbook:
 Required operations cannot be stubbed out. Optional unsupported capabilities must
 be declared and unavailable to normal callers/UI; an unexpected direct call should
 fail explicitly. The current base `home()` raises `NotImplementedError`. Idle recovery
-is declared through `recovery_actions`, which the serving session and the runtime read
-instead of a robot type; some RoboGUI layouts still branch on robot names. These are
-existing integration gaps,
-not a complete generic capability mechanism. Resolve the affected caller contract
-when adding a capability; do not invent a `supports_home` field that nobody reads.
+is declared through `recovery_actions` and `drag_selections`. The serving session publishes
+`actions` and drag `selections`; RoboGUI shows clear, drag and idle Home from that
+declaration. Finish leaves homing to the experiment's `home_on_close` unless idle
+recovery includes `home`, in which case Finish does not home. In-rollout Return Home
+still calls runtime `robot.home()`, and requires the episode's `home_available` only
+when idle recovery includes `home`. Do not invent a `supports_home` field that nobody reads.
 
 For a focused review, trace configuration -> factory -> controller/assembly ->
 runtime caller. Record the required behavior, actual SDK mapping, discrepancy and
