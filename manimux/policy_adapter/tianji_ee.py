@@ -64,10 +64,8 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
     uses_motion_limits = True
     supports_context_only_decode = True
     supports_gripper_mapping = True
-    # Preserve the real request observation (including the model's pose anchor).
-    # Waypoint handoff selects its IK seed separately from the outgoing runtime
-    # reference and drops the expired source prefix before IK.
-    decode_seed_source = "observation_state"
+    # Continue the old reference without changing the real observation/pose anchor.
+    decode_seed_source = "execution_reference"
     # Each arm can be solved in its own process, but the decoder client commits
     # only after both partitions have completed successfully.
     decode_partitions = tuple(GROUP_DIMS)
@@ -315,7 +313,7 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
                 )
                 solver.reset()
 
-    def _steps(self, raw: object, context: ActionContext) -> Sequence[Mapping]:
+    def _steps(self, raw: object) -> Sequence[Mapping]:
         # The WebSocket client unwraps a plain response to its action list.
         steps = raw.get("actions") if isinstance(raw, Mapping) else raw
         if (
@@ -326,16 +324,6 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
         ):
             raise ValueError(
                 f"XR-1 Tianji expects {self._horizon_steps} standard EE action dictionaries"
-            )
-        observation = context.measured_state
-        if observation is None:
-            raise ValueError(
-                f"XR-1 Tianji has no observation state for request {context.request_seq}"
-            )
-        if observation.monotonic_ns != context.observation_time_ns:
-            raise ValueError(
-                "XR-1 Tianji observation state time must equal the request observation time "
-                f"({observation.monotonic_ns} != {context.observation_time_ns})"
             )
         return steps
 
@@ -366,6 +354,15 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
     def decode_action(self, raw: object, context: ActionContext) -> ActionChunk:
         return self._decode(raw, context, self._group_order)
 
+    def decode_seed_time_ns(self, context: ActionContext) -> int:
+        if context.handoff_reference is not None and self.waypoint_handoff is not None:
+            return self.waypoint_handoff.start(
+                context.observation_time_ns,
+                context.execution_time_ns,
+                self._horizon_steps - context.handoff_skip_steps,
+            )[0]
+        return context.observation_time_ns
+
     def decode_action_partition(
         self, raw: object, context: ActionContext, partition: str
     ) -> ActionChunk:
@@ -376,7 +373,10 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
     def _decode(
         self, raw: object, context: ActionContext, groups_to_decode: tuple[str, ...]
     ) -> ActionChunk:
-        steps = self._steps(raw, context)
+        steps = self._steps(raw)
+        seed = context.ik_seed
+        if seed is None:
+            raise ValueError("Tianji decoding requires an IK seed")
         # Clip metadata covers both arms so partitioned decodes agree.
         gripper_targets, gripper_clip_max_abs = self._gripper_targets(steps)
         targets = {
@@ -402,7 +402,7 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
                 },
             )
             targets = handoff.targets
-        seed_groups = context.measured_state.groups if handoff is None else handoff.start_state
+        seed_groups = seed.groups
 
         groups: dict[str, np.ndarray] = {}
         runtime_groups: dict[str, np.ndarray] = {}
@@ -511,12 +511,8 @@ class TianjiAbsoluteEEAdapter(PolicyAdapter):
                 "gripper_clip_max_abs": gripper_clip_max_abs,
                 "gripper_mapping": self._gripper_mapping.metadata(),
                 "ik_backend": self.ik_backend,
-                "ik_seed_source": (
-                    self.decode_seed_source if handoff is None else "active_reference"
-                ),
-                "ik_seed_time_ns": (
-                    context.measured_state.monotonic_ns if handoff is None else handoff.time_ns
-                ),
+                "ik_seed_source": context.ik_seed_source,
+                "ik_seed_time_ns": seed.monotonic_ns,
                 **({"ik_seed_plan_id": handoff.plan_id} if handoff is not None else {}),
                 **(
                     {

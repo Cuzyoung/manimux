@@ -104,10 +104,11 @@ class ActionContext:
     # adapters may use this to discard source waypoints that are already in the
     # past before doing expensive or failure-prone embodiment conversion (IK).
     execution_time_ns: int | None = None
-    # Robot state selected by the runtime as the embodiment-conversion seed.
-    # Most adapters receive the response-time state/reference; adapters whose
-    # full trajectory starts at row 0 may request the request-observation state.
-    measured_state: RobotState | None = None
+    # Selected embodiment-conversion starting state, independent of observations.
+    ik_seed: RobotState | None = None
+    # The real state captured with this request; never replaced by a reference.
+    observation_state: RobotState | None = None
+    ik_seed_source: str | None = None
     max_source_steps: int | None = None
     decode_budget_ms: float | None = None
     independent_groups: bool = False

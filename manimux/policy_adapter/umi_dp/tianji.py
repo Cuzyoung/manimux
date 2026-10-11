@@ -49,9 +49,8 @@ class UmiDpTianjiAdapter(PolicyAdapter):
     supports_gripper_mapping = True
     uses_motion_limits = True
     supports_context_only_decode = True
-    # This checkpoint's full source trajectory starts at the request
-    # observation. Timeline owns all stale-row trimming at commit time.
-    decode_seed_source = "observation_state"
+    # Full chunks continue the reference at observation time, preserving measured inputs.
+    decode_seed_source = "execution_reference"
     # Arm IK is independent, so process decoding can solve both sides in
     # parallel and merge them atomically.
     decode_partitions = ("left_arm", "right_arm")
@@ -389,6 +388,15 @@ class UmiDpTianjiAdapter(PolicyAdapter):
     def decode_action(self, raw, context):
         return self._decode(raw, context, ("left", "right"))
 
+    def decode_seed_time_ns(self, context):
+        if context.handoff_reference is not None and self.waypoint_handoff is not None:
+            return self.waypoint_handoff.start(
+                context.observation_time_ns + self.offset_ns,
+                context.execution_time_ns,
+                self.horizon - context.handoff_skip_steps,
+            )[0]
+        return context.observation_time_ns
+
     def decode_action_partition(self, raw, context, partition):
         if partition not in self.decode_partitions:
             raise ValueError(f"unknown UMI decode partition {partition!r}")
@@ -461,13 +469,9 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         steps = raw.get("actions") if isinstance(raw, Mapping) else raw
         if not isinstance(steps, Sequence) or len(steps) != self.horizon:
             raise ValueError("UMI action horizon differs from the checkpoint")
-        if context.measured_state is None:
-            raise ValueError("UMI-DP decoding requires the request observation state")
-        if context.measured_state.monotonic_ns != context.observation_time_ns:
-            raise ValueError(
-                "UMI-DP IK seed time must equal the request observation time "
-                f"({context.measured_state.monotonic_ns} != {context.observation_time_ns})"
-            )
+        seed = context.ik_seed
+        if seed is None:
+            raise ValueError("UMI-DP decoding requires an IK seed")
         steps = self._map_gripper_steps(steps)
         action_origin = context.observation_time_ns + self.offset_ns
         handoff = None
@@ -491,11 +495,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             groups[group], runtime_rows, side_samples, lag = self._decode_side(
                 side,
                 steps,
-                (
-                    context.measured_state.groups[group]
-                    if handoff is None
-                    else handoff.start_state[group]
-                ),
+                seed.groups[group],
                 lead_in=None if handoff is None else handoff.lead_in[group],
             )
             if runtime_rows is not None:
@@ -538,8 +538,9 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 "measured_observation_time_ns": context.observation_time_ns,
                 "first_action_offset_ns": self.offset_ns,
                 "ik_backend": self.ik_backend,
-                "ik_seed_source": self.decode_seed_source,
-                "ik_seed_time_ns": context.measured_state.monotonic_ns,
+                "ik_seed_source": context.ik_seed_source,
+                "ik_seed_time_ns": seed.monotonic_ns,
+                **({"ik_seed_plan_id": handoff.plan_id} if handoff is not None else {}),
                 "gripper_mapping": self.gripper_mapping.metadata(),
                 **(
                     {

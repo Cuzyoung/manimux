@@ -432,6 +432,10 @@ class ActionTimeline:
         plan = self._runtime_plan_at(time_ns)
         return None if plan is None else _sample_plan(plan, time_ns)
 
+    def sample_runtime(self, time_ns: int) -> GroupVector | None:
+        """Sample the executed reference grid, returning None outside its coverage."""
+        return self._sample_runtime(time_ns)
+
     def reference_horizon(
         self,
         *,

@@ -35,7 +35,7 @@ class HandoffPlan:
     plan_id: str  # Outgoing runtime plan the handoff starts from.
     time_ns: int  # Handoff time t_s', on the new runtime grid.
     join_row: int  # First source time slot after the handoff time; earlier slots are dropped.
-    start_state: GroupVector  # Outgoing command at time_ns, the dense IK seed.
+    start_state: GroupVector  # Selected IK seed at time_ns, the outgoing runtime reference.
     lead_in: dict[str, list[PoseTarget]]  # Per group, one target per runtime_dt up to join_row.
     targets: dict[str, list[PoseTarget]]  # Per group, speed-limited rows after join_row.
     limited_rows: int  # Rows (all groups) whose target was not reached by its row time.
@@ -43,7 +43,7 @@ class HandoffPlan:
 
 
 class WaypointHandoff:
-    """Plans an EE lead-in from the outgoing command to a new chunk; adapters opt in."""
+    """Plans an EE lead-in from the outgoing reference to a new chunk; adapters opt in."""
 
     def __init__(
         self, config: WaypointHandoffConfig, *, source_dt_ns: int, runtime_dt_ns: int
@@ -128,22 +128,12 @@ class WaypointHandoff:
         reference = context.handoff_reference
         earliest_ns = context.execution_time_ns
         skip = context.handoff_skip_steps
-        if reference is None or earliest_ns is None:
-            raise ValueError("waypoint handoff requires a reference and an execution time")
         if type(skip) is not int or skip < 0:
             raise ValueError("waypoint handoff skip must be a non-negative integer")
         # Time slots on the source grid; slot k holds row k + skip, so the tail loses skip slots.
         horizon = len(next(iter(targets.values()))) - skip
-        for row in range(horizon):
-            row_ns = origin_ns + row * self.source_dt_ns
-            steps = (row_ns - earliest_ns) // self.runtime_dt_ns
-            if steps >= 1:
-                break
-        else:
-            raise ValueError("waypoint handoff has no chunk row after the handoff time")
-        # Align the handoff to the new runtime grid, which ends exactly at the join row.
-        time_ns = row_ns - steps * self.runtime_dt_ns
-        state = self.sample_reference(reference, time_ns)
+        time_ns, row, steps = self.start(origin_ns, earliest_ns, horizon)
+        state = context.ik_seed.groups
         lead_in, limited_targets, limited_rows = {}, {}, 0
         for group in targets:
             start_pose, start_grip = fk[group](state[group])
@@ -168,13 +158,23 @@ class WaypointHandoff:
             reference.plan_id, time_ns, row, state, lead_in, limited_targets, limited_rows, skip
         )
 
+    def start(self, origin_ns: int, earliest_ns: int, horizon: int) -> tuple[int, int, int]:
+        """Return seed time, join row and lead-in length without selecting a seed."""
+        for row in range(horizon):
+            row_ns = origin_ns + row * self.source_dt_ns
+            steps = (row_ns - earliest_ns) // self.runtime_dt_ns
+            if steps >= 1:
+                # End the dense grid exactly at the first retained source target.
+                return row_ns - steps * self.runtime_dt_ns, row, steps
+        raise ValueError("waypoint handoff has no chunk row after the handoff time")
+
     def finish(self, chunk: ActionChunk, plan: HandoffPlan) -> ActionChunk:
         """chunk: decoded rows join_row.. with the lead-in prepended to its runtime trajectory;
         plan: the plan used; starts the runtime path at the handoff command and marks the chunk."""
         runtime = chunk.runtime_trajectory
         if runtime is None or runtime.dt_ns != self.runtime_dt_ns:
             raise ValueError("waypoint handoff requires the adapter's dense runtime trajectory")
-        # Row 0 is the outgoing command itself, so the switch at time_ns is continuous.
+        # Row 0 is the outgoing reference itself, so the switch at time_ns is continuous.
         runtime.groups = {
             name: np.vstack([plan.start_state[name], values])
             for name, values in runtime.groups.items()

@@ -21,6 +21,13 @@ class PolicyAdapter(ABC):
     # Decode model apertures and invert the mapping for RTC conditioning.
     supports_gripper_mapping = False
 
+    # Select the IK starting state, independently of the measured observation.
+    decode_seed_source = "execution_reference"
+
+    def decode_seed_time_ns(self, context: ActionContext) -> int | None:
+        """Exact seed time for timed decoders; None keeps the runtime start/hold policy."""
+        return None
+
     def __init__(self, robot: dict, policy: dict, *, kinematics=None):
         self.robot = robot
         self.policy = policy
