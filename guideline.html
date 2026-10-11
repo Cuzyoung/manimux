@@ -685,6 +685,18 @@ evaluation:
 recording:
   enabled: true
 </code></pre>
+<p><strong>Prepare Run / Prepare Experiment.</strong> Both buttons are available before a rollout.
+Prepare Run needs no layout or scoring. For Prepare Experiment, select Layout once;
+its reference is attached automatically and scoring is offered after Finish.
+The <strong>Images</strong> panel is expanded by default. Historical replay has a separate command below.
+Task, policy and executor are read-only. Keep experiment name, condition and model parameters in YAML.
+The Top gallery matches <code>run.task</code> ignoring case, punctuation and spaces versus underscores;
+store images in <code>data/evaluation_layouts/&lt;task&gt;/&lt;layout&gt;.png</code>.</p>
+<p>Repeat numbers are suggested from finalized, scored trials across sessions under the same
+<code>run.output_dir</code>, matched by task, experiment name, condition, layout and reference hash.
+Successful and failed tasks count; invalid, skipped and unstarted attempts remain recorded but do not
+consume a repeat. When a layout is complete, select another. Use a separate output directory for each
+model/checkpoint/method or changed scoring rule. No repeat counter is stored only in the browser.</p>
 <p><code>run.experiment_template</code> constrains layouts/repeats/reference images. It does not schedule
 or randomize the study. <code>evaluation.config</code> selects the scoring YAML. There is no UI template
 editor; edit the files and reload the runtime before the next study condition.</p>
@@ -717,11 +729,13 @@ editor; edit the files and reload the runtime before the next study condition.</
 <p><strong>Coin example — stage template:</strong></p>
 <pre><code class="language-yaml">kind: stages
 task_id: coin
-rubric_id: coin_stages_v1
+rubric_id: coin_stages_v2
 label: Coin transfer and deposit
 options:
-  - {id: incomplete, label: Not handed over, score: 0, success: false}
+  - {id: incomplete, label: No coin picked up, score: 0, success: false}
+  - {id: picked_up, label: Coin picked up by one hand, score: 0.1, success: false}
   - {id: handover, label: Handed over, score: 0.3, success: false}
+  - {id: above_bank, label: Coin held above piggy bank, score: 0.5, success: false}
   - {id: deposited, label: Deposited in target, score: 1, success: true}
 </code></pre>
 <p><strong>Stacking example — count template:</strong></p>
@@ -740,10 +754,10 @@ Each rollout saves a snapshot; later YAML edits do not change historical scores.
 <a href="manimux/configs/evaluation/coin.yaml">Current coin template</a> · <a href="manimux/configs/evaluation/stack_blocks.yaml">Stacking template</a></p>
 <h3 id="operate-each-trial">Operate each trial</h3>
 <ol>
-<li>Reset the scene; select layout and repeat, and attach a matching reference if required.</li>
-<li><strong>Prepare study rollout → adjust layout → Activate Warmup → Start rollout.</strong>
-Reference selection stays editable until first Start. With an attached reference, its image ID is the recorded layout ID.
-Start validates the template and freezes the selected image hash; Pause/Resume keeps that selection locked.
+<li>Use <strong>Prepare Run</strong> for a free trial. For a scored trial, reset the scene, select <strong>Layout</strong>, then click <strong>Prepare Experiment</strong>; its Top reference is attached automatically.</li>
+<li><strong>Prepare → adjust layout → Activate Warmup → Start rollout.</strong>
+Layout stays editable until first Start. The suggested repeat updates with the selected layout.
+Start validates the template and freezes layout, repeat and image hash; Pause/Resume keeps that selection locked.
 Warmup only previews predictions; it never executes them. Keep reset and stopping rules consistent.</li>
 <li><strong>Finish</strong>, select outcome/count, inspect the derived score, then <strong>Save evaluation</strong>.</li>
 <li>For an unusable trial, mark invalid and state the reason. <strong>Skip evaluation</strong> leaves it unreviewed.</li>
@@ -751,7 +765,7 @@ Warmup only previews predictions; it never executes them. Keep reset and stoppin
 </ol>
 <p>For completion time, annotate seconds from formal Start to the success criterion, only for
 successful attempts. Do not substitute the full recording duration. Free rollouts have no
-scoring step; the experiment name/condition does not change the policy's task instruction.</p>
+scoring step. Optional operator notes and failure details are entered after Finish.</p>
 </section>
 <section aria-labelledby="records" class="guide-page" data-page-id="records" data-title="Records &amp; replay" hidden=""><h2 id="records">Records</h2>
 <pre><code class="language-text">&lt;run.output_dir&gt;/
@@ -1433,9 +1447,19 @@ scoring step; the experiment name/condition does not change the policy's task in
 <tr><td><code>control_timing.status</code></td><td>disabled: no detailed timing files were captured. saved: timing capture was written. error: export failed, with an error message. Ordinary events.jsonl is independent.</td></tr>
 </tbody></table></details><p>The raw recording has no human-label file after Skip. An absent label is unreviewed, not failure and not success. Warmup generates event/latency evidence, but its predicted chunks are display-only and do not populate the formal recorded plan/tick/video streams. Detailed loop-stage timing is absent when control_timing is disabled.</p></div>
 <p>Check the actual episode path in RoboGUI; station configuration can override the output root.
-In <strong>Recorded rollouts</strong>, refresh and select a finalized episode. Choose measured state,
-scheduled reference or executor command, then <strong>Open offline replay</strong>. This trajectory replay
-does not replay videos or rerun the executor. <a href=".agents/skills/manimux-experiments/references/records.md">Recording contract</a></p>
+Open a finalized episode in a separate, read-only replay process:</p>
+<pre><code class="language-bash">cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python -m manimux.robogui.replay \
+  --robot yam --episode /path/to/session-xxx/rollout-001 \
+  --source state --host 127.0.0.1 --port 8087
+</code></pre>
+<p><code>--source state</code> shows measured state; <code>scheduled</code> shows the timeline reference;
+<code>command</code> shows executor output, not a hardware acknowledgment. For a custom display model,
+replace <code>--robot yam</code> with <code>--config /path/to/robogui.yaml</code>.
+The player starts paused and supports seeking and playback speed using recorded tick timestamps.
+It does not replay RGB videos or connect to hardware. No camera, policy or runtime service is needed.
+Partial episodes and records without the selected stream cannot be replayed.
+<a href=".agents/skills/manimux-experiments/references/records.md">Recording contract</a></p>
 </section>
 <section aria-labelledby="reports" class="guide-page" data-page-id="reports" data-title="Evaluation reports" hidden=""><h2 id="reports">Reports</h2>
 <p>The report index is <strong>separate from the scoring template</strong>. Save it under

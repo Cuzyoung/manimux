@@ -44,10 +44,11 @@ service waits for the next Prepare. Both commands use `EdgeRuntime.run()` for th
 control loop. `serve` does not start camera or model servers for you.
 
 `run.experiment_mode` defaults to false for the single-rollout `run` entry point.
-Under `serve`, Prepare free / Prepare study chooses the mode for each rollout:
+Under `serve`, use the two RoboGUI buttons **Prepare Run / Prepare Experiment**:
+The experiment template only constrains Experiment; it never prevents a free Run.
 
-- Free: no human evaluation is required before preparing the next rollout.
-- Study: after finishing, save the task result, failure tags and notes,
+- Run: no layout or human evaluation is required before preparing the next rollout.
+- Experiment: select a layout; after finishing, save the task result, failure tags and notes,
   or click `Skip evaluation` to continue without a label. Either choice enables the next
   Prepare once the runtime service is ready. Skipping does not write a human-label file.
 

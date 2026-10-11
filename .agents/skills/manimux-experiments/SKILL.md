@@ -42,6 +42,9 @@ Load only the needed reference:
   [human and seam metrics](references/human-and-seam.md).
 - PRM manifests, inference, quality checks, and output fields:
   [PRM evaluation](references/prm.md).
+- Demonstration grasp/release scope drawn on a camera frame (layout vs. training
+  data, teleop visualization, report figures): follow
+  [the manipulation scope skill](../../../manimux/evaluation/manipulation_scope/SKILL.md).
 
 ## Define a custom study with the user
 
@@ -67,7 +70,12 @@ do not treat suggestions as frozen protocol.
 
 When configuration work is requested, reference a user-editable scoring YAML via
 `evaluation.config`; keep layout/repeat constraints in `run.experiment_template`.
-RoboGUI selects outcomes and displays derived scores; do not add an in-page
+RoboGUI exposes two buttons: Prepare Run and Prepare Experiment, with one Layout selector.
+Prepare Run requires no layout or scoring. Prepare Experiment uses the selected layout,
+the configured template and offers scoring after Finish. Layout attaches its matching
+Top reference automatically; repeat numbers come from finalized valid human-scored
+records in the method output directory. Keep task/model/condition settings in YAML;
+operator notes and failure details belong after Finish. Do not add an in-page
 template editor as part of routine study setup. Preserve episode rubric snapshots,
 version changed rules, and reload the runtime before collecting under a new rubric.
 Do not mix different rubric versions in one mean score. Validate with the loader

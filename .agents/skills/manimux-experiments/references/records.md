@@ -63,6 +63,23 @@ task, seam, and PRM eligibility separately: unusable video does not erase a save
 
 For a concise metric-to-input map, read [What evaluation actually reads](../../../../guideline.html#evaluation-inputs) before the exhaustive field dictionary. Rubric options in metadata define possible scores; the selected outcome belongs to the human label. New JSON writers preserve readable UTF-8; do not reformat historical episodes because derived artifacts may bind their byte hashes.
 
+## Offline experiment replay
+
+Replay is separate from the live dashboard. Select a finalized episode directory:
+
+```bash
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python -m manimux.robogui.replay \
+  --robot yam --episode /path/to/session-xxx/rollout-001 \
+  --source state --host 127.0.0.1 --port 8087
+```
+
+Sources are `state` (measured), `scheduled` (timeline reference), and `command`
+(executor output, not hardware receipt). The shared player starts paused, supports
+seeking/speed, and preserves `ticks/monotonic_ns` intervals. No RGB playback or hardware
+connection is performed. Use `--config /path/to/robogui.yaml` instead of `--robot` for
+custom offline display models. Missing streams and `.partial` episodes are rejected.
+
 ## Interpretation
 
 - `result.json.run_completed` means runtime completion, not task success.

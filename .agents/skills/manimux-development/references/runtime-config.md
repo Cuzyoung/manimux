@@ -266,8 +266,10 @@ For executor work, start from `runtime/executors/direct.py` or `smooth.py`, impl
 executor parameter parser in `cli.py`. That is construction-time dispatch, not a
 per-tick vendor branch. There is currently no general executor entry-point loader.
 
-The live dashboard's `records.py` reads finalized records; `action_replay.py` owns
-hardware-free trajectory display. Keep these consumers out of the control loop.
+`records.py` reads finalized experiment trajectories; `action_replay.py` owns
+hardware-free display and its playback loop. The independent `python -m manimux.robogui.replay`
+entry point selects an episode and stream. Dashboard has no historical replay panel.
+Shared offline preset/model loaders live in `robot_view.py`. Keep these consumers out of the control loop.
 The [research workflow](../../../../guideline.html#experiments) describes current UI and identity fields.
 
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import io
 import json
 import math
 import re
@@ -268,6 +269,46 @@ def _handoff_figures(entry, base, eligible, attempt_id):
         return imported, []
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         return [], [str(exc)]
+
+
+def _manipulation_scope(config, base, episodes):
+    """Training-data manipulation scope over each finalized attempt's first front frame."""
+    if config.get("manipulation_scope") is None:
+        for row in episodes:
+            row["manipulation_scope"] = {
+                "status": "missing",
+                "reason": "manipulation_scope_not_configured",
+            }
+        return {}
+    import cv2
+
+    from manimux.evaluation import manipulation_scope as scope
+
+    path = _path(base, config["manipulation_scope"])
+    profile = scope.load_profile(path)
+    images = {}
+    for row in episodes:
+        if not row["finalized"]:
+            row["manipulation_scope"] = {"status": "excluded", "reason": "attempt_not_finalized"}
+            continue
+        episode = Path(row["episode_dir"])
+        try:
+            frame = scope.first_frame(episode, profile["camera_name"])
+            image = scope.render(profile, frame, f"{row['setting_id']} / {episode.name}")
+        except (OSError, ValueError, cv2.error) as exc:
+            row["manipulation_scope"] = {"status": "error", "reason": str(exc)}
+            continue
+        filename = f"scope-{row['attempt_id']}.jpg"
+        buffer = io.BytesIO()
+        image.save(buffer, "JPEG", quality=90)
+        images[filename] = buffer.getvalue()
+        row["manipulation_scope"] = {
+            "status": "available",
+            "filename": filename,
+            "profile": str(path),
+            "profile_sha256": _hash(path),
+        }
+    return images
 
 
 def _experiment_table(config, base):
@@ -644,6 +685,7 @@ def generate_task_report(task_dir: Path) -> Path:
 
     config_path, config = load_task(task_dir)
     report, raw_roots = collect_task(config_path, config)
+    scope_images = _manipulation_scope(config, config_path.parent, report["episodes"])
     parent = (
         _path(config_path.parent, config["output_root"]) / config["task_id"] / "reports"
     ).resolve()
@@ -674,13 +716,14 @@ def generate_task_report(task_dir: Path) -> Path:
             "task_config": str(config_path),
             "task_config_sha256": _hash(config_path),
             "source_code_sha256": {
-                name: _hash(Path(__file__).with_name(name))
+                name: _hash(Path(__file__).parent / name)
                 for name in (
                     "report.py",
                     "report_html.py",
                     "report_template.html",
                     "smoothness.py",
                     "manual.py",
+                    "manipulation_scope/__init__.py",
                 )
             },
             "experiment_table": report["experiment_table"],
@@ -692,6 +735,7 @@ def generate_task_report(task_dir: Path) -> Path:
                     "human": r["human"],
                     "smoothness": r["smoothness"],
                     "handoff_figures": r["handoff_figures"],
+                    "manipulation_scope": r["manipulation_scope"],
                 }
                 for r in report["episodes"]
             ],
@@ -760,6 +804,8 @@ def generate_task_report(task_dir: Path) -> Path:
                 if hashlib.sha256(data).hexdigest() != figure["source_sha256"]:
                     raise ValueError("handoff image changed while building report")
                 (figures / figure["filename"]).write_bytes(data)
+        for filename, data in scope_images.items():
+            (figures / filename).write_bytes(data)
         page = render_report(report, figures)
         (staging / "index.html").write_text(page, encoding="utf-8")
         staging.rename(output)

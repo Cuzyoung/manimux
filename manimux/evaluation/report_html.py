@@ -272,6 +272,20 @@ def outcome_plots(report, figures):
     return "".join(output) or '<p class="empty-state">No completion-time or smoothness values available.</p>'
 
 
+def scope_figure(row, figures):
+    scope = row.get("manipulation_scope", {})
+    if scope.get("status") != "available":
+        return ""
+    encoded = base64.b64encode((figures / scope["filename"]).read_bytes()).decode("ascii")
+    return (
+        '<figure class="seam-figure">'
+        f'<a href="figures/{esc(scope["filename"])}" target="_blank" rel="noopener">'
+        f'<img src="data:image/jpeg;base64,{encoded}" alt="manipulation scope"></a>'
+        "<figcaption>First front frame with the training data's manipulation scope."
+        "</figcaption></figure>"
+    )
+
+
 def render_report(report: dict, figures: Path) -> str:
     groups = report["groups"]
     episodes = report["episodes"]
@@ -386,6 +400,9 @@ def render_report(report: dict, figures: Path) -> str:
         h = row["human"]
         o = row["overlap"]
         notes = row["errors"] + row.get("handoff_figure_errors", [])
+        scope = row.get("manipulation_scope", {})
+        if scope.get("status") == "error":
+            notes.append("manipulation scope: " + scope["reason"])
         notes += [str(v) for v in (h.get("reason"), o.get("reason")) if v]
         notes += [
             str(v)
@@ -409,6 +426,7 @@ def render_report(report: dict, figures: Path) -> str:
             + f"<p>Layout: {esc(row['layout_id'])} / Repeat: {esc(row['repeat_id'])} "
             f"/ attempt ID: {esc(row['attempt_id'])}</p>"
             + (f'<p class="warning">{esc("; ".join(notes))}</p>' if notes else "")
+            + scope_figure(row, figures)
             + f'<p class="caption">Matching fields: {binding_text}</p>'
             + f'<p class="caption path">Trajectory source: {esc(o.get("source") or "Not provided")}</p>'
             + "<details><summary>Completion-time / smoothness details</summary><pre>"

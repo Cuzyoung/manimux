@@ -83,7 +83,7 @@ def rollout_identity(run: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def start_identity(prepared: Mapping[str, Any], selection: Mapping[str, Any]) -> dict[str, Any]:
-    """Change only layout/reference before first Start; retain the prepared study rules."""
-    if not isinstance(selection, Mapping) or selection.keys() - {"layout_id", "reference_layout"}:
-        raise ValueError("Start selection only accepts layout_id and reference_layout")
+    """Update layout/reference and its suggested repeat before first Start."""
+    if not isinstance(selection, Mapping) or selection.keys() - {"layout_id", "reference_layout", "repeat_id"}:
+        raise ValueError("Start selection only accepts layout_id, reference_layout and repeat_id")
     return rollout_identity({**prepared, **selection})

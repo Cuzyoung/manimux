@@ -258,11 +258,13 @@ Supported types:
 ```yaml
 kind: stages
 task_id: coin
-rubric_id: coin_stages_v1
+rubric_id: coin_stages_v2
 label: Coin transfer and deposit
 options:
-  - {id: incomplete, label: Not handed over, score: 0, success: false}
+  - {id: incomplete, label: No coin picked up, score: 0, success: false}
+  - {id: picked_up, label: Coin picked up by one hand, score: 0.1, success: false}
   - {id: handover, label: Handed over, score: 0.3, success: false}
+  - {id: above_bank, label: Coin held above piggy bank, score: 0.5, success: false}
   - {id: deposited, label: Deposited in target, score: 1, success: true}
 ```
 
