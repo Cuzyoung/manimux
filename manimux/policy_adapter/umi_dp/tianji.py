@@ -393,7 +393,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
             return self.waypoint_handoff.start(
                 context.observation_time_ns + self.offset_ns,
                 context.execution_time_ns,
-                self.horizon - context.handoff_skip_steps,
+                self.horizon,
             )[0]
         return context.observation_time_ns
 

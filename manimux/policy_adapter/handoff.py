@@ -39,7 +39,6 @@ class HandoffPlan:
     lead_in: dict[str, list[PoseTarget]]  # Per group, one target per runtime_dt up to join_row.
     targets: dict[str, list[PoseTarget]]  # Per group, speed-limited rows after join_row.
     limited_rows: int  # Rows (all groups) whose target was not reached by its row time.
-    skipped_steps: int  # Source rows skipped: slot k holds row k + skipped_steps.
 
 
 class WaypointHandoff:
@@ -121,17 +120,13 @@ class WaypointHandoff:
         targets: Mapping[str, Sequence[PoseTarget]],
         fk: Mapping[str, Callable[[np.ndarray], PoseTarget]],
     ) -> HandoffPlan:
-        """context: carries handoff_reference, execution_time_ns and handoff_skip_steps;
+        """context: carries handoff_reference and execution_time_ns;
         origin_ns: time of source row 0; targets: per group model rows as (pose, gripper); fk:
         per group, state row -> (pose, gripper). All groups share one join row so decode
-        partitions agree. A skip moves later rows up without moving the handoff time."""
+        partitions agree. Execution-only prefix cropping happens after decoding."""
         reference = context.handoff_reference
         earliest_ns = context.execution_time_ns
-        skip = context.handoff_skip_steps
-        if type(skip) is not int or skip < 0:
-            raise ValueError("waypoint handoff skip must be a non-negative integer")
-        # Time slots on the source grid; slot k holds row k + skip, so the tail loses skip slots.
-        horizon = len(next(iter(targets.values()))) - skip
+        horizon = len(next(iter(targets.values())))
         time_ns, row, steps = self.start(origin_ns, earliest_ns, horizon)
         state = context.ik_seed.groups
         lead_in, limited_targets, limited_rows = {}, {}, 0
@@ -139,7 +134,7 @@ class WaypointHandoff:
             start_pose, start_grip = fk[group](state[group])
             pose, previous_ns, rows = start_pose, time_ns, []
             for index in range(row, horizon):
-                target, grip = targets[group][index + skip]
+                target, grip = targets[group][index]
                 index_ns = origin_ns + index * self.source_dt_ns
                 pose, limited = self.limit_step(pose, target, index_ns - previous_ns)
                 limited_rows += limited
@@ -155,7 +150,7 @@ class WaypointHandoff:
             ]
             limited_targets[group] = rows[1:]
         return HandoffPlan(
-            reference.plan_id, time_ns, row, state, lead_in, limited_targets, limited_rows, skip
+            reference.plan_id, time_ns, row, state, lead_in, limited_targets, limited_rows
         )
 
     def start(self, origin_ns: int, earliest_ns: int, horizon: int) -> tuple[int, int, int]:
@@ -182,7 +177,7 @@ class WaypointHandoff:
         runtime.start_time_ns = plan.time_ns
         chunk.source_offset_steps = plan.join_row
         chunk.handoff = AppliedHandoff(
-            plan.plan_id, plan.time_ns, plan.start_state, plan.skipped_steps
+            plan.plan_id, plan.time_ns, plan.start_state
         )
         chunk.metadata.update(
             handoff_mode="waypoint",

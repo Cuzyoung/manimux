@@ -14,8 +14,7 @@ class PolicyAdapter(ABC):
     kinematics 是已经装配的离线模型，传入它不会建立相机或机器人连接。
     """
 
-    # True when decode_action honors ActionContext.handoff_reference and
-    # handoff_skip_steps (waypoint handoff).
+    # True when decode_action honors ActionContext.handoff_reference.
     supports_waypoint_handoff = False
 
     # Decode model apertures and invert the mapping for RTC conditioning.

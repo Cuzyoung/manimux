@@ -346,10 +346,6 @@ class EdgeRuntime:
             ),
             observation_state=observation_state,
             handoff_reference=handoff_reference,
-            handoff_skip_steps=(
-                0 if handoff_reference is None
-                else self._config["inference"]["handoff_skip_steps"]
-            ),
             max_source_steps=self._config["inference"]["max_chunk_policy_steps"],
             independent_groups=self._config["inference"]["independent_group_decoding"],
             decode_budget_ms=(
@@ -1006,11 +1002,6 @@ class EdgeRuntime:
                                             committed=committed,
                                         ),
                                     )
-                                # A waypoint chunk arrives with its skipped rows already
-                                # removed; RoboGUI draws them like a commit-time skip.
-                                upstream_skip = (
-                                    0 if chunk.handoff is None else chunk.handoff.skipped_steps
-                                )
                                 with stage("robogui_publish_plan"):
                                     self._robogui.publish_plan(
                                         chunk,
@@ -1018,9 +1009,7 @@ class EdgeRuntime:
                                         committed=committed,
                                         metadata={
                                             "runtime": self._strategy.name,
-                                            "raw_horizon_steps": (
-                                                chunk.horizon_steps + upstream_skip
-                                            ),
+                                            "raw_horizon_steps": chunk.horizon_steps,
                                             "committed_horizon_steps": committed.horizon_steps,
                                             "time_trimmed_steps": result.time_trimmed_steps,
                                             "handoff_skipped_steps": (
@@ -1051,7 +1040,7 @@ class EdgeRuntime:
                                             **submission_visuals,
                                             **event_fields,
                                             # After event_fields, which repeat the timeline's count.
-                                            "trimmed_steps": result.trimmed_steps + upstream_skip,
+                                            "trimmed_steps": result.trimmed_steps,
                                         },
                                     )
                                 pending_visuals.pop(response.request_seq, None)

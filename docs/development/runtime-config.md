@@ -54,27 +54,31 @@ an algorithm setting alone does not implement the model's sampling hooks.
 
 ### RTC waypoint handoff skip
 
-With `inference.algorithm: rtc`, `handoff: waypoint`, and `blend_policy_steps: 0`,
-`handoff_skip_steps: S` uses the same waypoint semantics as ManiMux/UMI-DP: model
-row `k+S` occupies source time slot `k`, without moving the handoff time. The adapter
-plans the lead-in to that shifted target before IK; the timeline verifies the
-reference seed and does not skip the already-shifted chunk a second time.
+`handoff_skip_steps: S` is an execution-only prefix crop in `ActionTimeline.commit`,
+after inference, waypoint planning and diff IK have finished. With the same request
+and outgoing reference, changing `S` must not change RTC conditions or weights,
+model output processing, IK seeds, waypoint targets, or the decoded joint path.
+UMI history alignment retains its trained first-action offset and never shifts
+conditions to compensate for a future crop.
 
-RTC places the condition for slot `k` and its weight at model row `k+S`. Leading
-skipped rows have zero guidance. Requests retain the checkpoint's full model horizon
-`H`, but a skipped waypoint plan has only `H-S` effective time slots; discarded
-prefix slots are retained for index bookkeeping, not execution. The next request
-uses this actual shorter horizon and zero-pads unknown conditioning rows to `H`.
-UMI's history wrapper also aligns against shifted slot timestamps while preserving
-the checkpoint's first-action offset. No model/server changes are needed.
+The timeline first verifies the uncut waypoint's reference and handoff clock, then
+removes `S` source rows and the corresponding duration of dense runtime samples.
+The start times stay fixed; later decoded points occupy the earlier time slots,
+and the end moves earlier by the skipped duration. No replacement lead-in is
+generated. A nonzero crop can remove the continuous waypoint seed and introduce
+a position jump; the executor still applies its configured limits. Waypoint chunks
+require `blend_policy_steps: 0`. Missing/late/changed waypoint validation remains
+independent of skip; there is no shifted-condition rejection.
 
-The first chunk is unskipped. A conditioned response with shifted guidance is
-rejected if it cannot acquire its matching waypoint handoff; executing it on the
-unshifted clock would violate its guidance. Empty overlap uses default sampling.
-Choose `S < H` and, for a numeric initial delay, `2*initial_delay_policy_steps <= H-S`.
-The measured delay remains wall-clock latency and does not include intentional skip.
+The first chunk is unskipped. Choose `S < H`; a crop that exhausts the usable decoded
+suffix is rejected. RTC keeps the original `H` decoded rows and accounts for the
+actual committed trim when reading its cursor. The next request therefore sees
+the surviving outgoing actions, without offsetting its new condition by `S`.
+An empty overlap uses default sampling. Numeric initial delay is validated against
+the model horizon (`2*initial_delay_policy_steps <= H`), not a skip-shifted mask.
+Measured delay remains wall-clock latency and excludes intentional skip.
 Acceptance events distinguish `rtc_source_horizon` (`H`), `rtc_effective_horizon`
-(`H-S` for a skipped waypoint), and `rtc_handoff_skip_steps`.
+(`H-S`, before latency trimming), and `rtc_handoff_skip_steps`.
 
 <a id="robogui-replay-and-recording"></a>
 

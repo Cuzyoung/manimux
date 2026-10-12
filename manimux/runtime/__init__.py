@@ -237,11 +237,6 @@ def validate_runtime_parameters(config: dict) -> None:
                 "RTC requires 2 * initial_delay_policy_steps "
                 "<= policy.horizon_policy_steps"
             )
-        if delay is not None and skip and 2 * delay > horizon - skip:
-            raise ValueError(
-                "RTC requires 2 * initial_delay_policy_steps <= "
-                "policy.horizon_policy_steps - handoff_skip_steps for waypoint handoff"
-            )
     if config["inference"]["algorithm"] == "act_temporal_ensemble":
         query_interval = config["inference"]["temporal_ensemble"]["query_interval_policy_steps"]
         if query_interval >= config["policy"]["horizon_policy_steps"]:

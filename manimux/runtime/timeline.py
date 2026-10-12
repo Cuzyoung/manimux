@@ -21,8 +21,7 @@ class CommitResult:
     trimmed_steps: int = 0  # Rows removed from this chunk at commit.
     timeline_latency_ns: int = 0
     time_trimmed_steps: int = 0
-    # Intentional skip. A waypoint chunk skipped these rows before decoding,
-    # so they are not part of trimmed_steps.
+    # Intentional post-decode prefix crop, included in trimmed_steps.
     handoff_skipped_steps: int = 0
 
 
@@ -168,12 +167,11 @@ class ActionTimeline:
                 raise ValueError(
                     "waypoint handoff chunks require action_start_mode=drop_infer_latency"
                 )
-            # The adapter planned the lead-in to the skipped row; it cannot be trimmed here.
-            if chunk.handoff.skipped_steps != handoff_skip_steps:
-                return CommitResult(False, "handoff_skip_mismatch")
             # A waypoint handoff already replaced the blend before embodiment decoding.
             if blend_steps:
                 raise ValueError("waypoint handoff chunks must not be blended again")
+            # Validate the uncut decode seed and clock. A requested final prefix
+            # crop may remove that continuous seed; it must not replan the lead-in.
             reason = self._check_handoff(chunk, earliest_ns)
             if reason is not None:
                 return CommitResult(False, reason)
@@ -194,8 +192,8 @@ class ActionTimeline:
         # Skip source actions without moving the time at which the new plan starts.
         # The first plan has no outgoing chunk to hand off from.
         handoff_skipped_steps = handoff_skip_steps if self._active is not None else 0
-        # Rows this commit removes for the skip; a waypoint chunk arrives already skipped.
-        row_skip_steps = 0 if chunk.handoff is not None else handoff_skipped_steps
+        # All adapters finish decoding before the execution-only crop is applied.
+        row_skip_steps = handoff_skipped_steps
         trimmed_steps = time_trimmed_steps + row_skip_steps
         end = chunk.horizon_steps
         if self._max_source_steps is not None:

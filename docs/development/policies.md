@@ -145,16 +145,17 @@ Both reuse the robot kinematics, differential IK solver and the same
 (`max_pos_speed_m_s`, `max_rot_speed_rad_s`), `ik_backend: diff` and
 `execute_diff_ik_substeps: true`; select `inference.handoff: waypoint` with
 `blend_policy_steps: 0`. Both ManiMux and RTC support `handoff_skip_steps`; see the
-[runtime contract](runtime-config.md#rtc-waypoint-handoff-skip) for RTC guidance
-alignment and effective-horizon accounting. When a valid waypoint window exists,
+[runtime contract](runtime-config.md#rtc-waypoint-handoff-skip) for post-decode
+cropping and effective-horizon accounting. When a valid waypoint window exists,
 the adapter requests the aligned handoff time for its seed and decodes only the
 future source suffix plus its dense lead-in. The planner consumes `ik_seed`; it
 does not select or override it. Waypoint mode requires `execution_reference`.
 Without a waypoint window, the full-chunk seed rule above still applies.
 This does not change measured model inputs, pose anchors or first-action offsets.
 Plan metadata records the actual `ik_seed_source`, `ik_seed_time_ns` and, for a
-waypoint reference seed, `ik_seed_plan_id`. The timeline rejects a missed handoff or
-a changed reference instead of committing a discontinuous replacement.
+waypoint reference seed, `ik_seed_plan_id`. The timeline rejects a missed handoff or a changed
+decode reference before applying any requested execution-only crop. A nonzero crop
+can remove the continuous seed without changing the decoder's lead-in.
 
 ## Model layout configuration
 
