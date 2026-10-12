@@ -173,10 +173,10 @@ def validate_runtime_parameters(config: dict) -> None:
             raise ValueError("shared motion_limits currently support direct and smooth, not mpc")
     if (
         config["inference"]["inference_schedule"] == "serial"
-        and config["policy"]["action_decoding"] != "inline"
+        and config["inference"]["action_start_mode"] != "first_step_when_ready"
     ):
         raise ValueError(
-            "serial scheduling requires inline action decoding without latency trimming"
+            "serial scheduling requires action_start_mode=first_step_when_ready"
         )
     if (
         config["inference"]["chunk_policy_steps"] is not None

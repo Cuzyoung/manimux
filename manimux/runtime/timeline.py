@@ -247,7 +247,16 @@ class ActionTimeline:
             )
             if self._starts_at_commit:
                 runtime_time_index = 0
-                runtime_end_index = runtime.horizon_steps
+                # Cap dense rows on their original clock before retiming to commit.
+                # Inference/decode latency must not consume a serial prefix.
+                source_prefix_end_ns = (
+                    chunk.observation_time_ns
+                    + (chunk.source_offset_steps + end - 1) * chunk.dt_ns
+                )
+                runtime_end_index = min(
+                    runtime.horizon_steps,
+                    (source_prefix_end_ns - runtime.start_time_ns) // runtime.dt_ns + 1,
+                )
                 runtime_start_time_ns = earliest_ns
             else:
                 runtime_age_ns = max(0, earliest_ns - runtime.start_time_ns)

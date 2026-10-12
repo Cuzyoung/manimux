@@ -22,6 +22,7 @@ time also does not prove the robot has physically reached a target.
 inference:
   algorithm: manimux
   inference_schedule: serial
+  action_start_mode: first_step_when_ready
   chunk_policy_steps: 12
   blend_policy_steps: 0
 ```
@@ -32,7 +33,11 @@ its last command while waiting. The accepted prefix starts at commit time, keeps
 its original first row and gives the final row a full action interval. Pause
 invalidates the old timeline and in-flight response; resuming uses a new observation.
 Serial does not wait for measured arrival, and it does not support the asynchronous
-`refill_threshold_s` setting. The current serial path requires inline decoding.
+`refill_threshold_s` setting. Set `action_start_mode: first_step_when_ready`.
+Both inline and process decoding are supported. Process decoding keeps the
+request in flight until decoding finishes, then starts the untrimmed prefix at
+commit time. Dense IK rows are capped to the selected source prefix before their
+timestamps are shifted; inference and decode latency do not discard early rows.
 
 The asynchronous path can request while the old chunk is executing. Delayed
 responses are aligned and trimmed by the selected strategy/timeline contract.

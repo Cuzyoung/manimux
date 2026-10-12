@@ -29,6 +29,13 @@ requests or hardware sessions. Follow the actual executor construction in
 Per-group gripper indices come from assembly layout, not a universal last-column
 assumption. Reject unsupported behavior rather than silently choosing another mode.
 
+Serial scheduling uses `algorithm: manimux`, `inference_schedule: serial` and
+`action_start_mode: first_step_when_ready`. It accepts inline or process decoding;
+the existing in-flight flag covers both inference and decoding. A decoded chunk
+must retain source offset zero. `ActionTimeline` limits dense runtime rows to the
+selected source prefix before shifting execution to commit time. The next request
+waits for that execution window to finish; physical measured arrival is separate.
+
 `executor.smooth.gripper.mode` is a tagged, mutually exclusive aperture mapping:
 `continuous` forwards normalized model openings, `curve` applies its required
 `deadzone` and `exponent` before IK and timeline commit, and `close_latch` owns the
