@@ -77,6 +77,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
     from manimux.runtime.paint import paint_parameters
     from manimux.runtime.rtc.strategy import rtc_parameters
     from manimux.runtime.temporal_ensemble import temporal_ensemble_parameters
+    from manimux.runtime.train_time_rtc import train_time_rtc_parameters
 
     unsupported = {"chunk_steps", "blend_steps", "max_chunk_steps", "commit_lead_s"}.intersection(
         options
@@ -89,6 +90,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         paths = {
             "manimux": (None, "max_chunk_policy_steps"),
             "rtc": ("rtc", "min_execute_policy_steps"),
+            "train_time_rtc": ("train_time_rtc", "min_execute_policy_steps"),
             "paint": ("paint", "execution_policy_steps"),
             "act_temporal_ensemble": ("temporal_ensemble", "query_interval_policy_steps"),
             "dvac": ("dvac", "max_execution_policy_steps"),
@@ -127,6 +129,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
         "decode_forecast_size": 0,
         "decode_forecast_mode": "max",
         "rtc": {},
+        "train_time_rtc": {},
         "temporal_ensemble": {},
         "aac": {},
         "paint": {},
@@ -135,6 +138,7 @@ def inference_parameters(*, executor: dict, **options) -> dict:
     }
     if values.get("rtc") is not None:
         values["rtc"] = rtc_parameters(**values["rtc"])
+    values["train_time_rtc"] = train_time_rtc_parameters(**values["train_time_rtc"])
     if values.get("temporal_ensemble") is not None:
         values["temporal_ensemble"] = temporal_ensemble_parameters(**values["temporal_ensemble"])
     if values.get("aac") is not None:
@@ -222,8 +226,15 @@ def validate_runtime_parameters(config: dict) -> None:
                 raise ValueError(
                     f"executor.command_safety group {group!r} must have {dimension} values"
                 )
-    if config["inference"]["algorithm"] == "rtc":
-        delay = config["inference"]["rtc"]["initial_delay_policy_steps"]
+    if config["inference"]["algorithm"] in {"rtc", "train_time_rtc"}:
+        section = config["inference"]["algorithm"]
+        delay_field = (
+            "fixed_prefix_steps"
+            if section == "train_time_rtc"
+            and config["inference"][section]["delay_estimator"] == "fixed"
+            else "initial_delay_policy_steps"
+        )
+        delay = config["inference"][section][delay_field]
         skip = (
             config["inference"]["handoff_skip_steps"]
             if config["inference"]["handoff"] == "waypoint"
@@ -234,7 +245,7 @@ def validate_runtime_parameters(config: dict) -> None:
             raise ValueError("RTC waypoint handoff_skip_steps must be smaller than the horizon")
         if delay is not None and 2 * delay > config["policy"]["horizon_policy_steps"]:
             raise ValueError(
-                "RTC requires 2 * initial_delay_policy_steps "
+                f"RTC requires 2 * {delay_field} "
                 "<= policy.horizon_policy_steps"
             )
     if config["inference"]["algorithm"] == "act_temporal_ensemble":
@@ -284,10 +295,11 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
     if not values["handoff_margin_s"] >= 0:
         raise ValueError("inference.handoff_margin_s must be non-negative")
     if values["handoff"] == "waypoint" and (
-        values["algorithm"] not in {"manimux", "rtc"} or values["blend_policy_steps"] != 0
+        values["algorithm"] not in {"manimux", "rtc", "train_time_rtc"}
+        or values["blend_policy_steps"] != 0
     ):
         raise ValueError(
-            "inference.handoff=waypoint requires the manimux or rtc algorithm and "
+            "inference.handoff=waypoint requires manimux, rtc or train_time_rtc and "
             "blend_policy_steps=0"
         )
     # The handoff time lies on the source row grid, which first_step_when_ready discards.
@@ -312,9 +324,18 @@ def validate_inference_parameters(values: dict, executor: dict, *, provided=froz
         values["algorithm"] != "manimux" or executor["type"] not in {"smooth", "direct", "mpc"}
     ):
         raise ValueError("max_chunk_policy_steps requires the ordinary ManiMux joint timeline")
+    if values["algorithm"] == "train_time_rtc" and (
+        values["blend_policy_steps"] != 0 or values["handoff_skip_steps"] != 0
+        or values["action_start_mode"] != "drop_infer_latency"
+    ):
+        raise ValueError(
+            "train_time_rtc requires drop_infer_latency, blend_policy_steps=0 "
+            "and handoff_skip_steps=0 to preserve the fixed prefix clock"
+        )
     # 这些策略自行决定请求时机，不使用普通 timeline 的补充调度参数。
     names = {
         "rtc": "RTC",
+        "train_time_rtc": "train-time RTC",
         "act_temporal_ensemble": "ACT temporal ensembling",
         "aac": "AAC",
         "paint": "PAINT",

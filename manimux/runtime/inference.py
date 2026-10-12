@@ -23,6 +23,8 @@ class RequestState:
     in_flight: bool
     last_submitted_seq: int
     last_deadline_ns: int
+    # Shared process-decode forecast at submission time; zero for inline decoding.
+    expected_decode_ns: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,6 +218,7 @@ InferenceStrategyFactory = Callable[[dict], InferenceStrategy]
 _STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory | str] = {
     "manimux": DefaultChunkStrategy,
     "rtc": "manimux.runtime.rtc.strategy:RtcInferenceStrategy",
+    "train_time_rtc": "manimux.runtime.train_time_rtc:TrainTimeRtcInferenceStrategy",
     "act_temporal_ensemble": "manimux.runtime.temporal_ensemble:ACTTemporalEnsembleStrategy",
     "aac": "manimux.runtime.aac:AacInferenceStrategy",
     "paint": "manimux.runtime.paint:PaintInferenceStrategy",

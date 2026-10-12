@@ -189,8 +189,8 @@ class EdgeRuntime:
         if config["policy"]["action_decoding"] == "process":
             # A plugin may wrap the default strategy (the UMI history plugin
             # does); the constructed strategy decides, not the plugin path.
-            if self._strategy.name not in {"manimux", "rtc"}:
-                raise ValueError("process action decoding requires the manimux or rtc strategy")
+            if self._strategy.name not in {"manimux", "rtc", "train_time_rtc"}:
+                raise ValueError("process decoding requires manimux, rtc or train_time_rtc")
             self._decoder = ActionDecoderClient(
                 config["robot"],
                 config["policy"],
@@ -341,7 +341,7 @@ class EdgeRuntime:
             execution_time_ns=(
                 start_ns
                 if self._decoder is not None
-                or self._strategy.name in {"manimux", "rtc"}
+                or self._strategy.name in {"manimux", "rtc", "train_time_rtc"}
                 else None
             ),
             observation_state=observation_state,
@@ -1088,6 +1088,7 @@ class EdgeRuntime:
                                 in_flight=request_in_flight,
                                 last_submitted_seq=last_submitted_seq,
                                 last_deadline_ns=last_request_deadline_ns,
+                                expected_decode_ns=round(self._decode_forecast.seconds * 1e9),
                             ),
                             runtime_state=self._state,
                         )

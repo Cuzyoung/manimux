@@ -16,10 +16,25 @@ the resolved experiment. `inference.algorithm` still selects parameter defaults 
 capability behavior, so inspect its parser when introducing a new algorithm family.
 Do not add algorithm-specific branches to adapters.
 
+`RequestState.expected_decode_ns` carries the shared `DecodeForecast` value at
+submission (zero for inline decoding). Strategies consume this snapshot instead
+of maintaining another decode window. Train-time RTC's `decode_max` estimator
+combines it with the last accepted request's submission-to-worker-completion time
+and current observation age, counting prefix rows from the action origin; see
+[the timing contract](../advanced/inference.md#train-time-rtc). The current model
+latency is not yet observable when a hard prefix must be submitted.
+
 `manimux/runtime/timeline.py` owns `ActionTimeline`: committing and sampling decoded
 joint trajectories on the runtime clock. Keep chunk handoff here and in the
 strategy. Do not fake measured state or modify observations to implement another
 algorithm's overlap/truncation behavior.
+
+Serial scheduling uses `algorithm: manimux`, `inference_schedule: serial` and
+`action_start_mode: first_step_when_ready`. It accepts inline or process decoding;
+the existing in-flight flag covers both inference and decoding. A decoded chunk
+must retain source offset zero. `ActionTimeline` limits dense runtime rows to the
+selected source prefix before shifting execution to commit time. The next request
+waits for that execution window to finish; physical measured arrival is separate.
 
 Read `manimux/runtime/executors/base.py`: an executor implements `reset(state)`,
 `horizon_steps` and `step(now_ns, state, reference) -> RobotCommand`. It consumes
@@ -28,13 +43,6 @@ requests or hardware sessions. Follow the actual executor construction in
 `runtime/edge.py` when adding a type; do not assume the policy plugin loader applies.
 Per-group gripper indices come from assembly layout, not a universal last-column
 assumption. Reject unsupported behavior rather than silently choosing another mode.
-
-Serial scheduling uses `algorithm: manimux`, `inference_schedule: serial` and
-`action_start_mode: first_step_when_ready`. It accepts inline or process decoding;
-the existing in-flight flag covers both inference and decoding. A decoded chunk
-must retain source offset zero. `ActionTimeline` limits dense runtime rows to the
-selected source prefix before shifting execution to commit time. The next request
-waits for that execution window to finish; physical measured arrival is separate.
 
 `executor.smooth.gripper.mode` is a tagged, mutually exclusive aperture mapping:
 `continuous` forwards normalized model openings, `curve` applies its required
