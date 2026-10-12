@@ -84,6 +84,15 @@ robot = TianjiTaccapRobot.from_config("manimux/configs/embodiment/robot/tianji_t
 配置中的关节限位、跟踪误差、反馈过期和控制器故障检查保留。
 `stop()` 请求停止已拥有的组件，`close()` 失败后可重试。
 
+Marvin submits command batches asynchronously. Its `clear_set()` can return false
+while the previous batch is queued or being sent; this is a busy send buffer, not
+the robot's fault-clear operation. The controller waits up to 20 ms (or the shorter
+configured readiness timeout), polling every 1 ms, before writing any new batch
+fields. The same wait applies to position commands, disable commands and drag
+transitions. A buffer that stays busy raises a timeout; `send_cmd()` failures are
+still surfaced without replaying a possibly submitted command. Feedback, fault
+and state-transition checks remain required.
+
 Recovery lives on the assembly, not in the session. `clear_errors()` clears latched
 controller faults over a short SDK session before `connect()`. `home()` moves the
 connected arms to `home.joints_deg` on a 9 deg/s cosine profile, settles within 0.5
@@ -91,7 +100,7 @@ degrees and then fully opens the grippers when end-effector control is enabled.
 `drag(groups, stop)` opens only the arm controller, enters Marvin joint-space drag with
 each arm's `drag_tool` load from the assembly YAML, and disables the arms on exit.
 With execution enabled and a bound controller IP, `recovery_actions` offers
-`clear_error`, `home` and `drag`; `drag_selections` maps the Marvin labels A, B and AB
+`clear_error`, `home`, `drag`, `release` and `release_5s`; `drag_selections` maps A, B and AB
 to the left, right and both arm groups. The idle recovery entry points
 `recover_home(stop)` and `recover_drag()` clear latched faults first, because `connect()`
 rejects faulted arms. Idle Home restores grippers within the assembly, without changing
@@ -99,6 +108,22 @@ the caller's configuration. The stop event cancels trajectory, settling and grip
 the owned components are stopped and closed before recovery returns. Task experiments
 select `tianji_taccap_pass_ball.yaml` or `tianji_taccap_pack_plate.yaml`; the shared
 `tianji_taccap.yaml` preserves the original pass-ball Home.
+
+RoboGUI's **Release** button opens a choice of **Continuous release** or **Release 5s**,
+with an A / B / AB arm selector. Both call the assembly's `recover_release()` through
+`hand_guiding_actions`. It clears selected-arm faults, sends the selected arms' calibrated
+UMI `drag_tool` parameters, confirms their SDK readback, and enters native cooperative
+release (`state=4`). This is separate from joint-space drag (`state=3`) and does not
+force the brakes open. Cameras and grippers remain closed.
+
+Continuous release lasts until **Exit release**, recovery lease loss or service shutdown.
+The five-second duration starts after confirmed mode entry and can also be stopped early.
+The assembly monitors controller feedback and stops on faults, stale feedback, an
+unexpected mode change, or a joint entering the five-degree margin of its configured
+limits. Every exit closes the owned arm controller, disabling enabled arms first;
+cleanup failures are reported in RoboGUI. Mode selection, duration and cleanup live in
+the Tianji assembly/controller; the session only dispatches cancellable handlers. During
+a rollout, **Stop rollout & release** finishes it without homing before starting recovery.
 
 相机启动独立于 `connect()`。新 UMI 实验仍订阅现有 camera server，未自动调用
 `robot.start_sensors()`。订阅层把 `left_wrist/right_wrist` 映射为
@@ -115,5 +140,5 @@ select `tianji_taccap_pass_ball.yaml` or `tianji_taccap_pack_plate.yaml`; the sh
 测试覆盖注册到 adapter、原算法数值回归、场景变换不影响控制、子进程解码一致性、
 原时间/运动约束保持，以及 fake SDK 下的只读和执行分发。未启动真实硬件或模型服务。
 RoboGUI 从同一 `RobotModel` 加载显示模型与独立的显示变换。
-Clear error, Return Home and drag recovery are implemented by `TianjiTaccapRobot`; the
+Clear error, Return Home, drag and release are implemented by `TianjiTaccapRobot`; the
 idle RoboGUI session only schedules them.

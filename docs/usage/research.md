@@ -8,8 +8,13 @@ condition and notes describe your research and do not modify model inputs.
 ## Free rollouts
 
 Enter a task. Expand **Research details** for optional experiment name, condition and notes. Click **Prepare free
-rollout**, then **Start rollout**. Use **Pause / Hold** when needed and **Finish**
-(the selected robot may offer Finish & Home or Finish without homing).
+rollout**, then **Start rollout**. Use **Pause / Hold** when needed and **Finish**.
+If the assembly declares idle Home, Finish does not home; use **Return Home**.
+Otherwise Finish keeps the experiment's `home_on_close`.
+Drag and Release use the runtime's configured arm choices. Release offers continuous
+or five-second hand-guiding when declared by the robot. Selecting either during a
+rollout ends that rollout without homing before recovery begins. Return Home applies
+to all configured arms, not the arm selected for hand-guiding.
 There is no scoring step. Recording follows the experiment's `recording.enabled`.
 Prepare can connect hardware and move to the configured start pose.
 

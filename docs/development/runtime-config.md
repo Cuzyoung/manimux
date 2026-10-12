@@ -152,11 +152,13 @@ Record runtime evidence under `manimux/recording/`. Distinguish predicted action
 sent commands and measured motion; RoboGUI refresh rate is not control frequency.
 Do not reintroduce teleoperation or demonstration collection as part of replay.
 
-Idle recovery between rollouts (**Clear error**, **Return Home**, **Start drag**) is
+Idle recovery between rollouts (**Clear error**, **Return Home**, **Drag**, **Release**) is
 scheduled by the `manimux serve` session and implemented by the robot assembly. The
-session reads the assembly's `recovery_actions` and `drag_selections` and calls
-`clear_errors()`, `recover_home(stop)` or `recover_drag()` on a fresh, disconnected assembly
-using the configured construction options; it contains no robot-specific code. Service
+session reads the assembly's `recovery_actions`, `hand_guiding_actions` and `drag_selections`.
+It calls `clear_errors()`, `recover_home(stop)` or the selected hand-guiding handler on a
+fresh, disconnected assembly using the configured construction options. Hand-guiding
+handlers receive groups, a stop event and an active callback; the robot owns mode entry,
+duration, monitoring and cleanup. Loss of the recovery lease cancels these handlers. Service
 shutdown sets the recovery stop event before joining the worker. Idle Home implementations
 must cancel further motion and release owned resources before returning. For Tianji-TacCap,
 Home moves the arms to
