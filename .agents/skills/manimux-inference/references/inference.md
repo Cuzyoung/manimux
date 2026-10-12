@@ -1,173 +1,67 @@
-# Scheduling and action clocks
+# Inference implementation contract
 
-The model predicts a chunk. `RequestScheduler` admits requests according to transport
-capacity, request frequency and a configurable trigger. The inference strategy
-retains algorithm-specific readiness, sampling and fusion. `ActionTimeline` manages the accepted trajectory;
-the executor samples references at the command rate. Scheduling does not change
-camera acquisition timestamps or pretend an old observation is new.
+For supported schedules, parameters, constraints and YAML examples, use the
+[public inference guide](../../../../guideline.html#algorithms).
+The [model sampling matrix](inference-matrix.md) records backend capabilities;
+the running server's advertised sampling modes remain authoritative.
 
-## Three different counts
+## Ownership and entry points
 
-- `policy.horizon_policy_steps`: the model's predicted action count.
-- `inference.chunk_policy_steps`: a method-dependent execution/query window.
-- Model sampler steps: iterations used to generate the prediction, configured in
-  the model recipe/framework.
-
-Twelve points spaced at `1/30 s` span an execution window of about 0.4 s.
-Sampling the timeline at 100 Hz does not turn that into 0.12 s. Elapsed command
-time also does not prove the robot has physically reached a target.
-
-## Serial and asynchronous execution
-
-```yaml
-inference:
-  algorithm: serial
-  inference_schedule: serial
-  chunk_policy_steps: 12
-  blend_policy_steps: 0
-```
-
-Serial means observe → infer → execute the selected prefix → observe again.
-Inference still runs in a worker; the control loop remains responsive and holds
-its last command while waiting. The accepted prefix starts at commit time, keeps
-its original first row and gives the final row a full action interval. Pause
-invalidates the old timeline and in-flight response; resuming uses a new observation.
-Serial does not wait for measured arrival, and it does not support the asynchronous
-`refill_threshold_s` setting. The current serial path requires inline decoding.
-
-The asynchronous path can request while the old chunk is executing. Delayed
-responses are aligned and trimmed by the selected strategy/timeline contract.
-Select it with `algorithm: async` and `inference_schedule: single_inflight` (or
-`deadline`). Use `async` or `serial`; `manimux` is no longer a valid selector.
-RTC additionally requires real sampler conditioning support from the backend;
-changing a YAML algorithm name cannot add missing model-side hooks.
-
-### Continuous observation uploads (`multi_inflight`)
-
-```yaml
-inference:
-  algorithm: manimux
-  inference_schedule: multi_inflight
-  request_trigger: continuous
-  observation_hz: 30.0
-  action_start_mode: drop_infer_latency
-  blend_policy_steps: 4
-```
-
-The scheduler caps requests at `observation_hz` (also limited by control ticks,
-algorithm readiness and transport capacity). With `request_trigger: continuous`,
-ordinary asynchronous chunking requests independently of the remaining action chunk.
-`multi_inflight` permits submissions before previous responses arrive. ManiMux's
-`StreamingPolicyServer` extends the unchanged XPolicyLab server to run one inference
-at a time and keep one replaceable waiting observation. As soon as inference finishes,
-it selects the newest waiting input and sends the completed result independently.
-It waits when no fresh input exists; it does not repeatedly infer the same input.
-This is a transport/scheduling mode, not concurrent GPU model execution.
-
-Scheduling and request triggers are independent:
-
-| Setting | Meaning |
+| Responsibility | Implementation |
 | --- | --- |
-| `inference_schedule: single_inflight` | Wait for the previous request to finish before admitting another |
-| `inference_schedule: multi_inflight` | Allow overlapping requests; backend keeps the newest waiting input |
-| `inference_schedule: serial` | Wait for both inference completion and execution of the selected prefix |
-| `inference_schedule: deadline` | Legacy ordinary schedule: first request, then resubmit after its deadline when the trigger permits |
-| `request_trigger: refill` | Ordinary async: submit only below `refill_threshold_s` |
-| `request_trigger: continuous` | Ordinary async: no remaining-chunk threshold |
-| `request_trigger: algorithm` | Retain specialized algorithm readiness, or serial execution completion |
+| Algorithm registry and strategy factory | `manimux/runtime/inference.py` |
+| Request admission, refill, rate cap and serial completion | `manimux/runtime/scheduling.py` |
+| Config normalization and compatibility validation | `manimux/runtime/__init__.py` |
+| Canonical action clock, trimming and handoff | `manimux/runtime/timeline.py` |
+| ACT query cadence and opt-in fusion | `manimux/runtime/temporal_ensemble.py` |
+| BID backward candidate selection | `manimux/runtime/bid.py` |
+| Shared candidate decoding and timestamp interpolation | `manimux/runtime/candidates.py` |
+| AAC selection and adaptive execution | `manimux/runtime/aac.py` |
+| AutoHorizon selected-prefix execution | `manimux/runtime/autohorizon.py` |
+| RTC and PAINT request conditions and acceptance | `manimux/runtime/rtc/strategy.py`, `manimux/runtime/paint.py` |
 
-For ordinary async, the default trigger remains `refill` even when switching to
-`multi_inflight`; continuous prediction must be explicit. For serial and specialized
-algorithms the default is `algorithm`. `observation_hz` can cap either single or
-multi-inflight requests; it defaults to no extra cap for existing configurations
-and must be explicitly positive for multi-inflight. It does not set camera FPS or
-robot control frequency. Pause, Home and post-warmup reset clear the scheduler's
-rate limit when the corresponding strategy is reset.
+`serial` and `async` share `DefaultChunkStrategy`. Main removed the old `manimux`
+selector. Do not reintroduce a second request scheduler inside an algorithm.
+Adapters preserve request sampling fields and own conversion to canonical absolute
+joint targets; model frameworks own sampling, normalization and native output.
 
-Existing ordinary `deadline`, `single_inflight` and serial presets retain their
-cadence. The previously ignored `deadline` default resolves to `single_inflight`
-for RTC/PAINT/ACT, and to `serial` for AAC/AutoHorizon, preserving their algorithm
-execution rules. PAINT only supports single-inflight; AAC/AutoHorizon only support
-serial. Unsupported combinations fail during configuration loading. Multi-inflight
-also requires inline, streaming-safe action decoding (currently `JointAdapter`)
-and a backend advertising the capability. Custom strategy plugins are not enabled
-for multi-inflight or continuous triggers.
+## Optional algorithm composition
 
-ACT and RTC can also select `inference_schedule: multi_inflight`, so that the runtime
-passes `RequestState.multi_flight=True`. For RTC, it records which accepted plan each
-request used. If that plan has been replaced before the result arrives, the result
-is rejected as `rtc_condition_plan_replaced`. This prevents a queued request from
-replacing a newer plan using an obsolete condition, but can discard computed results.
-RTC's minimum execution window and ACT's query interval remain algorithm gates;
-neither is overridden by the scheduler. Streaming timeouts produce a rejected
-response rather than killing the worker; their transport credits remain occupied
-until late replies are drained, preventing unbounded uploads to a stalled server.
+The factory wraps a supported base strategy with `EnsembleStrategy`. Candidate
+selection and preparation share the final timeline handoff timestamp. The inline
+`decode_strategy_action` hook is also used during warmup; ordinary decoding remains
+unchanged. Candidate paths require an adapter declaring `supports_candidate_decoding`
+and complete, untrimmed absolute-joint rows. See the
+[runtime integration contract](../../manimux-development/references/runtime-config.md).
 
-Action fusion is unchanged: ACT aggregates overlapping predictions, RTC conditions
-sampling, and the timeline applies the explicitly selected `blend_policy_steps`.
-Changing the schedule never changes blending, horizon, executor or checkpoint.
-The supplied streaming presets explicitly use zero blending; when measuring a
-schedule-only comparison, keep all of those settings and the request trigger equal.
-Continuous prediction can increase model utilization but is not evidence of faster
-individual inference, smoother motion or higher task success.
+- Fixed BID retains its full selected, unfused prediction only after acceptance.
+  Serial scoring shifts it by the executed prefix, matching the supplied reference.
+  Async scoring interpolates overlapping future timestamps without extrapolation or
+  expired leading rows. K counts future rows; optional AAC length instead caps source rows.
+- ACT retains the original exponential weighting. Composed paths interpolate at exact
+  action times and discard rejected history. RTC/PAINT receive the accepted fused plan
+  for subsequent conditioning. BID's own reference remains unfused.
+- Serial ACT retains its explicit `act_temporal_ensemble` strategy identity. It fuses
+  full predictions before cropping K rows and holds the last row for one interval.
+  Its reference origin is the actual commit time, including inference gaps.
+- Async AAC/AutoHorizon and BID + AAC retain the selected source prefix; latency
+  consumes that prefix instead of extending its end. An entirely expired prefix is
+  rejected. AAC's async backward selector uses aligned accepted candidate history;
+  plain serial AAC retains its original client selection path.
+- RTC + ACT and PAINT streaming/composition sample conditions on the observation's
+  exact time grid. Missing required prefixes fall back to unconditioned sampling;
+  replies based on replaced plans are rejected. Existing standalone paths remain intact.
 
-For the Pi05 joint experiment above, select one of these inference presets:
-```yaml
-inference:
-  config: ../../../inference/yam_multi_inflight.yaml
-  # Or config: ../../../inference/yam_act_multi_inflight.yaml
-  # Or: ../../../inference/yam_rtc_multi_inflight.yaml
-```
+Pause, Home and rollout/reset transitions clear strategy and ensemble history.
+Prepare alone does not run warmup: the current GUI requires Activate Warmup.
+Start drains warmup and waits for acknowledged backend reset before formal requests.
+Warmup previews never seed accepted-plan history.
 
-## Meaning of `chunk_policy_steps`
+## Validation and provenance
 
-| Strategy | Meaning |
-| --- | --- |
-| `async` / `serial` | Maximum source prefix; asynchronous delay trimming can reduce usable rows |
-| `rtc` | Minimum execution window for requesting again, adjusted using predicted delay; old actions continue during inference |
-| `paint` | Source-action query trigger; the old chunk continues while the next request runs |
-| `act_temporal_ensemble` | Query interval; overlapping predictions can still contribute to the same action time |
-| AAC / AutoHorizon | No equivalent fixed window; `chunk_policy_steps` is rejected |
-
-The loader maps this field to the corresponding strategy option. Conflicting
-public and internal values are rejected. Equal numbers across methods do not
-establish equal effective latency, action counts or deployment behavior.
-
-## ACT temporal ensembling
-
-The retained upstream rule orders predictions for the same absolute action time
-from oldest to newest and weights them with:
-
-```text
-w_i = exp(-coefficient * i) / sum_j exp(-coefficient * j)
-```
-
-The upstream default coefficient is `0.01`. ManiMux exposes the query interval:
-
-```yaml
-inference:
-  algorithm: act_temporal_ensemble
-  blend_policy_steps: 0
-  temporal_ensemble:
-    coefficient: 0.01
-    query_interval_policy_steps: 1
-```
-
-The interval is in model action steps, not control ticks. Setting it above one
-changes the original every-step query cadence and must be reported as ManiMux's
-asynchronous adaptation. The ACT presets use zero timeline seam blending to retain
-the ensemble output; a positive value adds a separate handoff blend. Executor
-filtering/limits remain a separate deployment choice.
-
-Source: [official ACT implementation at the audited revision](https://github.com/tonyzhaozh/act/blob/742c753c0d4a5d87076c8f69e5628c79a8cc5488/imitate_episodes.py#L191-L259).
-
-## Specialized methods
-
-The [model sampling matrix](inference-matrix.md) lists the five YAM policy
-families, selecting-config generator, model-side adaptations and validation limits.
-
-See [reproduction records](reproductions/README.md) for upstream versions, exact
-sampler hooks, adaptations and evidence limits for AAC, PAINT and AutoHorizon.
-For the client/sampler boundary, read the [XPolicyLab deployment guide](deployment/xpolicylab.md).
-When comparing tuned deployments, record their actual configuration; isolating an
-algorithmic effect requires controlling the other relevant choices.
+Use synthetic timestamps to check fractional-grid overlap, latency trimming, fixed
+versus adaptive prefixes, stale-plan rejection and lifecycle resets. Exercise the
+actual wire path with fake servers and validate configurations through `load_config`.
+The [reproduction records](reproductions/README.md) separate reference formulas,
+local adaptations and real-model/robot evidence. Runtime compatibility and offline
+checks alone do not establish hardware performance.

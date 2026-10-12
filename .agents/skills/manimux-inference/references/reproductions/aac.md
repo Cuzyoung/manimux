@@ -3,6 +3,9 @@
 > Historical reproduction evidence. Dates, paths and validation claims below describe
 > the recorded revision; use `guideline.html` and the current selecting YAMLs for launch commands.
 
+For optional asynchronous execution and ACT/BID/AAC composition, see the
+[current runtime contract](../inference.md#optional-algorithm-composition).
+The original/default reproduction described below remains available.
 
 ## 0. Status Snapshot
 

@@ -32,7 +32,9 @@ from manimux.runtime.inference import (
     DefaultChunkStrategy,
     InferenceStrategy,
     RequestState,
+    StrategyChunkSelector,
     build_inference_strategy,
+    decode_strategy_action,
     prepare_strategy_chunk,
     seed_strategy_warmup,
 )
@@ -164,8 +166,21 @@ class EdgeRuntime:
         self._control_dt_ns = int(1_000_000_000 / config["robot"]["control_hz"])
         self._robot = self._build_robot()
         self._sensors = [build_sensor(sensor, self._clock) for sensor in config["sensors"]]
-        # Runtime reuses robot kinematics; decoding subprocesses load the offline model from the same configuration.
+        # Runtime reuses robot kinematics; decoding subprocesses load the offline
+        # model from the same configuration.
         self._adapter = self._build_adapter()
+        if (
+            (config["inference"].get("temporal_ensemble") or {}).get("enabled", False)
+            or (
+                config["inference"]["algorithm"] == "act_temporal_ensemble"
+                and config["inference"]["inference_schedule"] == "serial"
+            )
+            or (
+                config["inference"]["algorithm"] in {"aac", "autohorizon"}
+                and config["inference"]["inference_schedule"] != "serial"
+            )
+        ) and not getattr(self._adapter, "supports_candidate_decoding", False):
+            raise ValueError("inference composition requires complete absolute-joint decoding")
         self._scheduler = RequestScheduler(config["inference"])
         self._multi_inflight = self._scheduler.multi_inflight
         if self._multi_inflight and not getattr(self._adapter, "supports_multi_inflight", False):
@@ -189,6 +204,10 @@ class EdgeRuntime:
         ):
             raise ValueError("adapter does not support waypoint handoff")
         self._strategy = strategy or DefaultChunkStrategy(config)
+        if self._strategy.name == "bid_backward" and not getattr(
+            self._adapter, "supports_candidate_decoding", False,
+        ):
+            raise ValueError("BID requires an adapter with candidate decoding support")
         self._decoder = None
         if config["policy"]["action_decoding"] == "process":
             # A plugin may wrap the default strategy (the UMI history plugin
@@ -282,8 +301,11 @@ class EdgeRuntime:
             max_source_steps=self._config["inference"]["max_chunk_policy_steps"],
             action_start_mode=self._config["inference"]["action_start_mode"],
             hold_last_step=(
-                self._config["inference"]["inference_schedule"] == "serial"
-                and self._config["inference"]["algorithm"] in {"async", "serial"}
+                (
+                    self._config["inference"]["inference_schedule"] == "serial"
+                    and self._config["inference"]["algorithm"] in {"async", "serial"}
+                )
+                or getattr(self._strategy, "hold_last_step", False)
             ),
         )
 
@@ -475,7 +497,8 @@ class EdgeRuntime:
                 "launch_mode": self._launch_mode,
                 **({"warmup": warmup.metadata()} if warmup is not None else {}),
             }
-            # The current robot does not offer manual-drag recovery; RoboGUI does not expose retired driver capabilities.
+            # The current robot does not offer manual-drag recovery; RoboGUI does
+            # not expose retired driver capabilities.
             robogui_episode_metadata["recovery_available"] = False
             # The active runtime owns Home; idle recovery remains service-owned.
             robogui_episode_metadata["home_available"] = (
@@ -558,7 +581,8 @@ class EdgeRuntime:
                 if not identity_frozen and not robogui_control.paused:
                     if self._config["robogui"].get("enabled", False):
                         if (robogui_control.episode_id != episode_id
-                                or robogui_control.control_run_dir != robogui_episode_metadata["run_dir"]
+                                or robogui_control.control_run_dir
+                                != robogui_episode_metadata["run_dir"]
                                 or robogui_control.start_identity is None):
                             raise ValueError("Start requires a selection for the active episode")
                         self._rollout_identity = start_identity(
@@ -575,7 +599,8 @@ class EdgeRuntime:
                     before = warmup.metadata()
                     if (not self._config["robogui"].get("enabled", False)
                             or (robogui_control.episode_id == episode_id
-                                and robogui_control.control_run_dir == robogui_episode_metadata["run_dir"]
+                                and robogui_control.control_run_dir
+                                == robogui_episode_metadata["run_dir"]
                                 and robogui_control.warmup_requested)):
                         warmup.activate()
                     with stage("warmup_advance"):
@@ -855,7 +880,8 @@ class EdgeRuntime:
                                 chunk = (
                                     decoded_chunk
                                     if decoded_chunk is not None
-                                    else self._adapter.decode_action(
+                                    else decode_strategy_action(
+                                        self._strategy, self._adapter,
                                         response.raw_action,
                                         ActionContext(
                                             request_seq=response.request_seq,
@@ -931,7 +957,11 @@ class EdgeRuntime:
                             pending_visuals.pop(response.request_seq, None)
                             chunk = None
                         canonical_raw = None if chunk is None else copy_action_chunk(chunk)
-                        if chunk is not None:
+                        selector = (
+                            self._strategy
+                            if isinstance(self._strategy, StrategyChunkSelector) else None
+                        )
+                        if chunk is not None and selector is None:
                             try:
                                 with stage("strategy_prepare_chunk"):
                                     chunk = prepare_strategy_chunk(
@@ -1000,19 +1030,36 @@ class EdgeRuntime:
                                 result = CommitResult(False, "no_future_horizon")
                             else:
                                 with stage("timeline_commit"):
-                                    result = self._timeline.commit(
-                                        chunk,
-                                        now_ns=now_ns,
-                                        max_plan_age_ns=int(
-                                            self._config["inference"]["max_plan_age_s"]
-                                            * 1_000_000_000
-                                        ),
-                                        current_command=commit.current_command,
-                                        blend_steps=commit.blend_steps,
-                                        handoff_skip_steps=self._config["inference"][
-                                            "handoff_skip_steps"
-                                        ],
-                                    )
+                                    try:
+                                        if selector is not None:
+                                            # Selection and trimming share one handoff clock.
+                                            chunk = selector.select_chunk(
+                                                chunk=chunk, now_ns=now_ns,
+                                            )
+                                            canonical_raw = copy_action_chunk(chunk)
+                                            chunk = prepare_strategy_chunk(
+                                                self._strategy, chunk=chunk,
+                                                response=response, now_ns=now_ns,
+                                            )
+                                    except (TypeError, ValueError) as exc:
+                                        result = CommitResult(
+                                            False,
+                                            f"invalid_strategy_chunk:{type(exc).__name__}:{exc}",
+                                        )
+                                    else:
+                                        result = self._timeline.commit(
+                                            chunk,
+                                            now_ns=now_ns,
+                                            max_plan_age_ns=int(
+                                                self._config["inference"]["max_plan_age_s"]
+                                                * 1_000_000_000
+                                            ),
+                                            current_command=commit.current_command,
+                                            blend_steps=commit.blend_steps,
+                                            handoff_skip_steps=self._config["inference"][
+                                                "handoff_skip_steps"
+                                            ],
+                                        )
                             if result.accepted:
                                 accepted_plans += 1
                                 last_inference_ms = response.inference_ms

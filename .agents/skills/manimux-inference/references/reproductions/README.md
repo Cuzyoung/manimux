@@ -27,4 +27,6 @@ Before hardware acceptance, each method needs its own document recording:
 | ✅ | PAINT | [`paint-pi05.md`](paint-pi05.md) | Pi05 GPU/YAM hardware complete; operator observed very good continuity |
 | ✅ | AutoHorizon | [`autohorizon-pi05.md`](autohorizon-pi05.md) | Pi05/YAM hardware exercised; synchronous inference holds were visibly stop-and-go |
 
+| Offline | BID backward-only | [`bid-backward.md`](bid-backward.md) | Formula, transport and runtime checks; real checkpoint and robot validation pending |
+
 New methods cannot be marked complete only in a README table; every status must link back to evidence here.

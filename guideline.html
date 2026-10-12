@@ -10,7 +10,7 @@ main{min-width:0;padding:36px 0 50px}.breadcrumb{font-size:12px;color:var(--mute
 </style></head>
 <body><a class="skip" href="#overview">Skip to content</a>
 <header class="topbar"><button class="menu-button" id="menu" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button><a class="brand" href="#overview">ManiMux Guide</a><span class="current" id="current-title">Overview</span><div class="search-box"><input id="guide-search" type="search" placeholder="Search sections" aria-label="Search guide" autocomplete="off"><div id="search-results" class="search-results" hidden></div></div><a class="repo" href="https://github.com/SII-LiuLab/manimux">SII-LiuLab / ManiMux ↗</a></header>
-<div id="backdrop" class="backdrop"></div><div class="layout"><aside class="sidebar" id="sidebar"><div class="sidebar-title">ManiMux Guide</div><nav aria-label="Guide sections"><a href="#overview" data-page="overview">Overview</a><details class="nav-group" open><summary>Start here</summary><div><a href="#install" data-page="install">Install &amp; preview</a><a href="#configuration" data-page="configuration">Configure a deployment</a><a href="#launch" data-page="launch">Launch commands</a></div></details><details class="nav-group" open><summary>Inference algorithms</summary><div><a href="#shared-parameters" data-page="shared-parameters">Shared parameters</a><a href="#algorithms" data-page="algorithms">Choose an algorithm</a><a href="#serial" data-page="serial">Serial</a><a href="#async" data-page="async">Async</a><a href="#act-temporal-ensemble" data-page="act-temporal-ensemble">ACT temporal ensemble</a><a href="#rtc" data-page="rtc">RTC</a><a href="#paint" data-page="paint">PAINT</a><a href="#aac" data-page="aac">AAC</a><a href="#autohorizon" data-page="autohorizon">AutoHorizon</a><a href="#support" data-page="support">Model support &amp; presets</a></div></details><details class="nav-group" open><summary>Experiments</summary><div><a href="#experiments" data-page="experiments">Rules, templates &amp; scoring</a><a href="#records" data-page="records">Records &amp; replay</a><a href="#reports" data-page="reports">Evaluation reports</a></div></details><details class="nav-group" open><summary>Development</summary><div><a href="#agent-references" data-page="agent-references">Work with your agent</a><a href="#troubleshooting" data-page="troubleshooting">Troubleshooting</a></div></details></nav><div class="sidebar-tools"><button id="print">Print entire guide / PDF</button></div></aside>
+<div id="backdrop" class="backdrop"></div><div class="layout"><aside class="sidebar" id="sidebar"><div class="sidebar-title">ManiMux Guide</div><nav aria-label="Guide sections"><a href="#overview" data-page="overview">Overview</a><details class="nav-group" open><summary>Start here</summary><div><a href="#install" data-page="install">Install &amp; preview</a><a href="#configuration" data-page="configuration">Configure a deployment</a><a href="#launch" data-page="launch">Launch commands</a></div></details><details class="nav-group" open><summary>Inference algorithms</summary><div><a href="#shared-parameters" data-page="shared-parameters">Shared parameters</a><a href="#algorithms" data-page="algorithms">Choose an algorithm</a><a href="#serial" data-page="serial">Serial</a><a href="#async" data-page="async">Async</a><a href="#act-temporal-ensemble" data-page="act-temporal-ensemble">ACT temporal ensemble</a><a href="#rtc" data-page="rtc">RTC</a><a href="#paint" data-page="paint">PAINT</a><a href="#aac" data-page="aac">AAC</a><a href="#autohorizon" data-page="autohorizon">AutoHorizon</a><a href="#bid-backward" data-page="bid-backward">BID backward-only</a><a href="#optional-algorithm-composition" data-page="optional-algorithm-composition">Supported combinations</a><a href="#support" data-page="support">Model support &amp; presets</a></div></details><details class="nav-group" open><summary>Experiments</summary><div><a href="#experiments" data-page="experiments">Rules, templates &amp; scoring</a><a href="#records" data-page="records">Records &amp; replay</a><a href="#reports" data-page="reports">Evaluation reports</a></div></details><details class="nav-group" open><summary>Development</summary><div><a href="#agent-references" data-page="agent-references">Work with your agent</a><a href="#troubleshooting" data-page="troubleshooting">Troubleshooting</a></div></details></nav><div class="sidebar-tools"><button id="print">Print entire guide / PDF</button></div></aside>
 <main id="content"><div class="breadcrumb" id="breadcrumb">ManiMux Guide / Overview</div><section aria-labelledby="overview" class="guide-page overview" data-page-id="overview" data-title="Overview">
 <div class="kicker">Documentation / Real-robot research</div>
 <h1 id="overview">ManiMux</h1>
@@ -192,28 +192,224 @@ from the chosen deployment. They are not additional services to run alongside Pi
 </details>
 </section>
 <section aria-labelledby="shared-parameters" class="guide-page" data-page-id="shared-parameters" data-title="Shared parameters" hidden=""><h2 id="shared-parameters">Shared parameters</h2>
-<p><strong>Horizon H, execution window K, sampler iterations and control ticks are different counts.</strong>
-At 30 Hz, 16 model steps correspond to about 533 ms. A 100 Hz control loop samples the
-interpolated reference every 10 ms; it does not change the model's action interval.</p>
+<p>Use this guide to configure Serial, asynchronous chunking, RTC, ACT temporal
+ensembling, AAC, PAINT, AutoHorizon and backward-only BID, including their supported
+combinations. Start from an experiment that already works with your robot and policy;
+keep its checkpoint, cameras, action representation and executor settings.</p>
+<h3 id="configure-an-experiment">Configure an experiment</h3>
+<p>Set <code>inference.algorithm</code> and <code>inference.inference_schedule</code> explicitly. The examples
+below replace the experiment's entire <code>inference</code> section unless described as overrides.
+They assume a model horizon <strong>H = 50</strong>; adjust the example windows for your model's
+actual H. Do not shorten <code>policy.horizon_policy_steps</code> to change how long a chunk executes.</p>
+<p>You can instead load an <a href="manimux/configs/inference/README.md">inference preset</a>
+and override its settings:</p>
+<pre><code class="language-yaml">inference:
+  config: ../../../inference/yam_act_serial.yaml
+  algorithm: act_temporal_ensemble
+  chunk_policy_steps: 8
+</code></pre>
+<p>This relative path is for an experiment under
+<code>manimux/configs/experiments/&lt;task&gt;/&lt;model&gt;/</code>. <code>config</code> paths are relative to the
+experiment YAML. Nested mappings merge; omitted fields remain inherited. Each
+section loads one preset, without recursive <code>config</code> references.
+When switching methods, remove incompatible inherited limits, triggers and blending.
+Some presets contain only parameters, so select the algorithm explicitly.</p>
+<p>The examples use <code>policy.action_decoding: inline</code> (the default). Verify that the
+deployment's adapter and action format meet the compatibility requirements below
+before enabling a combination. See <a href="#configuration">configuration</a> and
+<a href="#support">deployment recipes</a> for the rest of the experiment and launch procedure.</p>
+<h3 id="request-schedules-and-triggers">Request schedules and triggers</h3>
 <table>
 <thead>
 <tr>
-<th>YAML key</th>
-<th>Meaning / unit</th>
-<th>What to change and watch</th>
+<th><code>inference_schedule</code></th>
+<th>When a new request may start</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>serial</code></td>
+<td>After the selected execution prefix finishes and the preceding response or error is processed. The robot holds its last command while waiting for inference.</td>
+</tr>
+<tr>
+<td><code>single_inflight</code></td>
+<td>After the preceding response or error is processed, including process decoding when enabled; the current chunk may still be executing.</td>
+</tr>
+<tr>
+<td><code>deadline</code></td>
+<td>First request immediately when its trigger permits; later requests only after the preceding request's <code>policy.timeout_s</code> deadline, even if its reply arrived earlier. See the algorithm-specific resolutions above.</td>
+</tr>
+<tr>
+<td><code>multi_inflight</code></td>
+<td>Before earlier replies arrive, subject to the observation-rate cap, trigger and algorithm readiness.</td>
+</tr>
+</tbody>
+</table>
+<p>Serial waits for scheduled execution time, not measured arrival at the target.
+Reaching <code>policy.timeout_s</code> alone does not release a single-inflight request; the
+client must return a response or error. It also does not cancel a remote model call.</p>
+<table>
+<thead>
+<tr>
+<th><code>request_trigger</code></th>
+<th>Applies to</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>refill</code></td>
+<td>Asynchronous ordinary chunking, BID, AAC and AutoHorizon</td>
+<td>Submit when remaining prepared action time is <strong>strictly below</strong> <code>refill_threshold_s</code>. Default for these algorithms, including multi-inflight.</td>
+</tr>
+<tr>
+<td><code>continuous</code></td>
+<td>The same asynchronous algorithms</td>
+<td>Submit without checking remaining action time. Schedule and rate limits still apply.</td>
+</tr>
+<tr>
+<td><code>algorithm</code></td>
+<td>All serial configurations, RTC, PAINT and standalone ACT</td>
+<td>Use the selected algorithm's execution/query timing. Default and required for these cases.</td>
+</tr>
+</tbody>
+</table>
+<p>With <code>multi_inflight</code>, the server runs one model call at a time and replaces its
+waiting observation with the newest available one. It starts another call when a
+fresh observation is available; this is not parallel model execution. RTC/PAINT
+execution windows and ACT query intervals still limit submissions.</p>
+<h3 id="time-rate-and-handoff-parameters">Time, rate and handoff parameters</h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Usage</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>policy.action_dt_s</code></td>
-<td>Seconds per model action</td>
-<td>Match training/action semantics; do not change to disguise inference latency</td>
+<td>Required</td>
+<td>Seconds per model action row, unless <code>trajectory_duration_s</code> overrides it. Keep the checkpoint's interval.</td>
 </tr>
 <tr>
 <td><code>policy.horizon_policy_steps</code></td>
-<td>Predicted rows H</td>
-<td>Must match the model recipe and adapter</td>
+<td>Required</td>
+<td>Full predicted horizon H, not an execution limit.</td>
 </tr>
+<tr>
+<td><code>inference.refill_threshold_s</code></td>
+<td><code>0.4</code></td>
+<td>Seconds of remaining actions at which refill becomes eligible; <code>0.1</code> means 100 ms. Use a positive value. Zero prevents refill even with an empty timeline.</td>
+</tr>
+<tr>
+<td><code>inference.observation_hz</code></td>
+<td><code>null</code></td>
+<td>Maximum request submission rate. A finite positive value is required for multi-inflight; other schedules may also use it. It does not change camera FPS or robot control rate.</td>
+</tr>
+<tr>
+<td><code>policy.timeout_s</code></td>
+<td><code>1.0</code></td>
+<td>Runtime request deadline, in seconds; also sets the resubmission deadline for actual deadline scheduling.</td>
+</tr>
+<tr>
+<td><code>policy.options.request_timeout_s</code></td>
+<td><code>policy.timeout_s</code> for <code>xpolicylab_ws</code></td>
+<td>Client transport timeout, distinct from the runtime deadline.</td>
+</tr>
+<tr>
+<td><code>inference.max_plan_age_s</code></td>
+<td><code>1.0</code></td>
+<td>Maximum observation-to-acceptance age of a plan, in seconds. Separate from the request deadline.</td>
+</tr>
+<tr>
+<td><code>inference.action_start_mode</code></td>
+<td><code>drop_infer_latency</code></td>
+<td>Choose the playback clock described below.</td>
+</tr>
+<tr>
+<td><code>inference.blend_policy_steps</code></td>
+<td><code>2</code></td>
+<td>Number of model action steps used for the handoff from the measured/last command to the new trajectory. <code>0</code> disables this blend. This is separate from ACT ensembling.</td>
+</tr>
+<tr>
+<td><code>inference.handoff_skip_steps</code></td>
+<td><code>0</code></td>
+<td>Intentional action-row skip, not a latency estimate. Leave at zero for the combinations in this guide.</td>
+</tr>
+</tbody>
+</table>
+<p>Choose a refill threshold that leaves time for preparation, transport, inference
+and decoding. Outside refill mode, only the default <code>0.4</code> is tolerated and ignored;
+other explicit values, including <code>null</code>, are rejected. If a preset supplies another
+value, use a different preset or override it to <code>0.4</code> when changing triggers.</p>
+<p><code>first_step_when_ready</code> starts row zero when the result is accepted. Use it for the
+serial examples below. <code>drop_infer_latency</code> keeps the observation-based action
+clock and discards source rows whose times have passed before acceptance. Use it
+for the asynchronous examples. Neither setting changes the recorded observation
+timestamp. A late reply can have too few usable rows and be rejected.</p>
+<h3 id="meaning-of-chunk_policy_steps">Meaning of <code>chunk_policy_steps</code></h3>
+<p>Step counts are <strong>model action rows</strong>, not control-loop ticks. The row interval dt
+is normally <code>policy.action_dt_s</code>. If <code>policy.trajectory_duration_s</code> is set, it
+overrides dt with <code>trajectory_duration_s / (H - 1)</code>.</p>
+<p>K rows span <code>(K - 1) * dt</code> between their first and last targets. Ordinary serial,
+serial ACT and BID additionally hold the last row for one interval, giving K * dt
+for K usable rows. AAC/AutoHorizon do not add that interval. Thus 12 rows at 30 Hz
+span about 0.367 s, or 0.4 s with the last-row hold; the control-loop rate does not
+change these times.</p>
+<table>
+<thead>
+<tr>
+<th>Algorithm</th>
+<th>Meaning of <code>chunk_policy_steps</code></th>
+<th>Valid setting / omitted value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ordinary chunking</td>
+<td>Maximum source prefix; asynchronous latency trimming can shorten it further</td>
+<td>Integer 2 through H; omitted/null leaves <code>max_chunk_policy_steps</code> in control, whose default is null (full horizon)</td>
+</tr>
+<tr>
+<td>RTC</td>
+<td>Minimum execution window used to time the next request, adjusted for predicted delay; execution continues during inference</td>
+<td>Positive integer up to H; omitted uses <code>rtc.min_execute_policy_steps</code>, default roughly H/2</td>
+</tr>
+<tr>
+<td>PAINT</td>
+<td>Source-action window that triggers the next request; execution continues during inference</td>
+<td>K must satisfy <code>d &lt;= K &lt;= H - d</code>; omitted uses <code>paint.execution_policy_steps</code>, default 10</td>
+</tr>
+<tr>
+<td>ACT, asynchronous</td>
+<td>Interval between eligible queries</td>
+<td>Integer 1 through H−1; omitted uses <code>temporal_ensemble.query_interval_policy_steps</code>, default 1</td>
+</tr>
+<tr>
+<td>ACT, serial</td>
+<td>Execution prefix K</td>
+<td>Integer 1 through H; omitted/null executes H</td>
+</tr>
+<tr>
+<td>BID, fixed horizon</td>
+<td>Up to K future rows after alignment; fewer if the prediction ends earlier</td>
+<td>Integer 1 through H−1; omitted uses <code>bid.replan_policy_steps</code>, default 5</td>
+</tr>
+<tr>
+<td>AAC, AutoHorizon, BID + AAC horizon</td>
+<td>Chosen adaptively for each prediction</td>
+<td>Omit this field</td>
+</tr>
+</tbody>
+</table>
+<p>Use either <code>chunk_policy_steps</code> or its method-specific counterpart. Conflicting
+values are rejected; setting <code>chunk_policy_steps: null</code> does not clear an inherited
+counterpart. Remove/reset that field too. Do not carry <code>max_chunk_policy_steps</code> into
+a specialized method.</p>
+<h3 id="related-deployment-controls">Related deployment controls</h3>
+<table><thead><tr><th>Parameter</th><th>Meaning</th><th>Usage</th></tr></thead><tbody>
 <tr>
 <td><code>policy_server.num_steps</code></td>
 <td>Sampler iterations for Pi05/XR1</td>
@@ -230,31 +426,6 @@ interpolated reference every 10 ms; it does not change the model's action interv
 <td>Independent of camera FPS and model action rate</td>
 </tr>
 <tr>
-<td><code>inference.chunk_policy_steps</code></td>
-<td>Method-dependent K</td>
-<td>Serial/Async prefix cap; ACT query interval; RTC/PAINT alias for their execution threshold. Prefer one spelling, never conflicting values</td>
-</tr>
-<tr>
-<td><code>inference.action_start_mode</code></td>
-<td>Time origin for a returned chunk</td>
-<td><code>first_step_when_ready</code> for synchronous execution; <code>drop_infer_latency</code> trims elapsed rows for async alignment</td>
-</tr>
-<tr>
-<td><code>inference.max_plan_age_s</code></td>
-<td>Maximum accepted plan age, seconds</td>
-<td>Reject stale plans; increasing it does not make observations fresher</td>
-</tr>
-<tr>
-<td><code>inference.blend_policy_steps</code></td>
-<td>Timeline handoff blend length</td>
-<td>Keep 0 for the current baseline; ACT/AAC/AutoHorizon require no seam blending</td>
-</tr>
-<tr>
-<td><code>policy.timeout_s</code></td>
-<td>Runtime inference request deadline</td>
-<td>Keep separate from backend socket timeout and observed latency</td>
-</tr>
-<tr>
 <td><code>run.max_control_steps</code></td>
 <td>Control-step budget</td>
 <td>A step limit, not a precisely measured wall-clock task timeout</td>
@@ -264,11 +435,7 @@ interpolated reference every 10 ms; it does not change the model's action interv
 <td>Show Activate Warmup after Prepare; Start drains warmup and resets the backend</td>
 <td>Separates cold compilation from trial operation</td>
 </tr>
-</tbody>
-</table>
-<p>Values below are selectable examples, <strong>not performance recommendations or measured optima</strong>.
-For each comparison, keep checkpoint, normalization, prompt, cameras, action interval,
-executor and scoring rules fixed unless one is the variable being studied.</p>
+</tbody></table>
 </section>
 <section aria-labelledby="algorithms" class="guide-page" data-page-id="algorithms" data-title="Choose an algorithm" hidden=""><h2 id="algorithms">Algorithms</h2>
 <table>
@@ -296,7 +463,7 @@ executor and scoring rules fixed unless one is the variable being studied.</p>
 <tr>
 <td><a href="#act-temporal-ensemble">ACT</a> / <code>act_temporal_ensemble</code></td>
 <td>Combine overlapping predictions at the same action time</td>
-<td>Query interval, coefficient</td>
+<td>Query interval or serial prefix, coefficient</td>
 <td>Default sampling</td>
 </tr>
 <tr>
@@ -313,219 +480,486 @@ executor and scoring rules fixed unless one is the variable being studied.</p>
 </tr>
 <tr>
 <td><a href="#aac">AAC</a> / <code>aac</code></td>
-<td>Sample candidates, select a chunk and adaptive length; synchronous</td>
+<td>Sample candidates, select a chunk and adaptive length</td>
 <td>Samples, motion threshold, selector, stats</td>
 <td>AAC</td>
 </tr>
 <tr>
 <td><a href="#autohorizon">AutoHorizon</a> / <code>autohorizon</code></td>
-<td>Attention-selected execution length; synchronous</td>
+<td>Attention-selected execution length</td>
 <td>Fixed upstream attention rule</td>
 <td>AutoHorizon</td>
 </tr>
+<tr><td><a href="#bid-backward">BID backward-only</a> / <code>bid_backward</code></td><td>Select a candidate consistent with the previous accepted prediction</td><td>Samples, decay, fixed or AAC horizon</td><td>AAC candidate sampling</td></tr>
 </tbody>
 </table>
 <p>ACT here is temporal ensembling, not the ACT policy architecture. <code>algorithm: manimux</code>
 is removed; use <code>async</code>. Executors are configured separately.</p>
+<h3 id="compatibility">Compatibility</h3>
+<p>“Yes” means a supported built-in runtime combination, subject to the requirements
+below; “—” means unsupported. ACT means temporal ensembling, not an ACT policy checkpoint.</p>
+<table>
+<thead>
+<tr>
+<th>Base algorithm</th>
+<th><code>serial</code></th>
+<th><code>single_inflight</code></th>
+<th><code>deadline</code></th>
+<th><code>multi_inflight</code></th>
+<th>Add ACT ensembling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ordinary chunking: <code>serial</code> / <code>async</code></td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Select <code>act_temporal_ensemble</code> instead</td>
+</tr>
+<tr>
+<td><code>act_temporal_ensemble</code></td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Resolves to <code>single_inflight</code></td>
+<td>Yes</td>
+<td>Already enabled</td>
+</tr>
+<tr>
+<td><code>rtc</code></td>
+<td>—</td>
+<td>Yes</td>
+<td>Resolves to <code>single_inflight</code></td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>paint</code></td>
+<td>—</td>
+<td>Yes</td>
+<td>Resolves to <code>single_inflight</code></td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>aac</code></td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Resolves to <code>serial</code></td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>autohorizon</code></td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Resolves to <code>serial</code></td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>bid_backward</code></td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>bid_backward</code> + AAC horizon</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>deadline</code> resolutions also apply with ACT enabled. The final column adds ACT
+to the base method under each of its supported schedules; it does not enable other
+pairs such as RTC + PAINT.</p>
+<h4 id="policy-and-decoding-requirements">Policy and decoding requirements</h4>
+<ul>
+<li>Ordinary chunking and standalone ACT use the policy's default sampling mode.
+  RTC, PAINT, AAC and AutoHorizon require the corresponding advertised sampling mode
+  (<code>rtc</code>, <code>paint</code>, <code>aac</code>, <code>autohorizon</code>). BID also requires <code>aac</code> candidate sampling.
+  Adding ACT does not change the base algorithm's sampling requirement. Check the
+  <a href=".agents/skills/manimux-inference/references/inference-matrix.md">model sampling matrix</a> and the running server's capabilities;
+  a YAML setting cannot enable a missing model hook.</li>
+<li>Process decoding is limited to ordinary <code>async</code> and RTC without ACT,
+  using a compatible adapter and an asynchronous
+  non-streaming schedule. It is not available for serial or multi-inflight.</li>
+<li>Multi-inflight requires a streaming-capable client/server and adapter. The supplied
+  path uses <code>xpolicylab_ws</code>, ManiMux's streaming server, and
+  <code>manimux.policy_adapter.joint:JointAdapter</code>. An upstream server without the
+  <code>multi_inflight</code> capability cannot run these configurations.</li>
+<li>BID, serial ACT, ACT added to another algorithm, and asynchronous AAC/AutoHorizon
+  require complete absolute-joint trajectories with inline decoding. The supplied
+  adapter is <code>JointAdapter</code>; do not pass delta-joint or end-effector actions directly
+  to it. These combinations do not support dense IK or waypoint handoffs.</li>
+<li>Asynchronous AAC, AAC + ACT, and BID + AAC require <code>policy.worker: xpolicylab_ws</code>.
+  Every use of AAC, including BID + AAC, needs an explicit <code>robot.config</code> and
+  matching dual-arm end-effector increment statistics.</li>
+<li>Custom <code>inference.strategy</code> plugins do not support multi-inflight, continuous
+  requests, serial ACT or ACT composition. A model recipe that needs its own history
+  or decoding adapter cannot gain these combinations by replacing its adapter name.</li>
+</ul>
 </section>
 <section aria-labelledby="serial" class="guide-page" data-page-id="serial" data-title="Serial" hidden=""><h2 id="serial">Serial</h2>
 <pre><code class="language-yaml">inference:
   algorithm: serial
   inference_schedule: serial
-  chunk_policy_steps: 16
+  chunk_policy_steps: 12
   action_start_mode: first_step_when_ready
   blend_policy_steps: 0
 </code></pre>
-<p>Increase K to execute longer before the next observation; decrease it to replan more often,
-with more inference holds. No <code>refill_threshold_s</code>. Model inference ends before execution of
-this prefix begins. <a href="manimux/runtime/inference.py">Source</a></p>
+<p>Executes the selected prefix, including a full interval for its last row, before
+observing and requesting again. Omit <code>chunk_policy_steps</code> to execute the full chunk.
+<code>algorithm: serial</code> defaults to serial and requires that schedule.</p>
 </section>
 <section aria-labelledby="async" class="guide-page" data-page-id="async" data-title="Async" hidden=""><h2 id="async">Async</h2>
 <pre><code class="language-yaml">inference:
   algorithm: async
   inference_schedule: single_inflight
-  chunk_policy_steps: 16
+  request_trigger: refill
   refill_threshold_s: 0.4
   action_start_mode: drop_infer_latency
   blend_policy_steps: 0
 </code></pre>
-<table>
-<thead>
-<tr>
-<th>Parameter</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>chunk_policy_steps</code></td>
-<td>Caps the source prefix; latency trimming can reduce usable rows</td>
-</tr>
-<tr>
-<td><code>refill_threshold_s</code></td>
-<td>Request when the remaining timeline falls below this duration. Larger requests earlier; smaller leaves less latency margin</td>
-</tr>
-<tr>
-<td><code>inference_schedule</code></td>
-<td><code>single_inflight</code> waits for the outstanding request; <code>deadline</code> also permits scheduling after its deadline. It does not guarantee parallel model execution</td>
-</tr>
-</tbody>
-</table>
-<p>Watch accepted/rejected plans and holds. A refill threshold near or above the retained
-prefix duration can cause another request immediately after acceptance. <a href="manimux/runtime/inference.py">Source</a></p>
+<p>This uses the full available prediction and refills while actions are still executing.
+Optionally add <code>chunk_policy_steps</code> to cap its source prefix. Change only
+<code>inference_schedule</code> to <code>deadline</code> for deadline admission, or use the
+<a href="#multi-inflight-and-continuous-requests">multi-inflight example</a> below.
+The defaults are <code>async</code> and <code>deadline</code>. With only <code>inference_schedule: serial</code>,
+the algorithm defaults to <code>serial</code>. The old <code>algorithm: manimux</code> selector is no longer accepted.</p>
 </section>
 <section aria-labelledby="act-temporal-ensemble" class="guide-page" data-page-id="act-temporal-ensemble" data-title="ACT temporal ensemble" hidden=""><h2 id="act-temporal-ensemble">ACT temporal ensemble</h2>
 <pre><code class="language-yaml">inference:
   algorithm: act_temporal_ensemble
+  inference_schedule: single_inflight
+  chunk_policy_steps: 1
+  action_start_mode: drop_infer_latency
   blend_policy_steps: 0
   temporal_ensemble:
-    query_interval_policy_steps: 1
     coefficient: 0.01
 </code></pre>
-<p><code>query_interval_policy_steps</code> is in model steps; a larger interval reduces request frequency.
-Predictions are ordered oldest → newest and weighted by <code>exp(-coefficient × i)</code>.
-Positive coefficients favor older predictions; 0 gives equal weights. Increasing the coefficient
-does <strong>not</strong> favor the newest chunk. Query intervals above 1 are a changed cadence.
-<a href="manimux/runtime/temporal_ensemble.py">Source</a></p>
+<p><code>coefficient</code> must be non-negative: zero weights overlapping predictions equally;
+positive values favor older contributing predictions. The default is <code>0.01</code>.
+No <code>temporal_ensemble.enabled</code> flag is needed for this algorithm.</p>
+<p>Standalone asynchronous ACT permits a positive <code>blend_policy_steps</code>, which adds a
+separate handoff blend. Keep it zero to use only temporal ensembling.</p>
+<h3 id="serial-act-with-a-configurable-execution-horizon">Serial ACT with a configurable execution horizon</h3>
+<pre><code class="language-yaml">inference:
+  algorithm: act_temporal_ensemble
+  inference_schedule: serial
+  chunk_policy_steps: 5
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+  temporal_ensemble:
+    coefficient: 0.01
+</code></pre>
+<p>Full predictions contribute at their actual execution times, including inference
+gaps. Set K below H to leave potential overlap; K = H or long gaps may leave only
+the current prediction. <code>query_interval_policy_steps</code> is unused in serial mode.
+Keep blending and handoff skip at zero.</p>
 </section>
 <section aria-labelledby="rtc" class="guide-page" data-page-id="rtc" data-title="RTC" hidden=""><h2 id="rtc">RTC</h2>
 <pre><code class="language-yaml">inference:
   algorithm: rtc
+  inference_schedule: single_inflight
+  chunk_policy_steps: 12
   action_start_mode: drop_infer_latency
   blend_policy_steps: 0
   rtc:
-    min_execute_policy_steps: 16
-    initial_delay_policy_steps: null
+    initial_delay_policy_steps: 4
     delay_buffer_size: 10
     beta: 5.0
 </code></pre>
-<table>
-<thead>
-<tr>
-<th>Parameter</th>
-<th>Meaning / effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>min_execute_policy_steps</code></td>
-<td>Minimum source execution threshold. The actual trigger also depends on forecast delay d and horizon H: <code>min(max(K, d), H - d)</code></td>
-</tr>
-<tr>
-<td><code>initial_delay_policy_steps</code></td>
-<td>Initial forecast in model steps. <code>null</code> uses successful warmup timings, or 0 before samples exist</td>
-</tr>
-<tr>
-<td><code>delay_buffer_size</code></td>
-<td>Number of recent delays retained; the maximum is the forecast. A larger buffer retains latency spikes longer</td>
-</tr>
-<tr>
-<td><code>beta</code></td>
-<td>Model-side guidance scale/cap in the RTC implementation; tune with trajectory continuity and latency evidence, not as an execution speed setting</td>
-</tr>
-</tbody>
-</table>
-<p>The old chunk continues during inference. Increasing K does not shorten the model output to K.
-Check that H leaves enough trajectory for the measured delay. <a href="manimux/runtime/rtc/strategy.py">Source</a></p>
+<p>The <code>rtc</code> values above are the defaults:</p>
+<ul>
+<li><code>initial_delay_policy_steps</code> initializes latency in model steps; require
+  <code>2 * initial_delay_policy_steps &lt;= H</code>.</li>
+<li><code>delay_buffer_size</code> sets the number of recent samples whose maximum predicts delay.</li>
+<li><code>beta</code> controls conditioning strength and must be finite and positive.</li>
+<li><code>initial_delay_policy_steps: null</code> initializes from pre-Start warmup samples.
+  To use that workflow, enable <code>run.warmup_before_start: true</code>, choose <strong>Activate Warmup</strong>
+  after Prepare in RoboGUI, and use inline
+  decoding. Without calibration samples, the initial estimate is zero. See the
+  <a href="manimux/configs/inference/README.md">preset guide</a> for warmup controls.</li>
+</ul>
 </section>
 <section aria-labelledby="paint" class="guide-page" data-page-id="paint" data-title="PAINT" hidden=""><h2 id="paint">PAINT</h2>
 <pre><code class="language-yaml">inference:
   algorithm: paint
+  inference_schedule: single_inflight
+  chunk_policy_steps: 12
   action_start_mode: drop_infer_latency
   blend_policy_steps: 0
   paint:
-    execution_policy_steps: 16
     initial_delay_policy_steps: 4
     delay_buffer_size: 10
 </code></pre>
-<table>
-<thead>
-<tr>
-<th>Parameter</th>
-<th>Meaning / effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>execution_policy_steps</code></td>
-<td>Source-row threshold for the next request</td>
-</tr>
-<tr>
-<td><code>initial_delay_policy_steps</code></td>
-<td>Initial inference-delay forecast, in model steps; calibrate from measured latency</td>
-</tr>
-<tr>
-<td><code>delay_buffer_size</code></td>
-<td>Recent-delay window; maximum retained delay drives the forecast</td>
-</tr>
-</tbody>
-</table>
-<p>For a conditioned request, delay must fit both the executed prefix and remaining horizon:
-<code>d ≤ executed</code> and <code>executed + d ≤ H</code>. Generator presets require <code>0 &lt; d ≤ K</code> and <code>K + d ≤ H</code>.
-A response that exceeds its anchored prefix is rejected; do not treat rejection as a valid
-handoff. The existing coin preset uses K=12, initial d=10; the example above is a different
-starting configuration. <a href="manimux/runtime/paint.py">Source</a></p>
+<p>Use a positive initial delay <strong>d</strong> and execution/query window <strong>K</strong> satisfying
+<code>d &lt;= K &lt;= H - d</code>. The defaults are d = 4, K = 10 and a delay buffer of 10 samples.
+Unlike RTC, PAINT does not accept <code>null</code> for its initial delay. Its delay estimate
+must cover observation age, queueing, transport, inference and decoding; higher
+observed delays can make the window infeasible. Select K and d for the actual model
+horizon and measured latency.</p>
 </section>
 <section aria-labelledby="aac" class="guide-page" data-page-id="aac" data-title="AAC" hidden=""><h2 id="aac">AAC</h2>
 <pre><code class="language-yaml">inference:
   algorithm: aac
+  inference_schedule: serial
   action_start_mode: first_step_when_ready
   blend_policy_steps: 0
   aac:
     num_samples: 20
     motion_threshold: 0.2
     ee_stats_path: manimux/policies/xpolicylab/norm_stats/yam_60ep_ee_increment.json
-    chunk_id_selector: "0"
+    chunk_id_selector: &quot;0&quot;
     backward_beta: 0.99
 </code></pre>
+<p>This example uses YAM statistics and a YAM preset threshold. Replace them for a
+different embodiment or dataset. Relative <code>ee_stats_path</code> values resolve from the
+launch working directory, unlike <code>config</code>; run from the repository root for this
+example or use an absolute path.</p>
 <table>
 <thead>
 <tr>
-<th>Parameter</th>
-<th>Meaning / effect</th>
+<th>AAC parameter</th>
+<th>Usage</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>num_samples</code></td>
-<td>Independent candidates for one observation; increases sampling cost/memory</td>
+<td>Number of independent candidate chunks, at least 2; default 20. More samples increase inference/memory demand.</td>
 </tr>
 <tr>
 <td><code>motion_threshold</code></td>
-<td>Physical EE-motion threshold used in the minimum selected length. A larger value tends to require more motion before cutting the chunk; 0.2 is a YAM preset, not a portable constant</td>
+<td>Finite non-negative threshold used to choose the execution horizon; larger values can raise the minimum execution length. Core default is 3.0; the example uses 0.2.</td>
 </tr>
 <tr>
 <td><code>ee_stats_path</code></td>
-<td>Fixed EE-increment normalization statistics matching embodiment, FK/TCP and data; separate from model normalization</td>
+<td>Required normalization statistics for dual-arm end-effector increments.</td>
 </tr>
 <tr>
 <td><code>chunk_id_selector</code></td>
-<td><code>"0"</code>: first candidate; <code>mean</code>: closest to candidate mean; <code>backward</code>: consistency with the previous batch</td>
+<td><code>"0"</code>: first candidate; <code>"mean"</code>: candidate closest to the mean; <code>"backward"</code>: continuity-based selection using previous predictions. Quote <code>"0"</code> in YAML.</td>
 </tr>
 <tr>
 <td><code>backward_beta</code></td>
-<td>Time weighting for the backward selector; irrelevant to the other selectors</td>
+<td>Decay for <code>"backward"</code> selection, in <code>(0, 1]</code>; default 0.99.</td>
 </tr>
 </tbody>
 </table>
-<p>No fixed <code>chunk_policy_steps</code>: the selected length comes from the policy response.
-The runtime executes the prefix then requests again. Record the chosen length, entropy elbow,
-motion floor and inference latency. <a href="manimux/runtime/aac.py">Source</a></p>
+<p>AAC's <code>"backward"</code> selector is distinct from <code>algorithm: bid_backward</code>.</p>
 </section>
 <section aria-labelledby="autohorizon" class="guide-page" data-page-id="autohorizon" data-title="AutoHorizon" hidden=""><h2 id="autohorizon">AutoHorizon</h2>
 <pre><code class="language-yaml">inference:
   algorithm: autohorizon
+  inference_schedule: serial
   action_start_mode: first_step_when_ready
   blend_policy_steps: 0
 </code></pre>
-<p>The model returns <code>execution_steps</code>; the runtime executes exactly that prefix, then requests
-again. There is no asynchronous prefetch and no fixed <code>chunk_policy_steps</code>.
-The retained Pi05 rule captures the third denoising step and uses <code>hold_thr=0.3</code>,
-<code>max_entropy_q=0.9</code>, <code>run_len=1</code>. These are fixed upstream-rule values, not exposed runtime
-YAML knobs. At least three denoising evaluations and usable action attention are required.
-Measure selected lengths and inference holds. <a href="manimux/runtime/autohorizon.py">Source</a></p>
+<p>The policy chooses the execution length; omit fixed chunk limits. There is no
+runtime <code>autohorizon</code> parameter block. Model-side settings belong to the
+<a href=".agents/skills/manimux-inference/references/inference-matrix.md">model recipe and sampling matrix</a>.</p>
+</section>
+<section aria-labelledby="bid-backward" class="guide-page" data-page-id="bid-backward" data-title="BID backward-only" hidden=""><h2 id="bid-backward">BID backward-only</h2>
+<pre><code class="language-yaml">inference:
+  algorithm: bid_backward
+  inference_schedule: serial
+  chunk_policy_steps: 5
+  action_start_mode: first_step_when_ready
+  blend_policy_steps: 0
+  bid:
+    num_samples: 16
+    rho: 0.9
+    execution_horizon: fixed
+</code></pre>
+<p>Uses candidates from one policy and BID's backward criterion; no forward criterion
+or second policy is used.</p>
+<ul>
+<li><code>num_samples</code>: integer at least 2, default 16.</li>
+<li><code>rho</code>: backward score decay, in <code>(0, 1]</code>, default 0.9. Smaller values emphasize
+  earlier overlapping action times more strongly.</li>
+<li><code>execution_horizon</code>: <code>fixed</code> (default), using K, or <code>aac</code> as shown below.</li>
+<li>Fixed K must be smaller than H. Keep <code>handoff_skip_steps: 0</code>.</li>
+</ul>
+<p>Serial BID requires <code>first_step_when_ready</code>. Fixed-horizon asynchronous BID accepts
+either action-start mode; the examples use <code>drop_infer_latency</code> to discard expired rows.
+Asynchronous scoring compares overlapping future action times; its K counts future
+rows remaining after latency alignment, not already-expired source rows.</p>
+</section>
+<section aria-labelledby="optional-algorithm-composition" class="guide-page" data-page-id="optional-algorithm-composition" data-title="Supported combinations" hidden=""><h2 id="optional-algorithm-composition">Supported combinations</h2>
+<p>Choose one base <code>algorithm</code>. Add ACT with <code>temporal_ensemble.enabled</code>, or select
+AAC's execution horizon through <code>bid.execution_horizon</code>. Merely adding an <code>rtc</code>,
+<code>paint</code> or <code>aac</code> parameter block does not activate a second algorithm.</p>
+<h3 id="what-ensemble-adds">What ensemble adds</h3>
+<p>Standalone <code>algorithm: act_temporal_ensemble</code> already performs temporal ensembling.
+The optional combination wraps another algorithm, such as RTC, with the same kind of output fusion.
+It uses predictions from different inference requests for the <strong>same future action time</strong>.
+It does not combine measured state with actions, call another model, or add another executor.</p>
+<pre><code class="language-text">RTC only:
+Scheduler → RTC request/condition → model → adapter → Timeline → executor
+
+RTC + ACT:
+Scheduler → RTC request/condition → model → adapter → ACT ensemble → Timeline → executor
+
+BID + ACT:
+model candidates → adapter decodes each → BID selects one → ACT ensemble → Timeline → executor</code></pre>
+<p>The factory creates <code>EnsembleStrategy(base_strategy, config)</code> only when the combination
+is enabled. The base strategy still constructs requests. The wrapper aligns and averages overlapping
+predictions before Timeline commit. Reset clears both the base strategy and ensemble history.</p>
+<table><thead><tr><th>Mechanism</th><th>Where it runs</th><th>What it changes</th></tr></thead><tbody>
+<tr><td>RTC conditioning</td><td>Inside model sampling</td><td>Uses the existing action plan and weights to guide generation of a new chunk.</td></tr>
+<tr><td><code>blend_policy_steps</code></td><td>Timeline handoff</td><td>Interpolates the beginning of a new plan from its configured command/state anchor.</td></tr>
+<tr><td>ACT temporal ensemble</td><td>After decoding, before Timeline</td><td>Weights predictions from multiple chunks at matching future timestamps.</td></tr>
+</tbody></table>
+<p>RTC + ACT keeps RTC conditioning and adds one output ensemble. It requires
+<code>blend_policy_steps: 0</code> so handoff interpolation is not added as well.
+This is a supported combination, not evidence that it improves task success. The next RTC condition
+uses the accepted fused timeline. No arbitrary stack of fusion algorithms is configured here.</p>
+<h3 id="add-act-to-rtc-paint-bid-aac-or-autohorizon">Add ACT to RTC, PAINT, BID, AAC or AutoHorizon</h3>
+<p>For example, RTC + ACT using a preset:</p>
+<pre><code class="language-yaml">inference:
+  config: ../../../inference/yam_rtc.yaml
+  algorithm: rtc
+  inference_schedule: single_inflight
+  blend_policy_steps: 0
+  temporal_ensemble:
+    enabled: true
+    coefficient: 0.01
+</code></pre>
+<p><strong>Disable the added ensemble:</strong> keep the base algorithm and set the flag to false
+in the experiment YAML. These are overrides to the same RTC experiment:</p>
+<pre><code class="language-yaml">inference:
+  algorithm: rtc
+  temporal_ensemble:
+    enabled: false</code></pre>
+<p>The combination flag defaults to false. Explicit false also overrides an enabled referenced preset.
+After changing YAML, finish the current rollout and restart <code>manimux serve --config ...</code>
+before preparing the next trial. The same model server can stay running for this flag change.
+For a controlled comparison, leave the other settings unchanged.</p>
+<p><code>coefficient: 0</code> still averages predictions with equal weights; it does not disable
+ensemble. A positive coefficient follows ACT's oldest-to-newest exponential weighting and gives
+older overlapping predictions more weight. Changing <code>enabled</code> to false does not disable
+the standalone <code>act_temporal_ensemble</code> algorithm; select another base algorithm to remove it.</p>
+<p>Apply the same <code>temporal_ensemble</code> block to PAINT, BID, AAC or AutoHorizon. Require
+inline complete absolute-joint decoding, <code>blend_policy_steps: 0</code>,
+<code>handoff_skip_steps: 0</code>, and the default <code>handoff: blend</code>. RTC/PAINT + ACT require
+<code>drop_infer_latency</code>; serial combinations use <code>first_step_when_ready</code>.</p>
+<p>The base algorithm retains its query/execution timing; ACT's
+<code>query_interval_policy_steps</code> is unused in these combinations. Only overlapping
+action times contribute, so serial AAC/AutoHorizon may have no effective overlap.</p>
+<h3 id="ensemble-contribution-scope">Which prediction rows participate</h3>
+<p>Prediction length and execution length are different. A model may predict 50 steps while this
+request executes only 5. The base strategy declares <code>ensemble_scope</code> in code;
+this is a developer contract, not another operator YAML setting.</p>
+<table><thead><tr><th>Source strategy</th><th>Declared scope</th><th>Order</th></tr></thead><tbody>
+<tr><td>Fixed-horizon BID, Serial ACT</td><td><code>full_prediction</code></td><td>Fuse and retain the full prediction; then crop the execution prefix.</td></tr>
+<tr><td>AAC, AutoHorizon, BID + AAC</td><td><code>execution_prefix</code></td><td>Crop to the selected execution length first; fuse and retain only those rows.</td></tr>
+<tr><td>RTC, PAINT</td><td><code>execution_prefix</code></td><td>Run the strategy's condition/plan validity checks first; fuse the returned chunk, which currently retains the full horizon.</td></tr>
+</tbody></table>
+<p>Only future, overlapping timestamps contribute in either mode. Cropping uses source-row indices;
+expired rows are still removed by Timeline. The ensemble wrapper reads this declaration rather than
+matching algorithm names. Keep the chosen scope fixed for a strategy instance.</p>
+<h3 id="strategy-extension-contracts">For agents and strategy developers</h3>
+<p>Use the optional protocols in <code>manimux/runtime/inference.py</code> when extending the existing
+strategy path. Do not introduce another control loop or move model sampling into the executor.</p>
+<table><thead><tr><th>Contract</th><th>Responsibility and call order</th></tr></thead><tbody>
+<tr><td><code>StrategyActionDecoder.decode_action(raw, context, *, adapter)</code></td><td>Decode through the existing adapter after the response arrives. Candidate methods may retain pending candidates by request ID. Warmup uses this same path.</td></tr>
+<tr><td><code>StrategyChunkSelector.select_chunk(*, chunk, now_ns)</code></td><td>Select after decoding. Execution uses the same timestamp for selection, preparation and Timeline commit. Warmup selects a preview without accepting a plan.</td></tr>
+<tr><td><code>EnsembleSource.ensemble_scope</code></td><td>Declare full_prediction or execution_prefix. The wrapper calls prepare_chunk once, after or before fusion respectively.</td></tr>
+<tr><td><code>on_plan_accepted / on_response_rejected / reset</code></td><td>Advance accepted reference history only after commit succeeds. Remove rejected pending state and rejected ensemble contributions; reset clears history before reuse.</td></tr>
+<tr><td><code>PolicyAdapter.supports_candidate_decoding</code></td><td>Opt in only when each candidate decodes to full, untrimmed absolute-joint rows on the policy grid, without handoff or runtime-trajectory data. Used by BID and deferred AAC; model sampling capability is checked separately.</td></tr>
+</tbody></table>
+<h3 id="asynchronous-adaptive-horizons">Asynchronous adaptive horizons</h3>
+<p>To use AAC or AutoHorizon with single-inflight, keep the selected method's parameters
+and replace its serial settings with these overrides:</p>
+<pre><code class="language-yaml">inference:
+  inference_schedule: single_inflight
+  request_trigger: refill
+  refill_threshold_s: 0.4
+  action_start_mode: drop_infer_latency
+  blend_policy_steps: 0
+</code></pre>
+<p>Merge these overrides into the base example. They also work for BID and BID + AAC.
+Asynchronous AAC, AutoHorizon and BID + AAC require <code>drop_infer_latency</code>, zero
+blending/skip, and the decoding/client requirements above. ACT may also be added.</p>
+<p>For an adaptive horizon of e source rows, if d rows expire before acceptance, only
+the remaining e−d rows are eligible. When d reaches e, the reply is rejected. The
+runtime does not extend the selected horizon to compensate for latency; short
+horizons and slow inference can therefore cause holds.</p>
+<h3 id="multi-inflight-and-continuous-requests">Multi-inflight and continuous requests</h3>
+<p>Ordinary asynchronous chunking with continuous observation uploads:</p>
+<pre><code class="language-yaml">inference:
+  algorithm: async
+  inference_schedule: multi_inflight
+  request_trigger: continuous
+  observation_hz: 30.0
+  action_start_mode: drop_infer_latency
+  blend_policy_steps: 0
+</code></pre>
+<p>For BID, AAC or AutoHorizon, keep its <code>algorithm</code> and method parameters and apply
+the other settings in this example, including <code>action_start_mode</code>. For refill-based uploads,
+use <code>request_trigger: refill</code> and a positive <code>refill_threshold_s</code> instead.
+<code>continuous</code> can also be used with <code>single_inflight</code> or actual <code>deadline</code> scheduling.</p>
+<p>RTC, PAINT and standalone ACT require <code>request_trigger: algorithm</code>. For example,
+RTC + ACT + multi-inflight:</p>
+<pre><code class="language-yaml">inference:
+  config: ../../../inference/yam_rtc_multi_inflight.yaml
+  algorithm: rtc
+  inference_schedule: multi_inflight
+  request_trigger: algorithm
+  observation_hz: 30.0
+  temporal_ensemble:
+    enabled: true
+    coefficient: 0.01
+</code></pre>
+<p>For standalone RTC, PAINT or ACT, start from its own individual example and set
+<code>inference_schedule: multi_inflight</code>, <code>observation_hz</code>, and <code>request_trigger: algorithm</code>.
+Keep its algorithm and method parameters. Streaming PAINT requires
+<code>drop_infer_latency</code> and zero blending/skip. Add ACT to RTC/PAINT as shown above.</p>
+<p>RTC/PAINT replies can be rejected when the plan they were conditioned on has already
+been replaced. PAINT also rejects replies that arrive beyond the usable conditioned
+prefix. A higher upload rate can increase such rejections; it does not remove model
+latency or guarantee uninterrupted execution.</p>
+<h3 id="bid-with-aacs-execution-horizon">BID with AAC's execution horizon</h3>
+<p>Use the dedicated preset to avoid inheriting a fixed K:</p>
+<pre><code class="language-yaml">inference:
+  config: ../../../inference/yam_bid_aac.yaml
+  algorithm: bid_backward
+  inference_schedule: serial
+  bid:
+    execution_horizon: aac
+    num_samples: 16
+    rho: 0.9
+</code></pre>
+<p>The preset supplies serial scheduling, <code>first_step_when_ready</code>, zero blending,
+YAM EE statistics and AAC's motion threshold. Override <code>aac.ee_stats_path</code> and
+<code>aac.motion_threshold</code> for your deployment as described in the AAC section.</p>
+<p><code>bid.num_samples</code> sets the shared batch size. AAC's sample-count/selector settings
+and BID's fixed replan length do not control this combination; leave them at defaults.
+Omit <code>chunk_policy_steps</code>, or set it to <code>null</code> to clear an inherited fixed K.
+Apply the asynchronous overrides above for single-inflight or multi-inflight;
+<code>deadline</code> also works. To add ACT, use the earlier <code>temporal_ensemble</code> block.</p>
+<h3 id="unsupported-combinations">Unsupported combinations</h3>
+<ul>
+<li>RTC + PAINT, and RTC/PAINT with BID or AAC candidate selection.</li>
+<li>AutoHorizon with RTC, PAINT, BID or AAC sampling/horizon selection.</li>
+</ul>
+<h3 id="further-configuration">Further configuration</h3>
+<p>For model-specific sampler options, use the <a href=".agents/skills/manimux-inference/references/inference-matrix.md">sampling matrix</a>.
+For executor smoothing, limits and IK, use <a href=".agents/skills/manimux-development/references/execution.md">execution and IK</a>.
+Algorithm sources and derivations are kept in the <a href=".agents/skills/manimux-inference/references/reproductions/README.md">reproduction records</a>;
+advanced decoder/waypoint configuration is covered by the
+<a href=".agents/skills/manimux-development/references/runtime-config.md">runtime configuration reference</a>.</p>
 </section>
 <section aria-labelledby="support" class="guide-page" data-page-id="support" data-title="Model support &amp; presets" hidden=""><h2 id="support">Support</h2>
+<p>BID requires AAC candidate sampling plus complete absolute-joint decoding. Adding ACT or asynchronous adaptive horizons also requires the decoding and client constraints in the <a href="#algorithms">compatibility table</a>; a model hook alone is insufficient.</p>
 <p>This matrix covers the current <strong>YAM adapters</strong>, not every checkpoint or embodiment.
 “Hook” means an implementation path; the loaded server's <code>HELLO.capabilities.sampling_modes</code>
 decides availability. It does not establish task performance.</p>
@@ -969,7 +1403,7 @@ scoring step. Optional operator notes and failure details are entered after Fini
 <tr><td><code>config.inference.rtc.initial_delay_policy_steps</code></td><td>Initial delay forecast in model steps; RTC null allows warmup-based initialization.</td></tr>
 <tr><td><code>config.inference.rtc.min_execute_policy_steps</code></td><td>RTC minimum source-model steps before requesting the next chunk.</td></tr>
 <tr><td><code>config.inference.strategy</code></td><td>Optional custom strategy implementation; null uses algorithm selection.</td></tr>
-<tr><td><code>config.inference.temporal_ensemble.coefficient</code></td><td>ACT temporal ensemble weighting coefficient; inactive for RTC.</td></tr>
+<tr><td><code>config.inference.temporal_ensemble.coefficient</code></td><td>ACT temporal ensemble weighting coefficient; also used when temporal_ensemble.enabled is true.</td></tr>
 <tr><td><code>config.inference.temporal_ensemble.query_interval_policy_steps</code></td><td>ACT temporal ensemble query interval in model steps; inactive for RTC.</td></tr>
 <tr><td><code>config.local</code></td><td>Private station YAML path used to resolve device/service bindings.</td></tr>
 <tr><td><code>config.policy.action_decoding</code></td><td>Action decoder execution mode, e.g. inline versus independent decoding.</td></tr>

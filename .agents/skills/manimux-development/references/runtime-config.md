@@ -42,6 +42,39 @@ same scheduler as their delegate. Streaming/continuous custom strategies remain
 unsupported until their lifecycle and action-reference handling are validated.
 See [scheduling and action clocks](../../manimux-inference/references/inference.md) for the config matrix.
 
+The optional `StrategyActionDecoder` protocol declares `decode_action(raw, context, *, adapter)` and decodes
+candidate predictions using the existing adapter. `decode_strategy_action` uses it
+for inline execution and warmup; other strategies retain the original single decode.
+The optional `StrategyChunkSelector` protocol declares `select_chunk(chunk=..., now_ns=...)` and defers candidate selection
+until immediately before commit. For this path, selection and `prepare_chunk` use
+the same timestamp as timeline commit, and recording captures the selected full
+prediction before prefix preparation. Warmup selects only a preview and never
+accepts a plan. Strategies without this hook retain their existing preparation path.
+
+BID uses these hooks with adapters declaring `supports_candidate_decoding`; it retains
+its full reference and timing only after plan acceptance. Its `hold_last_step`
+flag gives each executed prefix row a full policy interval. The timeline's shared
+`first_future_step` defines latency rounding for both selection and commit.
+Model sampling and wire conversion remain in the backend.
+
+`EnsembleSource.ensemble_scope` declares the allowed contribution range. With
+`full_prediction`, the wrapper fuses/stores the complete prediction and then calls
+the source's `prepare_chunk` to crop execution. With `execution_prefix`, it calls
+`prepare_chunk` first and fuses/stores only its output. Preparation runs once;
+RTC/PAINT use it for validity checks and currently return the full horizon. Fixed
+BID and Serial ACT use full_prediction; AAC, AutoHorizon and BID+AAC use
+execution_prefix. The wrapper must not dispatch on algorithm names. Rejection
+removes pending candidates and rejected ensemble contributions; reset clears both
+the wrapped strategy and ensemble history. Warmup may decode/select previews but
+never advances accepted plan history.
+
+For user-facing enable/disable examples and the distinction between RTC sampling,
+Timeline seam blending and output ensembling, use
+[Supported combinations](../../../../guideline.html#optional-algorithm-composition).
+The combination flag defaults off; standalone ACT remains enabled by its algorithm
+selection regardless of that flag. Do not present a valid combination as a measured
+improvement, or change the contribution scope as a cosmetic refactor.
+
 `manimux/runtime/timeline.py` owns `ActionTimeline`: committing and sampling decoded
 joint trajectories on the runtime clock. Keep chunk handoff here and in the
 strategy. Do not fake measured state or modify observations to implement another
@@ -287,3 +320,28 @@ With `run.warmup_before_start: true`, a GUI-controlled rollout starts in `idle` 
 waits for the in-flight request, then acknowledged backend reset; only a fresh subsequent
 observation enters formal execution. Warmup timings remain separate from formal metrics.
 The control mailbox suppresses activation/selection on stale transport snapshots.
+
+## Opt-in inference composition
+
+The factory retains one base strategy and optionally wraps it with `EnsembleStrategy`
+when `temporal_ensemble.enabled` is true. Composition reuses existing decode, selection,
+prepare, acceptance and rejection hooks; it introduces no second runtime loop.
+`bid.execution_horizon` is `fixed` by default and accepts `aac` for candidate selection
+with an adaptive prefix. These new paths use complete inline absolute-joint decoding.
+
+Serial ACT also uses `EnsembleStrategy`, around a small `SerialACTStrategy` that
+reuses default request construction and crops the execution prefix after fusion.
+`chunk_policy_steps` sets K (null means H); the asynchronous query-interval alias
+is bypassed in serial mode. Full unfused predictions remain in the ensemble history,
+anchored at each commit time. The existing serial scheduler and final-row hold enforce
+K action intervals; the model horizon, observation timestamps and asynchronous ACT
+strategy remain unchanged.
+
+AAC/AutoHorizon retain serial defaults but permit explicit single/multi-inflight
+schedules. Asynchronous adaptive preparation caps source rows before Timeline removes
+expired rows. AAC defers candidate selection/history until commit for asynchronous or
+ensemble paths; plain serial AAC retains its existing client behavior. PAINT streaming
+retains the accepted-plan identity with each condition and rejects replaced references.
+The streaming wrapper accepts existing PAINT/AutoHorizon sampler modes without changing
+XPolicyLab. See [the composition timing contract](../../manimux-inference/references/inference.md#optional-algorithm-composition)
+for reference history, horizon validity and unsupported combinations.

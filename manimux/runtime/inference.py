@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Literal, Protocol, runtime_checkable
 
 from manimux.plugins import load_plugin
 from manimux.policy_adapter.base import PolicyAdapter
@@ -10,6 +10,7 @@ from manimux.runtime.safety import RuntimeState
 from manimux.runtime.timeline import ActionTimeline, CommitResult
 from manimux.types import (
     ActionChunk,
+    ActionContext,
     GroupVector,
     InferenceRequest,
     InferenceResponse,
@@ -39,7 +40,52 @@ class CommitSettings:
     anchor_source: str
 
 
+@runtime_checkable
+class StrategyActionDecoder(Protocol):
+    """Optional adapter-backed decode stage, shared by execution and warmup.
+
+    Return one canonical full chunk; a candidate strategy may retain the other
+    decoded candidates keyed by request_seq. This does not accept a plan or
+    advance reference history. Reject/reset must discard pending candidates.
+    """
+
+    def decode_action(
+        self, raw: object, context: ActionContext, *, adapter: PolicyAdapter,
+    ) -> ActionChunk: ...
+
+
+@runtime_checkable
+class StrategyChunkSelector(Protocol):
+    """Optional selection after decoding, immediately before preparation/commit.
+
+    now_ns is the same timestamp used by prepare_chunk and Timeline.commit.
+    Warmup may select a preview without accepting it. Only on_plan_accepted may
+    advance accepted reference history; rejection/reset discard pending state.
+    """
+
+    def select_chunk(self, *, chunk: ActionChunk, now_ns: int) -> ActionChunk: ...
+
+
+EnsembleScope = Literal["full_prediction", "execution_prefix"]
+
+
+@runtime_checkable
+class EnsembleSource(Protocol):
+    """Declare which rows may contribute to temporal ensembling.
+
+    full_prediction: fuse/store the full prediction, then prepare its execution
+    prefix. execution_prefix: prepare/validate first, then fuse/store only those
+    rows. prepare_chunk is called once in either case. Scope must stay fixed for
+    the strategy's lifetime; changing configuration requires a new strategy.
+    """
+
+    @property
+    def ensemble_scope(self) -> EnsembleScope: ...
+
+
 class InferenceStrategy(Protocol):
+    """Core lifecycle; decode/selection/fusion use the optional protocols above."""
+
     @property
     def name(self) -> str: ...
 
@@ -207,6 +253,7 @@ _STRATEGY_BUILTINS: dict[str, InferenceStrategyFactory | str] = {
     "rtc": "manimux.runtime.rtc.strategy:RtcInferenceStrategy",
     "act_temporal_ensemble": "manimux.runtime.temporal_ensemble:ACTTemporalEnsembleStrategy",
     "aac": "manimux.runtime.aac:AacInferenceStrategy",
+    "bid_backward": "manimux.runtime.bid:BidBackwardStrategy",
     "paint": "manimux.runtime.paint:PaintInferenceStrategy",
     "autohorizon": "manimux.runtime.autohorizon:AutoHorizonInferenceStrategy",
 }
@@ -220,7 +267,28 @@ def build_inference_strategy(config: dict) -> InferenceStrategy:
         group="manimux.inference_strategies",
         builtins=_STRATEGY_BUILTINS,
     )
-    return factory(config)
+    settings = config["inference"]
+    ensemble = (settings.get("temporal_ensemble") or {}).get("enabled", False)
+    serial_act = (
+        settings["algorithm"] == "act_temporal_ensemble"
+        and settings["inference_schedule"] == "serial"
+    )
+    if serial_act:
+        from manimux.runtime.temporal_ensemble import SerialACTStrategy
+
+        factory = SerialACTStrategy
+    elif settings["algorithm"] == "aac" and (
+        settings["inference_schedule"] != "serial" or ensemble
+    ):
+        from manimux.runtime.aac import CandidateAacStrategy
+
+        factory = CandidateAacStrategy
+    strategy = factory(config)
+    if serial_act or (ensemble and settings["algorithm"] != "act_temporal_ensemble"):
+        from manimux.runtime.temporal_ensemble import EnsembleStrategy
+
+        strategy = EnsembleStrategy(strategy, config)
+    return strategy
 
 
 def build_warmup_submission(
@@ -281,3 +349,12 @@ def prepare_strategy_chunk(
     if not callable(method):
         return chunk
     return method(chunk=chunk, response=response, now_ns=now_ns)
+
+
+def decode_strategy_action(
+    strategy: InferenceStrategy, adapter: PolicyAdapter, raw: object, context: ActionContext,
+) -> ActionChunk:
+    """Let candidate selectors reuse adapter decoding; ordinary strategies decode once."""
+    if isinstance(strategy, StrategyActionDecoder):
+        return strategy.decode_action(raw, context, adapter=adapter)
+    return adapter.decode_action(raw, context)

@@ -16,7 +16,7 @@ and a runtime designed for **100–200 Hz command execution**.
 [![Agent skills](https://img.shields.io/badge/Develop-Agent%20skills-8B5CF6?style=flat-square)](.agents/skills/manimux-development/SKILL.md)
 
 [![Policy recipes: 13](https://img.shields.io/badge/Policy%20recipes-13-F59E0B?style=flat-square)](#included-integrations)
-[![Inference modes: 7](https://img.shields.io/badge/Inference%20modes-7-EC4899?style=flat-square)](#included-integrations)
+[![Inference modes: 8](https://img.shields.io/badge/Inference%20modes-8-EC4899?style=flat-square)](#included-integrations)
 [![Embodiments: 4](https://img.shields.io/badge/Embodiments-4-06B6D4?style=flat-square)](#included-integrations)
 [![Actively maintained](https://img.shields.io/badge/Status-Actively%20maintained-14B8A6?style=flat-square)](https://github.com/SII-LiuLab/manimux/commits/main/)
 
@@ -48,7 +48,7 @@ in a separate, hardware-free view. [Research workflow →](guideline.html#experi
 
 - **Policies with robot deployment recipes (9):** Pi05, DP, SAPolicy, ABC-DiT, GR00T N1.7, LingBot-VLA2, Xiaomi XR-1, UMI DP and OpenWAM.
 - **Policies with offline recipes (5):** Isaac 0.5 and StarVLA's QwenOFT, QwenPI-v3, QwenGR00T and QwenFast.
-- **Inference modes (7):** Serial, asynchronous chunking, RTC, ACT temporal ensembling, AAC, PAINT and AutoHorizon.
+- **Base inference modes (8), plus opt-in combinations:** Serial, asynchronous chunking, RTC, ACT temporal ensembling, AAC, PAINT, AutoHorizon and BID backward-only.
 - **Hardware integrations (4):** YAM, Tianji–TacCap, and experimental ARX X5 / PiPER. **Executors:** Direct, Smooth and MPC.
 
 [ALOHA-AgileX follower-arm assets](.agents/skills/manimux-station-setup/references/aloha.md) and
@@ -61,6 +61,34 @@ Policy serving uses **XPolicyLab** or **StarVLA**. Counts describe included inte
 not all model × method × robot combinations or completed hardware validation.
 See the [support catalog](guideline.html#support) for scope and recipes.
 Evaluation is optional; choose your own research protocol and metrics.
+
+## Inference strategies and combinations
+
+Choose a base algorithm, a request schedule, and optional ACT fusion. The eight base
+modes remain available; combinations reuse their existing samplers and do not require
+changes to XPolicyLab or model weights.
+
+| Purpose | Modes | Behavior |
+| --- | --- | --- |
+| Execution scheduling | Serial, asynchronous chunking | Infer after the selected prefix finishes, or overlap inference with execution |
+| Consistency between chunks | RTC, PAINT, ACT temporal ensembling, BID backward-only | Guide sampling, adjust initial noise, average aligned predictions, or select a coherent candidate |
+| Adaptive execution length | AAC, AutoHorizon | Select a source prefix using candidate uncertainty/motion or action attention |
+
+The current compatibility matrix is:
+
+| Base algorithm | Serial | Async `single_inflight` | Async `multi_inflight` | Optional ACT fusion |
+| --- | --- | --- | --- | --- |
+| Ordinary chunking (`serial` / `async`) | Yes | Yes | Yes | Select `act_temporal_ensemble` |
+| ACT temporal ensembling | **New** | Yes | Yes | Already enabled |
+| RTC | — | Yes | Yes | **New** |
+| PAINT | — | Yes | **New** | **New** |
+| BID backward-only | Yes | Yes | Yes | **New** |
+| AAC | Yes | **New** | **New** | **New** |
+| AutoHorizon | Yes | **New** | **New** | **New** |
+
+BID also supports AAC adaptive horizons, with optional ACT fusion. For deadline
+aliases, decoding requirements and YAML examples, use the [inference guide](guideline.html#algorithms)
+and [supported combinations](guideline.html#optional-algorithm-composition).
 
 ## Architecture
 
