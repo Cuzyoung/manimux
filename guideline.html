@@ -10,7 +10,7 @@ main{min-width:0;padding:36px 0 50px}.breadcrumb{font-size:12px;color:var(--mute
 </style></head>
 <body><a class="skip" href="#overview">Skip to content</a>
 <header class="topbar"><button class="menu-button" id="menu" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button><a class="brand" href="#overview">ManiMux Guide</a><span class="current" id="current-title">Overview</span><div class="search-box"><input id="guide-search" type="search" placeholder="Search sections" aria-label="Search guide" autocomplete="off"><div id="search-results" class="search-results" hidden></div></div><a class="repo" href="https://github.com/SII-LiuLab/manimux">SII-LiuLab / ManiMux ↗</a></header>
-<div id="backdrop" class="backdrop"></div><div class="layout"><aside class="sidebar" id="sidebar"><div class="sidebar-title">ManiMux Guide</div><nav aria-label="Guide sections"><a href="#overview" data-page="overview">Overview</a><details class="nav-group" open><summary>Start here</summary><div><a href="#install" data-page="install">Install &amp; preview</a><a href="#configuration" data-page="configuration">Configure a deployment</a><a href="#launch" data-page="launch">Launch commands</a></div></details><details class="nav-group" open><summary>Inference algorithms</summary><div><a href="#shared-parameters" data-page="shared-parameters">Shared parameters</a><a href="#algorithms" data-page="algorithms">Choose an algorithm</a><a href="#serial" data-page="serial">Serial</a><a href="#async" data-page="async">Async</a><a href="#act-temporal-ensemble" data-page="act-temporal-ensemble">ACT temporal ensemble</a><a href="#rtc" data-page="rtc">RTC</a><a href="#paint" data-page="paint">PAINT</a><a href="#aac" data-page="aac">AAC</a><a href="#autohorizon" data-page="autohorizon">AutoHorizon</a><a href="#bid-backward" data-page="bid-backward">BID backward-only</a><a href="#optional-algorithm-composition" data-page="optional-algorithm-composition">Supported combinations</a><a href="#support" data-page="support">Model support &amp; presets</a></div></details><details class="nav-group" open><summary>Experiments</summary><div><a href="#experiments" data-page="experiments">Rules, templates &amp; scoring</a><a href="#records" data-page="records">Records &amp; replay</a><a href="#reports" data-page="reports">Evaluation reports</a></div></details><details class="nav-group" open><summary>Development</summary><div><a href="#agent-references" data-page="agent-references">Work with your agent</a><a href="#troubleshooting" data-page="troubleshooting">Troubleshooting</a></div></details></nav><div class="sidebar-tools"><button id="print">Print entire guide / PDF</button></div></aside>
+<div id="backdrop" class="backdrop"></div><div class="layout"><aside class="sidebar" id="sidebar"><div class="sidebar-title">ManiMux Guide</div><nav aria-label="Guide sections"><a href="#overview" data-page="overview">Overview</a><details class="nav-group" open><summary>Start here</summary><div><a href="#install" data-page="install">Install &amp; preview</a><a href="#configuration" data-page="configuration">Configure a deployment</a><a href="#launch" data-page="launch">Launch commands</a></div></details><details class="nav-group" open><summary>Inference algorithms</summary><div><a href="#shared-parameters" data-page="shared-parameters">Shared parameters</a><a href="#algorithms" data-page="algorithms">Choose an algorithm</a><a href="#serial" data-page="serial">Serial</a><a href="#async" data-page="async">Async</a><a href="#act-temporal-ensemble" data-page="act-temporal-ensemble">ACT temporal ensemble</a><a href="#rtc" data-page="rtc">RTC</a><a href="#paint" data-page="paint">PAINT</a><a href="#aac" data-page="aac">AAC</a><a href="#autohorizon" data-page="autohorizon">AutoHorizon</a><a href="#bid-backward" data-page="bid-backward">BID backward-only</a><a href="#optional-algorithm-composition" data-page="optional-algorithm-composition">Supported combinations</a><a href="#support" data-page="support">Model support &amp; presets</a></div></details><details class="nav-group" open><summary>Experiments</summary><div><a href="#experiment-lists" data-page="experiment-lists">Task &amp; method switching</a><a href="#experiments" data-page="experiments">Rules, templates &amp; scoring</a><a href="#records" data-page="records">Records &amp; replay</a><a href="#reports" data-page="reports">Evaluation reports</a></div></details><details class="nav-group" open><summary>Development</summary><div><a href="#agent-references" data-page="agent-references">Work with your agent</a><a href="#troubleshooting" data-page="troubleshooting">Troubleshooting</a></div></details></nav><div class="sidebar-tools"><button id="print">Print entire guide / PDF</button></div></aside>
 <main id="content"><div class="breadcrumb" id="breadcrumb">ManiMux Guide / Overview</div><section aria-labelledby="overview" class="guide-page overview" data-page-id="overview" data-title="Overview">
 <div class="kicker">Documentation / Real-robot research</div>
 <h1 id="overview">ManiMux</h1>
@@ -1067,6 +1067,72 @@ starting presets, not a frozen protocol.</p>
 cannot add a missing sampler hook. Historical runbook measurements apply to their recorded
 revisions, not automatically to a new checkpoint.</p>
 </section>
+<section aria-labelledby="experiment-lists" class="guide-page" data-page-id="experiment-lists" data-title="Task &amp; method switching" hidden=""><h2 id="experiment-lists">Task &amp; method switching</h2>
+<p>Use <code>serve --config-list</code> to choose experiments in RoboGUI while keeping the same model and camera services running. A list references complete experiment YAMLs; it does not override their parameters.</p>
+<h3 id="experiment-config-locations">Where configurations live</h3>
+<table><thead><tr><th>File</th><th>Owns</th></tr></thead><tbody>
+<tr><td><code>manimux/configs/experiment_lists/*.yaml</code></td><td>The experiments available in this session. First entry is the initial selection.</td></tr>
+<tr><td><code>manimux/configs/experiments/&lt;task&gt;/&lt;model&gt;/*.yaml</code></td><td>Task prompt, inference method, executor, output directory, layout/repeat rules and rubric reference.</td></tr>
+<tr><td><code>manimux/configs/policy/&lt;model&gt;/&lt;robot&gt;/&lt;dataset&gt;/*.yaml</code></td><td>Shared checkpoint, normalization, model initialization and backend identity.</td></tr>
+<tr><td><code>manimux/configs/inference/*.yaml</code></td><td>Reusable method parameters, referenced by the experiment.</td></tr>
+<tr><td><code>manimux/configs/evaluation/*.yaml</code></td><td>Task scoring rules; existing episode snapshots remain unchanged.</td></tr>
+</tbody></table>
+<pre><code class="language-yaml"># manimux/configs/experiment_lists/yam_pi05_mixed300ep.yaml
+experiments:
+  - id: coin_rtc
+    label: RTC
+    config: ../experiments/coin/pi05/yam_pi05_mixed300ep_rtc_step30000.yaml
+  - id: coin_serial
+    label: Serial
+    config: ../experiments/coin/pi05/yam_pi05_mixed300ep_serial_step30000.yaml
+  - id: stack_blocks_small_rtc
+    label: RTC
+    config: ../experiments/stack_blocks_small/pi05/yam_pi05_mixed300ep_rtc_step30000.yaml
+</code></pre>
+<p><code>id</code> must be unique. <code>config</code> is relative to the list file. Optional <code>label</code> is shown as Method / Config and defaults to the ID. Task and algorithm come from the resolved experiment, so they are not repeated in the list. Give parameter variants distinct labels and output directories.</p>
+<h3 id="mixed300ep-launch">Launch the mixed-task Pi05 30k experiments</h3>
+<p>The complete list contains six tasks × four methods: RTC, Serial, Async and PAINT. All use the shared <code>policy/pi05/yam/mixed/joint-step30000.yaml</code> recipe and direct executor. The checkpoint is <code>pi05_yam_mixed_20261011_300ep_30k/30000</code>; it is separate from the older single-task coin/block checkpoints.</p>
+<p>Stop teleoperation before using the same robot/cameras for inference. Run these commands in four terminals. Camera and model services use the first experiment's shared settings; keep them running when changing the UI selection.</p>
+<pre><code class="language-bash"># Terminal 1 — cameras
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python -m manimux.servers.camera.server \
+  --experiment manimux/configs/experiments/coin/pi05/yam_pi05_mixed300ep_rtc_step30000.yaml
+
+# Terminal 2 — RoboGUI
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
+  --robot yam --host 127.0.0.1 --port 8086
+
+# Terminal 3 — model (loads weights once)
+cd /home/ubuntu/manimux
+XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
+  --experiment manimux/configs/experiments/coin/pi05/yam_pi05_mixed300ep_rtc_step30000.yaml
+
+# Terminal 4 — selectable runtime
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python -m manimux serve \
+  --config-list manimux/configs/experiment_lists/yam_pi05_mixed300ep.yaml
+</code></pre>
+<p>Open <a href="http://127.0.0.1:8086">RoboGUI</a>. Choose <strong>Task → Method / Config → Layout → Prepare Run / Prepare Experiment</strong>. Then Activate Warmup → Start rollout. After Finish, save or skip evaluation before selecting another configuration. Prepare Run needs neither a layout nor scoring. Prepare may move the robot to its configured start pose.</p>
+<h3 id="experiment-switch-boundaries">What changes at selection</h3>
+<table><thead><tr><th>Changes</th><th>Behavior</th></tr></thead><tbody>
+<tr><td>Task</td><td>Update prompt, rubric, reference layout library and per-method repeat progress. The mixed model receives the task instruction in each observation.</td></tr>
+<tr><td>Runtime method / parameters</td><td>Create a fresh runtime on the next Prepare: new worker, strategy, timeline and warmup. No old chunk or ensemble history is reused.</td></tr>
+<tr><td>Checkpoint, normalization, model initialization (including num_steps), cameras, robot or action contract</td><td>Rejected within one list. Use a separate list and launch its matching services. Same weights alone are insufficient for service reuse.</td></tr>
+<tr><td>YAML edited on disk</td><td>Lists are loaded and validated at serve startup. Restart serve to load edits; model/camera changes also require their services to restart.</td></tr>
+</tbody></table>
+<p>Task/config selection is disabled while preparing, running, recovering or awaiting evaluation. Switching never starts a rollout. Backend identity and sampling capability checks remain enabled. In the mixed recipe, task_name identifies the shared deployment; <code>run.task</code> owns the actual instruction.</p>
+<h3 id="experiment-list-records">Output and provenance</h3>
+<pre><code>data/experiments/pi05-mixed300ep-step30000/
+  coin/rtc/session-.../
+    session-manifest.json
+    rollout-001/...
+  coin/serial/session-.../
+  stack_blocks_small/rtc/session-.../
+</code></pre>
+<p>Each selection opens a new session under that experiment's output directory. The session manifest saves the selected ID, list path/hash, experiment path/hash and complete resolved configuration. Repeat progress includes prior finalized scored records in the same method directory. New checkpoint configs do not overwrite historical experiment YAMLs or results.</p>
+<p>Coin retains stages 0 / 0.1 / 0.3 / 0.5 / 1; both stacking tasks retain 0 / 0.5 / 1; bottles retain the existing count rubric. Clock and moving-cube configs currently use binary scoring. Their ten-layout templates require saved task reference images for Prepare Experiment; use Prepare Run for a trial without a reference.</p>
+</section>
 <section aria-labelledby="experiments" class="guide-page" data-page-id="experiments" data-title="Rules, templates &amp; scoring" hidden=""><h2 id="experiments">Experiments</h2>
 <h3 id="agree-on-the-rule-before-collection">Agree on the rule before collection</h3>
 <table>
@@ -1193,13 +1259,21 @@ Each rollout saves a snapshot; later YAML edits do not change historical scores.
 Layout stays editable until first Start. The suggested repeat updates with the selected layout.
 Start validates the template and freezes layout, repeat and image hash; Pause/Resume keeps that selection locked.
 Warmup only previews predictions; it never executes them. Keep reset and stopping rules consistent.</li>
-<li><strong>Finish</strong>, select outcome/count, inspect the derived score, then <strong>Save evaluation</strong>.</li>
+<li><strong>Finish</strong>, select one score option, then <strong>Save evaluation</strong>.
+The scoring template supplies the expanded single-choice options: stage labels and scores,
+or counts with their derived scores (for example 0 / 0.5 / 1). Without partial-credit rules,
+choose <strong>1 · Completed</strong> or <strong>0 · Not completed</strong>. Nothing is preselected.</li>
 <li>For an unusable trial, mark invalid and state the reason. <strong>Skip evaluation</strong> leaves it unreviewed.</li>
 <li>Start a fresh rollout for the next trial. Preserve failed attempts and separately identify retries.</li>
 </ol>
 <p>For completion time, annotate seconds from formal Start to the success criterion, only for
 successful attempts. Do not substitute the full recording duration. Free rollouts have no
 scoring step. Optional operator notes and failure details are entered after Finish.</p>
+<p>If a finished experiment was skipped or the GUI was restarted, <strong>New rollout</strong>
+shows <strong>Unscored experiment → Score selected experiment</strong> while the runtime is idle.
+It lists started, finalized, unlabelled experiments for the same task and method output directory.
+Select the session/rollout and score it in the existing form using its saved rubric;
+new YAML rules do not replace historical scoring rules. Free runs and partial attempts are excluded.</p>
 </section>
 <section aria-labelledby="records" class="guide-page" data-page-id="records" data-title="Records &amp; replay" hidden=""><h2 id="records">Records</h2>
 <pre><code class="language-text">&lt;run.output_dir&gt;/

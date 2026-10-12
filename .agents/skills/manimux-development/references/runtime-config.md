@@ -4,6 +4,28 @@
 
 Source paths below are relative to the repository root.
 
+## Experiment lists and idle selection
+
+`manimux/experiment_list.py` loads a finite catalog through the existing CLI loader.
+`serve --config-list` accepts entries with unique IDs, config paths relative to the
+list, and optional display labels. Task/method/rubric still belong to each resolved
+experiment. The first entry is selected initially. All entries must share model
+initialization, policy I/O, camera and robot contracts; output directories must differ.
+
+`RuntimeSessionService` accepts selection requests only in its idle polling loop,
+after evaluation and recovery. Requests carry the current run_dir; stale Prepare
+requests also have to match the selected ID. The GUI retains a selection request
+until acknowledgement, disables Prepare while pending, and refreshes task, rubric,
+reference layout and progress together. Each selection creates a separate session
+manifest with list/selection provenance and a frozen resolved config. Each Prepare
+constructs a fresh runtime using the existing worker reset/warmup lifecycle.
+
+The model and camera servers are external and stay alive; this is not model hot
+reload. Keep identity/capability validation. Multi-task recipes keep deployment
+identity fixed and supply the actual prompt via run.task in each observation.
+Changing model initialization or YAML on disk requires restarting the affected
+service. Public operation and paths: [Task & method switching](../../../../guideline.html#experiment-lists).
+
 ## Inference algorithm versus executor
 
 Current experiment entries explicitly select `executor.type: direct` for every

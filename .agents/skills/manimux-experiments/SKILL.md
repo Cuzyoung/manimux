@@ -48,6 +48,18 @@ Load only the needed reference:
 
 ## Define a custom study with the user
 
+For a set of tasks/methods sharing one deployment, use
+`manimux serve --config-list manimux/configs/experiment_lists/<name>.yaml`.
+See [Task & method switching](../../../guideline.html#experiment-lists).
+List entries reference existing experiment YAMLs under `experiments/<task>/<model>/`;
+do not duplicate prompts or algorithm parameters in the list. Shared model recipes
+belong under `policy/<model>/<robot>/<dataset>/`. The list loader rejects different
+model initialization, normalization, camera or robot contracts. Give each setting a
+distinct output directory and preserve historical configs/results. UI selection is
+idle-only, after evaluation is saved/skipped; it does not start hardware. Task changes
+also change rubric/reference/progress. Keep the two Prepare Run / Prepare Experiment
+buttons and never silently substitute a checkpoint to enable a method.
+
 Use [Set study rules and run experiments](../../../guideline.html#experiments)
 as the user-facing guide. First inspect the selected experiment, referenced rubric
 and prior decisions. Ask only unresolved questions, in small batches:

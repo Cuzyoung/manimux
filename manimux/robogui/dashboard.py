@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import signal
 import threading
 import time
@@ -25,7 +26,8 @@ from .camera_panel import _camera_panel_html as _camera_panel_html
 from .chunk_timeline import ChunkTimelineView
 from .communication import ControlServer, PolicyPlan, RobotSnapshot, RoboGUIReceiver
 from .reference_layouts import DEFAULT_LAYOUT_ROOT
-from .study_setup import reference_task, completed_repeats, next_repeat
+from .score_choices import ScoreChoices
+from .study_setup import reference_task, completed_repeats, next_repeat, unscored_experiments
 from .robot_view import RobotGroup, RobotView, load_robogui_config, load_robot_view
 from .top_overlay import TopViewOverlay
 
@@ -117,6 +119,9 @@ class PolicyRoboGUI:
         self._clear_recovery()
         self.new_rollout_requested = False
         self._rollout_request: dict[str, Any] = {}
+        self._experiment_choices: list[dict[str, Any]] = []
+        self._experiment_id = ""
+        self._pending_experiment_id = ""
         self._start_identity: dict[str, Any] | None = None
         self.warmup_requested = False
         self.preparing_rollout = False
@@ -128,6 +133,7 @@ class PolicyRoboGUI:
         self._reference_task = ""
         self._repeat_history: dict[tuple[str, str], set[int]] = {}
         self._study_root: Path | None = None
+        self._unscored_experiments: dict[str, Path] = {}
         self.evaluation_complete = True
         self.evaluation_profile = evaluation_parameters()
         self.episode_active = False
@@ -270,6 +276,12 @@ class PolicyRoboGUI:
                 "⚪ Waiting for a ManiMux runtime service."
             )
             self.setup_summary = self.server.gui.add_markdown("Waiting for configuration.")
+            self.experiment_task = self.server.gui.add_dropdown(
+                "Task", ("—",), disabled=True, visible=False,
+            )
+            self.experiment_config = self.server.gui.add_dropdown(
+                "Method / Config", ("—",), disabled=True, visible=False,
+            )
             self.layout = self.server.gui.add_dropdown("Layout", ("—",), disabled=True)
             self.layout_progress = self.server.gui.add_markdown("")
             self.prepare_normal_btn = self.server.gui.add_button(
@@ -277,6 +289,12 @@ class PolicyRoboGUI:
             )
             self.prepare_experiment_btn = self.server.gui.add_button(
                 "Prepare Experiment", color="green", disabled=True
+            )
+            self.unscored_experiment = self.server.gui.add_dropdown(
+                "Unscored experiment", ("—",), disabled=True, visible=False
+            )
+            self.score_previous_btn = self.server.gui.add_button(
+                "Score selected experiment", disabled=True, visible=False
             )
         self.policy_control_folder = self.server.gui.add_folder(
             "② Policy control", expand_by_default=True
@@ -326,15 +344,16 @@ class PolicyRoboGUI:
             self.evaluation_rule = self.server.gui.add_text(
                 "Scoring", "General", disabled=True
             )
-            self.task_result = self.server.gui.add_dropdown(
+            self.task_result = ScoreChoices(
+                self.server.gui, self.evaluation_folder,
                 "Task result",
                 ("unlabeled", "Completed", "Not completed"),
-                initial_value="unlabeled",
-                disabled=True,
+                disabled=True, lock=self.lock,
             )
-            self.completed_count = self.server.gui.add_dropdown(
-                "Completed items", ("unlabeled",), initial_value="unlabeled",
-                disabled=True, visible=False,
+            self.completed_count = ScoreChoices(
+                self.server.gui, self.evaluation_folder,
+                "Completed items", ("unlabeled",),
+                disabled=True, visible=False, lock=self.lock,
             )
             self.completion_score = self.server.gui.add_markdown(
                 "Select a completed count.", visible=False
@@ -411,6 +430,31 @@ class PolicyRoboGUI:
             with self.lock:
                 self._start_rollout()
 
+        @self.experiment_task.on_update
+        def _select_task(event: Any) -> None:
+            if event.client is None:
+                return
+            with self.lock:
+                candidates = [c for c in self._experiment_choices
+                              if c["task"] == self.experiment_task.value]
+                current = next((c for c in self._experiment_choices
+                                if c["id"] == self._experiment_id), {})
+                choice = next((c for c in candidates if c["label"] == current.get("label")),
+                              candidates[0] if candidates else None)
+                if choice is not None:
+                    self._request_experiment(choice["id"])
+
+        @self.experiment_config.on_update
+        def _select_config(event: Any) -> None:
+            if event.client is None:
+                return
+            with self.lock:
+                choice = next((c for c in self._experiment_choices
+                               if c["task"] == self.experiment_task.value
+                               and c["label"] == self.experiment_config.value), None)
+                if choice is not None:
+                    self._request_experiment(choice["id"])
+
         @self.prepare_normal_btn.on_click
         def _prepare_run(_event: Any) -> None:
             self._prepare_rollout(experiment_mode=False)
@@ -424,6 +468,11 @@ class PolicyRoboGUI:
             with self.lock:
                 if not self.layout.disabled:
                     self._refresh_layout()
+
+        @self.score_previous_btn.on_click
+        def _score_previous(_event: Any) -> None:
+            with self.lock:
+                self._open_unscored_experiment()
 
         @self.pause_btn.on_click
         def _pause(_event: Any) -> None:
@@ -936,6 +985,12 @@ class PolicyRoboGUI:
             for o in self.evaluation_profile.get("options", [])
         }
         self.task_result.value = "unlabeled"
+        self.task_result.display_labels = (
+            {f"{o['label']} · {o['score']:g}": f"{o['score']:g} · {o['label']}"
+             for o in self.evaluation_profile["options"]}
+            if self.evaluation_profile["kind"] == "stages"
+            else {"Completed": "1 · Completed", "Not completed": "0 · Not completed"}
+        )
         self.task_result.options = (
             ("unlabeled", *self._stage_ids)
             if self.evaluation_profile["kind"] == "stages"
@@ -943,6 +998,12 @@ class PolicyRoboGUI:
         )
         self.completed_count.value = "unlabeled"
         self.completion_time.value = ""
+        self.completed_count.display_labels = (
+            {str(value): f"{value / self.evaluation_profile['target_count']:g} · "
+             f"{self.evaluation_profile['count_label']}: {value}/{self.evaluation_profile['target_count']}"
+             for value in range(self.evaluation_profile["target_count"] + 1)}
+            if counted else {}
+        )
         self.completed_count.options = (
             ("unlabeled",) + tuple(
                 str(value) for value in range(self.evaluation_profile["target_count"] + 1)
@@ -1011,10 +1072,15 @@ class PolicyRoboGUI:
         )
 
     def _set_setup_controls_enabled(self, enabled: bool) -> None:
-        allowed = enabled and self.evaluation_complete and not self._recovery_pending()
+        allowed = (enabled and self.evaluation_complete and not self._recovery_pending()
+                   and not self._pending_experiment_id)
         can_prepare = allowed and not self.preparing_rollout and not self.episode_active
+        self.experiment_task.disabled = not can_prepare
+        self.experiment_config.disabled = not can_prepare
         self.prepare_normal_btn.disabled = not can_prepare
         self.prepare_experiment_btn.disabled = not can_prepare
+        self.unscored_experiment.disabled = not can_prepare or not self._unscored_experiments
+        self.score_previous_btn.disabled = self.unscored_experiment.disabled
         self._set_layout_controls_enabled(allowed or (
             self.episode_active and not self.rollout_started and not self.finish_btn.disabled
         ))
@@ -1052,6 +1118,30 @@ class PolicyRoboGUI:
         self._refresh_repeat_history()
         self._refresh_layout()
 
+    def _configure_experiment_choices(self, metadata: dict[str, Any]) -> None:
+        self._experiment_choices = list(metadata.get("experiment_choices", []))
+        self._experiment_id = str(metadata.get("experiment_id", ""))
+        visible = bool(self._experiment_choices)
+        self.experiment_task.visible = self.experiment_config.visible = visible
+        if not visible:
+            return
+        choice = next(c for c in self._experiment_choices if c["id"] == self._experiment_id)
+        self.experiment_task.options = tuple(dict.fromkeys(c["task"] for c in self._experiment_choices))
+        self.experiment_task.value = choice["task"]
+        self.experiment_config.options = tuple(c["label"] for c in self._experiment_choices
+                                               if c["task"] == choice["task"])
+        self.experiment_config.value = choice["label"]
+
+    def _request_experiment(self, choice_id: str) -> None:
+        if (not self.service_ready or not self.evaluation_complete or self.preparing_rollout
+                or self.episode_active or self._recovery_pending() or self._pending_experiment_id):
+            return
+        if choice_id == self._experiment_id:
+            return
+        self._pending_experiment_id = choice_id
+        self._update_prepare_enabled()
+        self.rollout_setup_status.content = "🟠 Switching experiment configuration…"
+
     def _refresh_layout_visibility(self) -> None:
         show_layout = not (self.preparing_rollout or self.episode_active) or self.experiment_mode
         self.layout.visible = show_layout and self.layout.options != ("—",)
@@ -1064,6 +1154,45 @@ class PolicyRoboGUI:
         self._repeat_history = completed_repeats(
             self._study_root, self.task_command, self._research_defaults
         )
+        self._unscored_experiments = unscored_experiments(self._study_root, self.task_command)
+        selected = self.unscored_experiment.value
+        self.unscored_experiment.options = tuple(self._unscored_experiments) or ("—",)
+        self.unscored_experiment.value = (
+            selected if selected in self._unscored_experiments else self.unscored_experiment.options[0]
+        )
+        self.unscored_experiment.visible = bool(self._unscored_experiments)
+        self.score_previous_btn.visible = bool(self._unscored_experiments)
+
+    def _open_unscored_experiment(self) -> None:
+        if (not self.service_ready or self.episode_active or self.preparing_rollout
+                or not self.evaluation_complete or self._recovery_pending()):
+            return
+        selected = self.unscored_experiment.value
+        self._refresh_repeat_history()
+        episode = self._unscored_experiments.get(selected)
+        if episode is None:
+            self.rollout_setup_status.content = "This experiment is no longer awaiting evaluation."
+            self._update_prepare_enabled()
+            return
+        try:
+            meta = json.loads((episode / "meta.json").read_text())
+            self._configure_evaluation(meta.get("evaluation"))
+        except (OSError, TypeError, ValueError) as exc:
+            self.rollout_setup_status.content = f"Could not open evaluation: {exc}"
+            return
+        self._set_experiment_mode(True)
+        self._reset_evaluation(str(episode))
+        self.episode_finalized = True
+        self._show_recorded_identity(meta)
+        self._set_evaluation_enabled(True)
+        self._update_prepare_enabled()
+        self._set_stage("evaluation")
+        self.evaluation_status.content = (
+            f"**Layout {meta.get('layout_id') or '—'} · Repeat {meta.get('repeat_id') or '—'}**"
+            f" · {episode.parent.name}/{episode.name}\n\n"
+            "Using this experiment's saved scoring rules."
+        )
+        self.status.content = "🟡 **Reviewing an unscored experiment · save or skip evaluation**"
 
     def _selected_layout(self, *, freeze: bool = False) -> dict[str, Any]:
         slot = "" if self.layout.value == "—" else self.layout.value
@@ -1112,7 +1241,7 @@ class PolicyRoboGUI:
     def _prepare_rollout(self, *, experiment_mode: bool) -> None:
         with self.lock:
             if (self._recovery_pending() or not self.service_ready or not self.evaluation_complete
-                    or self.preparing_rollout or self.episode_active):
+                    or self.preparing_rollout or self.episode_active or self._pending_experiment_id):
                 return
             try:
                 selection = self._selected_layout(freeze=True) if experiment_mode else {}
@@ -1128,7 +1257,8 @@ class PolicyRoboGUI:
                 self.rollout_setup_status.content = f"🔴 Prepare was not submitted: {exc}"
                 self._update_prepare_enabled()
                 return
-            self._rollout_request = {"task_command": self.task_command.strip(), **identity}
+            self._rollout_request = {"task_command": self.task_command.strip(),
+                                     "experiment_id": self._experiment_id, **identity}
             self._show_recorded_identity(identity)
             self._set_experiment_mode(experiment_mode)
             self._start_identity = None
@@ -1206,6 +1336,7 @@ class PolicyRoboGUI:
         self.new_rollout_requested = False
         self._rollout_request = {}
         self.preparing_rollout = False
+        self._pending_experiment_id = ""
         self.episode_active = False
         self.current_episode_dir = None
         self._episode_id = ""
@@ -1333,6 +1464,8 @@ class PolicyRoboGUI:
                 "recovery_service_id": getattr(self, "service_id", ""),
                 "recovery_lease": getattr(self, "recovery_lease", False),
                 "new_rollout_requested": self.new_rollout_requested,
+                "select_experiment_id": self._pending_experiment_id,
+                "evaluation_complete": self.evaluation_complete,
                 **deepcopy(self._rollout_request),
             }
             self.home_requested = False
@@ -1772,10 +1905,13 @@ class PolicyRoboGUI:
             self.last_service_time = time.time()
             incoming_service_id = str(metadata.get("run_dir", ""))
             new_service = bool(incoming_service_id and incoming_service_id != self.service_id)
-            first_service_announcement = self.launch_mode != "serve" or new_service
+            selection_discovered = (str(metadata.get("experiment_id", "")) != self._experiment_id
+                                    and not self._pending_experiment_id)
+            first_service_announcement = self.launch_mode != "serve" or new_service or selection_discovered
             if new_service:
                 self._reset_for_new_service()
             if first_service_announcement:
+                self._configure_experiment_choices(metadata)
                 self._configure_research(metadata)
             elif "experiment_template" in metadata and metadata["experiment_template"] != self.experiment_template:
                 # Reconnecting during a free run only gives us its unscored identity.
@@ -1809,6 +1945,13 @@ class PolicyRoboGUI:
             self._update_prepare_enabled()
             self._set_stage("setup" if self.evaluation_complete else "evaluation")
             self._idle_status(last_error)
+            if metadata.get("selection_error"):
+                self._pending_experiment_id = ""
+                self._configure_experiment_choices(metadata)
+                self._update_prepare_enabled()
+                self.rollout_setup_status.content = f"🔴 {metadata['selection_error']}"
+            elif self._pending_experiment_id:
+                self.rollout_setup_status.content = "🟠 Switching experiment configuration…"
         elif event == "episode_failed":
             if metadata.get("run_dir") and metadata["run_dir"] != self.service_id:
                 return
