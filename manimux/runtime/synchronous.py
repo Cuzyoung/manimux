@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 
-from manimux.runtime.inference import CommitSettings, InferenceSubmission
+from manimux.runtime.inference import CommitSettings, EnsembleScope, InferenceSubmission
 from manimux.runtime.safety import RuntimeState
 from manimux.types import ActionChunk, InferenceRequest, copy_group_vector
 
@@ -19,6 +19,10 @@ class SynchronousChunkStrategy:
     request_type: type[InferenceRequest]
     horizon_metadata: str | None = None
     label: str
+
+    @property
+    def ensemble_scope(self) -> EnsembleScope:
+        return "execution_prefix"
 
     def __init__(self, config: dict) -> None:
         self._config = config

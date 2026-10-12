@@ -18,8 +18,11 @@ from manimux.runtime.candidates import align_prediction
 from manimux.runtime.inference import (
     CommitSettings,
     DefaultChunkStrategy,
+    EnsembleScope,
+    EnsembleSource,
     InferenceSubmission,
     RequestState,
+    StrategyChunkSelector,
 )
 from manimux.runtime.safety import RuntimeState
 from manimux.runtime.timeline import ActionTimeline, CommitResult
@@ -307,6 +310,7 @@ class SerialACTStrategy(DefaultChunkStrategy):
 
     name = "act_temporal_ensemble"
     hold_last_step = True
+    ensemble_scope: EnsembleScope = "full_prediction"
 
     def prepare_chunk(self, *, chunk, response, now_ns):
         steps = self._config["inference"]["chunk_policy_steps"] or chunk.horizon_steps
@@ -321,7 +325,12 @@ class EnsembleStrategy:
     discard_plans_while_paused = True
 
     def __init__(self, strategy, config):
+        if not isinstance(strategy, EnsembleSource) or strategy.ensemble_scope not in {
+            "full_prediction", "execution_prefix",
+        }:
+            raise ValueError("ACT composition requires an explicit ensemble_scope")
         self._strategy = strategy
+        self._scope = strategy.ensemble_scope
         self._config = config
         self._ensembler = ACTTemporalEnsembler(
             config["inference"]["temporal_ensemble"]["coefficient"],
@@ -346,17 +355,15 @@ class EnsembleStrategy:
         return chunk
 
     def select_chunk(self, *, chunk, now_ns):
-        select = getattr(self._strategy, "select_chunk", None)
-        return select(chunk=chunk, now_ns=now_ns) if callable(select) else chunk
+        if isinstance(self._strategy, StrategyChunkSelector):
+            return self._strategy.select_chunk(chunk=chunk, now_ns=now_ns)
+        return chunk
 
     def prepare_chunk(self, *, chunk, response, now_ns):
         from manimux.runtime.timeline import first_future_step
 
-        # Fixed BID and serial ACT retain full predictions before prefix execution.
-        # Adaptive horizon methods limit each prediction's ensemble contribution.
-        bid = self.name == "bid_backward"
-        adaptive_bid = bid and self._config["inference"]["bid"]["execution_horizon"] == "aac"
-        full_prediction = (bid and not adaptive_bid) or self.name == "act_temporal_ensemble"
+        # The source strategy owns its contribution range; no algorithm-name dispatch.
+        full_prediction = self._scope == "full_prediction"
         if not full_prediction:
             chunk = self._strategy.prepare_chunk(chunk=chunk, response=response, now_ns=now_ns)
         origin = (

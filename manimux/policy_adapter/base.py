@@ -21,6 +21,11 @@ class PolicyAdapter(ABC):
     # Decode model apertures and invert the mapping for RTC conditioning.
     supports_gripper_mapping = False
 
+    # Each candidate decodes independently into complete, untrimmed absolute-joint
+    # rows on the policy time grid, with no runtime trajectory or handoff attached.
+    # Used by BID and deferred AAC selection; this does not declare model sampling.
+    supports_candidate_decoding = False
+
     def __init__(self, robot: dict, policy: dict, *, kinematics=None):
         self.robot = robot
         self.policy = policy

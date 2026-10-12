@@ -32,6 +32,7 @@ from manimux.runtime.inference import (
     DefaultChunkStrategy,
     InferenceStrategy,
     RequestState,
+    StrategyChunkSelector,
     build_inference_strategy,
     decode_strategy_action,
     prepare_strategy_chunk,
@@ -178,7 +179,7 @@ class EdgeRuntime:
                 config["inference"]["algorithm"] in {"aac", "autohorizon"}
                 and config["inference"]["inference_schedule"] != "serial"
             )
-        ) and not getattr(self._adapter, "supports_bid_backward", False):
+        ) and not getattr(self._adapter, "supports_candidate_decoding", False):
             raise ValueError("inference composition requires complete absolute-joint decoding")
         self._scheduler = RequestScheduler(config["inference"])
         self._multi_inflight = self._scheduler.multi_inflight
@@ -204,7 +205,7 @@ class EdgeRuntime:
             raise ValueError("adapter does not support waypoint handoff")
         self._strategy = strategy or DefaultChunkStrategy(config)
         if self._strategy.name == "bid_backward" and not getattr(
-            self._adapter, "supports_bid_backward", False,
+            self._adapter, "supports_candidate_decoding", False,
         ):
             raise ValueError("BID requires an adapter with candidate decoding support")
         self._decoder = None
@@ -956,8 +957,11 @@ class EdgeRuntime:
                             pending_visuals.pop(response.request_seq, None)
                             chunk = None
                         canonical_raw = None if chunk is None else copy_action_chunk(chunk)
-                        select_chunk = getattr(self._strategy, "select_chunk", None)
-                        if chunk is not None and not callable(select_chunk):
+                        selector = (
+                            self._strategy
+                            if isinstance(self._strategy, StrategyChunkSelector) else None
+                        )
+                        if chunk is not None and selector is None:
                             try:
                                 with stage("strategy_prepare_chunk"):
                                     chunk = prepare_strategy_chunk(
@@ -1027,9 +1031,11 @@ class EdgeRuntime:
                             else:
                                 with stage("timeline_commit"):
                                     try:
-                                        if callable(select_chunk):
+                                        if selector is not None:
                                             # Selection and trimming share one handoff clock.
-                                            chunk = select_chunk(chunk=chunk, now_ns=now_ns)
+                                            chunk = selector.select_chunk(
+                                                chunk=chunk, now_ns=now_ns,
+                                            )
                                             canonical_raw = copy_action_chunk(chunk)
                                             chunk = prepare_strategy_chunk(
                                                 self._strategy, chunk=chunk,

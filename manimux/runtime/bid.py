@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from manimux.runtime.candidates import align_prediction, decode_candidates
-from manimux.runtime.inference import InferenceSubmission
+from manimux.runtime.inference import EnsembleScope, InferenceSubmission
 from manimux.runtime.safety import RuntimeState
 from manimux.runtime.synchronous import SynchronousChunkStrategy
 from manimux.runtime.timeline import first_future_step
@@ -53,6 +53,13 @@ class BidBackwardStrategy(SynchronousChunkStrategy):
         self._settings = config["inference"]["bid"]
         self._groups = tuple(config["robot"]["group_dims"])
         self.reset()
+
+    @property
+    def ensemble_scope(self) -> EnsembleScope:
+        return (
+            "execution_prefix" if self._settings["execution_horizon"] == "aac"
+            else "full_prediction"
+        )
 
     @property
     def required_sampling_modes(self) -> frozenset[str]:

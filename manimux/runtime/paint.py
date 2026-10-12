@@ -12,6 +12,7 @@ from manimux.policy_adapter.base import PolicyAdapter
 from manimux.runtime.candidates import sample_reference
 from manimux.runtime.inference import (
     CommitSettings,
+    EnsembleScope,
     InferenceSubmission,
     RequestState,
 )
@@ -38,6 +39,8 @@ class PaintInferenceRequest(InferenceRequest):
 
 class PaintInferenceStrategy:
     """Algorithm 1 scheduling around an XPolicy flow-sampler hook."""
+
+    ensemble_scope: EnsembleScope = "execution_prefix"
 
     def __init__(self, config: dict) -> None:
         self._config = config

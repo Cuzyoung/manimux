@@ -67,7 +67,7 @@ joint and gripper targets in configured group order, after gripper conversion.
 There is no extra normalization, per-arm averaging, or FK-based EE metric. This is
 an explicit action-space adaptation of the reference, whose example has seven action
 coordinates. Arbitrary native/delta/EEF adapters are not enabled by this change;
-they need candidate-decoding validation before declaring `supports_bid_backward`.
+they need candidate-decoding validation before declaring `supports_candidate_decoding`.
 
 ## Configuration
 

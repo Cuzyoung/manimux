@@ -11,6 +11,7 @@ from manimux.policy_adapter.base import PolicyAdapter
 from manimux.runtime.candidates import sample_reference
 from manimux.runtime.inference import (
     CommitSettings,
+    EnsembleScope,
     InferenceSubmission,
     RequestState,
 )
@@ -33,6 +34,7 @@ class RtcInferenceStrategy:
     """Pi-guided RTC request scheduling and chunk conditioning."""
 
     discard_plans_while_paused = True
+    ensemble_scope: EnsembleScope = "execution_prefix"
 
     def __init__(self, config: dict) -> None:
         self._config = config

@@ -797,6 +797,31 @@ rows remaining after latency alignment, not already-expired source rows.</p>
 <p>Choose one base <code>algorithm</code>. Add ACT with <code>temporal_ensemble.enabled</code>, or select
 AAC's execution horizon through <code>bid.execution_horizon</code>. Merely adding an <code>rtc</code>,
 <code>paint</code> or <code>aac</code> parameter block does not activate a second algorithm.</p>
+<h3 id="what-ensemble-adds">What ensemble adds</h3>
+<p>Standalone <code>algorithm: act_temporal_ensemble</code> already performs temporal ensembling.
+The optional combination wraps another algorithm, such as RTC, with the same kind of output fusion.
+It uses predictions from different inference requests for the <strong>same future action time</strong>.
+It does not combine measured state with actions, call another model, or add another executor.</p>
+<pre><code class="language-text">RTC only:
+Scheduler → RTC request/condition → model → adapter → Timeline → executor
+
+RTC + ACT:
+Scheduler → RTC request/condition → model → adapter → ACT ensemble → Timeline → executor
+
+BID + ACT:
+model candidates → adapter decodes each → BID selects one → ACT ensemble → Timeline → executor</code></pre>
+<p>The factory creates <code>EnsembleStrategy(base_strategy, config)</code> only when the combination
+is enabled. The base strategy still constructs requests. The wrapper aligns and averages overlapping
+predictions before Timeline commit. Reset clears both the base strategy and ensemble history.</p>
+<table><thead><tr><th>Mechanism</th><th>Where it runs</th><th>What it changes</th></tr></thead><tbody>
+<tr><td>RTC conditioning</td><td>Inside model sampling</td><td>Uses the existing action plan and weights to guide generation of a new chunk.</td></tr>
+<tr><td><code>blend_policy_steps</code></td><td>Timeline handoff</td><td>Interpolates the beginning of a new plan from its configured command/state anchor.</td></tr>
+<tr><td>ACT temporal ensemble</td><td>After decoding, before Timeline</td><td>Weights predictions from multiple chunks at matching future timestamps.</td></tr>
+</tbody></table>
+<p>RTC + ACT keeps RTC conditioning and adds one output ensemble. It requires
+<code>blend_policy_steps: 0</code> so handoff interpolation is not added as well.
+This is a supported combination, not evidence that it improves task success. The next RTC condition
+uses the accepted fused timeline. No arbitrary stack of fusion algorithms is configured here.</p>
 <h3 id="add-act-to-rtc-paint-bid-aac-or-autohorizon">Add ACT to RTC, PAINT, BID, AAC or AutoHorizon</h3>
 <p>For example, RTC + ACT using a preset:</p>
 <pre><code class="language-yaml">inference:
@@ -808,6 +833,20 @@ AAC's execution horizon through <code>bid.execution_horizon</code>. Merely addin
     enabled: true
     coefficient: 0.01
 </code></pre>
+<p><strong>Disable the added ensemble:</strong> keep the base algorithm and set the flag to false
+in the experiment YAML. These are overrides to the same RTC experiment:</p>
+<pre><code class="language-yaml">inference:
+  algorithm: rtc
+  temporal_ensemble:
+    enabled: false</code></pre>
+<p>The combination flag defaults to false. Explicit false also overrides an enabled referenced preset.
+After changing YAML, finish the current rollout and restart <code>manimux serve --config ...</code>
+before preparing the next trial. The same model server can stay running for this flag change.
+For a controlled comparison, leave the other settings unchanged.</p>
+<p><code>coefficient: 0</code> still averages predictions with equal weights; it does not disable
+ensemble. A positive coefficient follows ACT's oldest-to-newest exponential weighting and gives
+older overlapping predictions more weight. Changing <code>enabled</code> to false does not disable
+the standalone <code>act_temporal_ensemble</code> algorithm; select another base algorithm to remove it.</p>
 <p>Apply the same <code>temporal_ensemble</code> block to PAINT, BID, AAC or AutoHorizon. Require
 inline complete absolute-joint decoding, <code>blend_policy_steps: 0</code>,
 <code>handoff_skip_steps: 0</code>, and the default <code>handoff: blend</code>. RTC/PAINT + ACT require
@@ -815,6 +854,28 @@ inline complete absolute-joint decoding, <code>blend_policy_steps: 0</code>,
 <p>The base algorithm retains its query/execution timing; ACT's
 <code>query_interval_policy_steps</code> is unused in these combinations. Only overlapping
 action times contribute, so serial AAC/AutoHorizon may have no effective overlap.</p>
+<h3 id="ensemble-contribution-scope">Which prediction rows participate</h3>
+<p>Prediction length and execution length are different. A model may predict 50 steps while this
+request executes only 5. The base strategy declares <code>ensemble_scope</code> in code;
+this is a developer contract, not another operator YAML setting.</p>
+<table><thead><tr><th>Source strategy</th><th>Declared scope</th><th>Order</th></tr></thead><tbody>
+<tr><td>Fixed-horizon BID, Serial ACT</td><td><code>full_prediction</code></td><td>Fuse and retain the full prediction; then crop the execution prefix.</td></tr>
+<tr><td>AAC, AutoHorizon, BID + AAC</td><td><code>execution_prefix</code></td><td>Crop to the selected execution length first; fuse and retain only those rows.</td></tr>
+<tr><td>RTC, PAINT</td><td><code>execution_prefix</code></td><td>Run the strategy's condition/plan validity checks first; fuse the returned chunk, which currently retains the full horizon.</td></tr>
+</tbody></table>
+<p>Only future, overlapping timestamps contribute in either mode. Cropping uses source-row indices;
+expired rows are still removed by Timeline. The ensemble wrapper reads this declaration rather than
+matching algorithm names. Keep the chosen scope fixed for a strategy instance.</p>
+<h3 id="strategy-extension-contracts">For agents and strategy developers</h3>
+<p>Use the optional protocols in <code>manimux/runtime/inference.py</code> when extending the existing
+strategy path. Do not introduce another control loop or move model sampling into the executor.</p>
+<table><thead><tr><th>Contract</th><th>Responsibility and call order</th></tr></thead><tbody>
+<tr><td><code>StrategyActionDecoder.decode_action(raw, context, *, adapter)</code></td><td>Decode through the existing adapter after the response arrives. Candidate methods may retain pending candidates by request ID. Warmup uses this same path.</td></tr>
+<tr><td><code>StrategyChunkSelector.select_chunk(*, chunk, now_ns)</code></td><td>Select after decoding. Execution uses the same timestamp for selection, preparation and Timeline commit. Warmup selects a preview without accepting a plan.</td></tr>
+<tr><td><code>EnsembleSource.ensemble_scope</code></td><td>Declare full_prediction or execution_prefix. The wrapper calls prepare_chunk once, after or before fusion respectively.</td></tr>
+<tr><td><code>on_plan_accepted / on_response_rejected / reset</code></td><td>Advance accepted reference history only after commit succeeds. Remove rejected pending state and rejected ensemble contributions; reset clears history before reuse.</td></tr>
+<tr><td><code>PolicyAdapter.supports_candidate_decoding</code></td><td>Opt in only when each candidate decodes to full, untrimmed absolute-joint rows on the policy grid, without handoff or runtime-trajectory data. Used by BID and deferred AAC; model sampling capability is checked separately.</td></tr>
+</tbody></table>
 <h3 id="asynchronous-adaptive-horizons">Asynchronous adaptive horizons</h3>
 <p>To use AAC or AutoHorizon with single-inflight, keep the selected method's parameters
 and replace its serial settings with these overrides:</p>

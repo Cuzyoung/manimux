@@ -30,7 +30,7 @@ joint targets; model frameworks own sampling, normalization and native output.
 The factory wraps a supported base strategy with `EnsembleStrategy`. Candidate
 selection and preparation share the final timeline handoff timestamp. The inline
 `decode_strategy_action` hook is also used during warmup; ordinary decoding remains
-unchanged. Candidate paths require an adapter declaring `supports_bid_backward`
+unchanged. Candidate paths require an adapter declaring `supports_candidate_decoding`
 and complete, untrimmed absolute-joint rows. See the
 [runtime integration contract](../../manimux-development/references/runtime-config.md).
 

@@ -8,7 +8,7 @@ from manimux.policies.base import action_interval
 
 
 def decode_candidates(candidates, context, *, adapter, config, count):
-    if not getattr(adapter, "supports_bid_backward", False):
+    if not getattr(adapter, "supports_candidate_decoding", False):
         raise ValueError("candidate decoding requires complete absolute-joint source rows")
     if (
         not isinstance(candidates, Sequence) or isinstance(candidates, str | bytes)

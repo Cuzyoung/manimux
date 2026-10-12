@@ -20,6 +20,14 @@ loaded server's HELLO sampling modes decide availability; an inherited method or
 configuration name alone is insufficient. ACT in this matrix is temporal
 ensembling, not a different trained policy.
 
+When a user asks about combining algorithms, read
+[Supported combinations](../../../guideline.html#optional-algorithm-composition).
+Explain the existing standalone ACT algorithm versus optional output ensemble on
+another base strategy. Show explicit true/false YAML overrides; distinguish RTC's
+sampling condition from Timeline blending and output averaging. When implementing
+a combination, follow the optional strategy protocols and ensemble_scope contract
+in the [runtime reference](../manimux-development/references/runtime-config.md).
+
 For selecting YAMLs, reuse `scripts/experiments/build_inference_matrix.py` with
 an existing task and checkpoint. It validates output through the real loader.
 AAC requires an explicitly chosen EE-increment statistics file. Check its data
