@@ -45,6 +45,18 @@ def state_vector(value):
     return value
 
 
+def ee_target_trace(steps, side, start_time_ns, dt_ns):
+    """JSON-safe TCP targets in the arm base, before any IK conversion."""
+    return {
+        "start_time_ns": start_time_ns,
+        "dt_ns": dt_ns,
+        "pose_xyz_wxyz": [
+            np.asarray(step[f"{side}_ee_pose"], dtype=float).tolist() for step in steps
+        ],
+        "aperture": [float(np.asarray(step[f"{side}_ee_joint_state"])[0]) for step in steps],
+    }
+
+
 class UmiDpTianjiAdapter(PolicyAdapter):
     supports_gripper_mapping = True
     uses_motion_limits = True
@@ -472,8 +484,21 @@ class UmiDpTianjiAdapter(PolicyAdapter):
         seed = context.ik_seed
         if seed is None:
             raise ValueError("UMI-DP decoding requires an IK seed")
-        steps = self._map_gripper_steps(steps)
         action_origin = context.observation_time_ns + self.offset_ns
+        # Keep native targets independently of gripper mapping and waypoint edits.
+        # Per-group dictionaries survive the decoder's atomic partition merge.
+        target_trace = {
+            f"{side}_arm": {
+                "schema": "umi-ee-target-trace-v1",
+                "frame": "arm_base",
+                "position_unit": "m",
+                "model_output": ee_target_trace(steps, side, action_origin, self.dt_ns),
+                "ik_seed_joints": state_vector(seed.groups[f"{side}_arm"]).tolist(),
+                "ik_seed_time_ns": seed.monotonic_ns,
+            }
+            for side in sides
+        }
+        steps = self._map_gripper_steps(steps)
         handoff = None
         if context.handoff_reference is not None and self.waypoint_handoff is not None:
             handoff = self.waypoint_handoff.plan(
@@ -486,6 +511,17 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 },
             )
             steps = self._handoff_steps(handoff.targets)
+        for side in sides:
+            ik_steps = steps
+            start_time_ns = action_origin
+            if handoff is not None:
+                pose, aperture = handoff.lead_in[f"{side}_arm"][-1]
+                ik_steps = [{f"{side}_ee_pose": matrix_pose(pose),
+                             f"{side}_ee_joint_state": np.array([aperture])}, *steps]
+                start_time_ns += handoff.join_row * self.dt_ns
+            target_trace[f"{side}_arm"]["ik_input"] = ee_target_trace(
+                ik_steps, side, start_time_ns, self.dt_ns
+            )
         groups = {}
         runtime_groups = {}
         samples_per_action = None
@@ -540,6 +576,7 @@ class UmiDpTianjiAdapter(PolicyAdapter):
                 "ik_backend": self.ik_backend,
                 "ik_seed_source": context.ik_seed_source,
                 "ik_seed_time_ns": seed.monotonic_ns,
+                "ee_target_trace": target_trace,
                 **({"ik_seed_plan_id": handoff.plan_id} if handoff is not None else {}),
                 "gripper_mapping": self.gripper_mapping.metadata(),
                 **(
