@@ -551,8 +551,11 @@ class Pi05PackPlateTacCapAdapter(_Pi05TianjiEEAdapter):
     """Pack-plate identity gate over the same Tianji absolute EE decoder."""
 
     _CHECKPOINT_VARIANTS = {
-        "pi05_pack_plate_wrist_only_step59999",
-        "pi05_pack_plate_full_zero_state_pack_instruction_step59999",
+        "pi05_pack_plate_wrist_only_step59999": "zero_pose",
+        "pi05_pack_plate_full_zero_state_pack_instruction_step59999": "zero_pose",
+        "pi05_pack_plate_full_zero_state_pack_instruction_step20000": "zero_pose",
+        "pi05_pack_plate_inter_hand_relative_step20000": "inter_hand_relative",
+        "pi05_pack_plate_inter_hand_relative_step59999": "inter_hand_relative",
     }
 
     def validate(self, robot: dict, policy: dict) -> None:
@@ -564,7 +567,9 @@ class Pi05PackPlateTacCapAdapter(_Pi05TianjiEEAdapter):
             "policy_name": "Pi_05",
             "task_name": "plate",
             "observation_profile": "tianji_taccap_pi05_pack_plate",
-            "model_state_encoding": "zero_pose",
+            "model_state_encoding": self._CHECKPOINT_VARIANTS.get(
+                identity.get("checkpoint_variant")
+            ),
             "output_format": "xpolicylab",
             "action_semantics": "absolute_per_arm_base_xyz_wxyz",
             "action_horizon": 32,
