@@ -1119,18 +1119,27 @@ experiments:
     config: ../experiments/stack_blocks_small/pi05/yam_pi05_mixed300ep_rtc_step30000.yaml
 </code></pre>
 <p><code>id</code> must be unique. <code>config</code> is relative to the list file. Optional <code>label</code> is shown as Method / Config and defaults to the ID. Task and algorithm come from the resolved experiment, so they are not repeated in the list. Give parameter variants distinct labels and output directories.</p>
-<h3 id="latest300ep-launch">Latest six-task Pi05 30k checkpoint</h3>
-<p><code>manimux/configs/experiment_lists/yam_pi05_latest300ep.yaml</code> selects the October 12 checkpoint: coin2, medium blocks, small blocks, bottles, rotating clock and moving cube, with 50 recordings each. It offers RTC, Serial, Async, AutoHorizon, PAINT and backward-only BID for each task. The existing mixed300ep list retains the October 11 checkpoint.</p>
-<p>The shared recipe is <code>manimux/configs/policy/pi05/yam/latest300/joint-step30000.yaml</code>. It binds the checkpoint and its own normalization assets on the Samsung T7. Model source is already present under <code>XPolicyLab/policy/Pi_05/openpi</code>. Config-loader validation is complete; real-weight sampling and robot performance remain to be measured. BID uses 16 candidates and backward coherence; it is not the full bidirectional algorithm.</p>
-<pre><code class="language-bash"># Model service only; does not start the robot.
-cd /home/ubuntu/manimux
+<h3 id="latest300ep-launch">Current Pi05 30k experiment list</h3>
+<p><code>manimux/configs/experiment_lists/yam_pi05_latest300ep.yaml</code> contains <strong>five tasks × six methods = 30 configurations</strong>. Tasks: coin (<code>put_the_coin_into_the_bin2</code>), medium blocks, bottles, rotating clock and moving cube. Methods: RTC, Serial, Async, AutoHorizon, PAINT and backward-only BID. Every entry uses <code>executor.type: direct</code>. The checkpoint was trained on six tasks; the experiment list does not include small blocks.</p>
+<p>The shared recipe is <code>manimux/configs/policy/pi05/yam/latest300/joint-step30000.yaml</code>. Configure its checkpoint and normalization paths for your station. BID uses 16 candidates and backward coherence; it is not the full bidirectional algorithm. The older mixed300ep list selects a different checkpoint.</p>
+<p>Run from the repository root in four terminals. Start the model successfully before Prepare; <code>serve</code> does not launch it.</p>
+<pre><code class="language-bash"># 1. Cameras
+envs/yam/.venv/bin/python -m manimux.servers.camera.server \
+  --experiment manimux/configs/experiments/coin/pi05/yam_pi05_latest300ep_rtc_step30000.yaml
+
+# 2. RoboGUI
+envs/yam/.venv/bin/python -m manimux.robogui.dashboard \
+  --robot yam --host 127.0.0.1 --port 8086
+
+# 3. Pi05 model
 XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
   --experiment manimux/configs/experiments/coin/pi05/yam_pi05_latest300ep_rtc_step30000.yaml
 
-# With the camera and RoboGUI services configured as below:
+# 4. Runtime with task/method selection
 envs/yam/.venv/bin/python -m manimux serve \
   --config-list manimux/configs/experiment_lists/yam_pi05_latest300ep.yaml
 </code></pre>
+<p>Outputs: <code>data/experiments/pi05-latest300ep-step30000/&lt;task&gt;/&lt;method&gt;/session-…/rollout-…/</code>. Each task/method targets ten layouts with three repeats. Keep retries visible; 30 target trials does not authorize dropping extra attempts.</p>
 <h3 id="mixed300ep-launch">Launch the mixed-task Pi05 30k experiments</h3>
 <p>The complete list contains six tasks × four methods: RTC, Serial, Async and PAINT. All use the shared <code>policy/pi05/yam/mixed/joint-step30000.yaml</code> recipe and direct executor. The checkpoint is <code>pi05_yam_mixed_20261011_300ep_30k/30000</code>; it is separate from the older single-task coin/block checkpoints.</p>
 <p>Stop teleoperation before using the same robot/cameras for inference. Run these commands in four terminals. Camera and model services use the first experiment's shared settings; keep them running when changing the UI selection.</p>
@@ -2016,6 +2025,7 @@ Partial episodes and records without the selected stream cannot be replayed.
 <pre><code class="language-yaml">schema: task-report-v1
 task_id: coin
 title: Coin study
+language: zh-CN  # Omit for English.
 output_root: ../../analysis
 groups:
   - setting_id: pi05-coin-50k-rtc-v1
@@ -2047,6 +2057,8 @@ Bind the recorded checkpoint and resolved setting; do not pool trials by folder 
     ├── task.yaml
     └── figures/
 </code></pre>
+<h3 id="report-metric-definitions">Metrics and aggregation</h3>
+<p>The comparison table groups attempts by the configured model/method setting. Missing values stay missing; every metric has its own eligible sample count.</p>
 <table>
 <thead>
 <tr>
@@ -2081,6 +2093,28 @@ Bind the recorded checkpoint and resolved setting; do not pool trials by folder 
 </tr>
 </tbody>
 </table>
+<h3 id="report-handoff-definition">Which two points form a handoff jump?</h3>
+<p>A boundary must appear in executed <code>ticks/plan_id</code> transitions and match its committed plan and boundary event. A received prediction alone does not count.</p>
+<ul>
+<li><strong>Continuous switch (typically RTC):</strong> at the incoming committed start time <code>t</code>, interpolate the outgoing committed reference at <code>t</code> and compare it with the incoming committed first point. That incoming point is after runtime trimming/blending. This is not a difference between two raw model rows or two adjacent control ticks.</li>
+<li><strong>End-hold restart (typically Serial):</strong> compare the last verified constant held command with the incoming committed first point. Report this class separately from continuous switches.</li>
+<li>Apply the selected robot FK to both joint targets. The reported jump is <code>1000 × ||XYZ_new − XYZ_old||</code> in mm, separately for each arm. It describes reference continuity, not measured robot motion.</li>
+</ul>
+<p><strong>Mean / P95 / Max:</strong> within one rollout, compute the mean, linearly interpolated 95th percentile and maximum over eligible boundaries of the same arm/class. Across a setting, Mean averages rollout means, P95 averages rollout P95s, and Max is the largest boundary. Rollouts have equal weight; the displayed P95 is not the percentile of pooled boundaries.</p>
+<p><strong>10 / 20 / 30 steps:</strong> compare old and new committed trajectories on the same future time grid. Each window requires complete coverage and has its own sample set; no endpoint padding. Serial can have a restart jump without a future overlap score. Aggregate valid window values within each rollout, then average rollout means. Velocity cosine excludes stationary pairs.</p>
+<h3 id="report-smoothness-profile">Enable smoothness and plots</h3>
+<p>Add this task-wide profile to the report index. The FK assembly must match the recorded robot/tool; it runs offline.</p>
+<pre><code class="language-yaml">smoothness:
+  robot_config: ../../../manimux/configs/embodiment/robot/yam_dual.yaml
+  groups: [left_arm, right_arm]
+  sample_hz: 30
+  max_gap_s: 0.1
+  cutoff_hz: 10
+  threshold: 0.05
+</code></pre>
+<p><strong>NLDLJ ↓</strong> uses <code>ln(T³ × ∫||jerk||²dt / peak_speed²)</code>; jerk stencils crossing plan changes are excluded. <strong>NSPARC ↓</strong> uses positive spectral arc length of speed and retains switches. Both use scheduled EE references, with verified constant commands replacing historical hold placeholders. Pause/reset, identity breaks and long gaps split segments. Duration-weight valid segments, then equally weight active channels and rollouts; this is not a score of measured tracking accuracy.</p>
+<p>The report generates handoff, overlap and outcome/smoothness figures when data is available. Colored manipulation-area overlays require a <code>manipulation_scope</code> profile; inference coverage must use that method's recorded state points. Speed-distribution diagnostics have a <a href=".agents/skills/manimux-experiments/references/chunk-speed.md">separate entry point</a>.</p>
+<p>Each report is a new immutable version. <code>latest.json</code> points to its HTML and summary. The CLI leaves raw recordings and human labels unchanged; <code>episode-metrics.json</code> preserves exclusions and metric provenance.</p>
 <p>Invalid and unreviewed counts stay visible; missing metrics remain missing. Keep different rubric
 snapshots separate. The report CLI computes reference seams and smoothness offline; it does not run a robot or PRM inference. <a href=".agents/skills/manimux-experiments/references/evaluation-reports.md">Report schema and metric options</a>
 · <a href=".agents/skills/manimux-experiments/references/prm.md">PRM workflow</a>
