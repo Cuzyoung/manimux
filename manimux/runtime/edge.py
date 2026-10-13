@@ -231,6 +231,14 @@ class EdgeRuntime:
         )
         self._timeline = self._build_timeline()
         self._executor = self._build_executor()
+        if (config["inference"].get("rtc") or {}).get("condition_source") == "executor":
+            predictor = getattr(self._executor, "predict_commands", None)
+            setter = getattr(self._strategy, "set_condition_predictor", None)
+            if not callable(predictor) or not callable(setter):
+                raise ValueError(
+                    "RTC executor conditions require a forecast-capable executor and strategy"
+                )
+            setter(predictor)
         self._launch_mode = launch_mode
         position_limit_abs = None
         if config["executor"]["type"] == "smooth":
@@ -299,6 +307,9 @@ class EdgeRuntime:
         return ActionTimeline(
             self._config["robot"]["group_dims"],
             max_source_steps=self._config["inference"]["max_chunk_policy_steps"],
+            blend_mode=self._config["inference"].get("blend_mode", "linear"),
+            gripper_indices=((self._config["executor"].get("smooth") or {}).get(
+                "gripper") or {}).get("group_indices", {}),
             action_start_mode=self._config["inference"]["action_start_mode"],
             hold_last_step=(
                 (
@@ -776,6 +787,12 @@ class EdgeRuntime:
                                             created_time_ns=response.finished_time_ns,
                                             execution_time_ns=start_ns,
                                             measured_state=seed,
+                                            decode_reference=(
+                                                self._timeline.active_horizon()
+                                                if getattr(
+                                                    self._adapter, "uses_decode_reference", False
+                                                ) else None
+                                            ),
                                             handoff_reference=handoff_reference,
                                             # A waypoint lead-in is planned to the skipped
                                             # row, so the skip happens here, not at commit.
@@ -896,6 +913,12 @@ class EdgeRuntime:
                                                 and self._config["inference"]["action_start_mode"]
                                                 == "drop_infer_latency"
                                                 else None
+                                            ),
+                                            decode_reference=(
+                                                self._timeline.active_horizon()
+                                                if getattr(
+                                                    self._adapter, "uses_decode_reference", False
+                                                ) else None
                                             ),
                                             measured_state=(
                                                 observation_state
@@ -1056,6 +1079,11 @@ class EdgeRuntime:
                                             ),
                                             current_command=commit.current_command,
                                             blend_steps=commit.blend_steps,
+                                            command_velocity={
+                                                name: (last_command[name]-previous_command[name])
+                                                / (self._control_dt_ns/1e9)
+                                                for name in last_command
+                                            },
                                             handoff_skip_steps=self._config["inference"][
                                                 "handoff_skip_steps"
                                             ],
@@ -1065,6 +1093,9 @@ class EdgeRuntime:
                                 last_inference_ms = response.inference_ms
                                 chunk.metadata["timeline_latency_ms"] = (
                                     result.timeline_latency_ns / 1_000_000
+                                )
+                                chunk.metadata["blend_mode"] = self._config["inference"].get(
+                                    "blend_mode", "linear"
                                 )
                                 chunk.metadata["time_trimmed_steps"] = result.time_trimmed_steps
                                 chunk.metadata["handoff_skipped_steps"] = (

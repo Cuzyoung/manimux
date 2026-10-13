@@ -116,6 +116,8 @@ class ActionContext:
     # Source rows a waypoint handoff skips: row join+skip occupies the join row's
     # time and later rows move up with it; the handoff time does not change.
     handoff_skip_steps: int = 0
+    # Timestamped accepted joint trajectory; independent of measured model input.
+    decode_reference: ActionHorizon | None = None
 
 
 @dataclass(slots=True)

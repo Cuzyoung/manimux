@@ -334,6 +334,11 @@ execution windows and ACT query intervals still limit submissions.</p>
 <td>Number of model action steps used for the handoff from the measured/last command to the new trajectory. <code>0</code> disables this blend. This is separate from ACT ensembling.</td>
 </tr>
 <tr>
+<td><code>inference.blend_mode</code></td>
+<td><code>linear</code></td>
+<td><code>command_cubic</code> is an opt-in standalone Async/RTC + Smooth handoff from the last issued command and its nominal-tick velocity to a future source waypoint and tangent. Requires complete group decoding and at least two blend steps; the original source clock remains unchanged. Gripper apertures use a monotone transition. Longer transitions change the path and delay following a new prediction; this is not a velocity or acceleration cap.</td>
+</tr>
+<tr>
 <td><code>inference.handoff_skip_steps</code></td>
 <td><code>0</code></td>
 <td>Intentional action-row skip, not a latency estimate. Leave at zero for the combinations in this guide.</td>
@@ -682,12 +687,25 @@ Keep blending and handoff skip at zero.</p>
   <code>2 * initial_delay_policy_steps &lt;= H</code>.</li>
 <li><code>delay_buffer_size</code> sets the number of recent samples whose maximum predicts delay.</li>
 <li><code>beta</code> controls conditioning strength and must be finite and positive.</li>
+<li><code>condition_source</code> defaults to <code>canonical</code> (decoded model rows).
+<code>timeline</code> samples the accepted, blended trajectory on the observation clock.
+<code>executor</code> forecasts Smooth commands from its current filter history on the same
+clock, including recent issued commands. It requires standalone RTC and a stateless
+continuous/curve gripper without feedback guards. Unavailable tail rows receive zero
+weight; a missing delay prefix disables conditioning for that request. Forecasts assume
+the current plan remains active and nominal control cadence; they do not predict measured
+robot motion. Row skipping is unsupported for timeline/executor conditions.</li>
 <li><code>initial_delay_policy_steps: null</code> initializes from pre-Start warmup samples.
   To use that workflow, enable <code>run.warmup_before_start: true</code>, choose <strong>Activate Warmup</strong>
   after Prepare in RoboGUI, and use inline
   decoding. Without calibration samples, the initial estimate is zero. See the
   <a href="manimux/configs/inference/README.md">preset guide</a> for warmup controls.</li>
 </ul>
+<p>SAPolicy can separately select <code>policy.adapter.ik_seed_source: previous_plan</code>
+to seed IK from the accepted joint trajectory at the first decoded source row's timestamp.
+If that timestamp has no accepted reference, it uses the runtime seed. Subsequent rows
+continue from the previous IK solution. This leaves measured model observations unchanged
+and does not impose a joint-step limit or guarantee IK branch continuity.</p>
 </section>
 <section aria-labelledby="paint" class="guide-page" data-page-id="paint" data-title="PAINT" hidden=""><h2 id="paint">PAINT</h2>
 <pre><code class="language-yaml">inference:
@@ -706,6 +724,12 @@ Unlike RTC, PAINT does not accept <code>null</code> for its initial delay. Its d
 must cover observation age, queueing, transport, inference and decoding; higher
 observed delays can make the window infeasible. Select K and d for the actual model
 horizon and measured latency.</p>
+<p>With <code>run.warmup_before_start: true</code>, PAINT warms both ordinary and
+conditioned sampling. Start waits for two successful calls of each branch and the
+backend reset acknowledgement. The first call of each branch is shown separately
+and excluded from latency calibration; later end-to-end samples can raise the
+initial delay forecast and are preserved across reset. Warmup outputs are previews
+only and never move the robot.</p>
 </section>
 <section aria-labelledby="aac" class="guide-page" data-page-id="aac" data-title="AAC" hidden=""><h2 id="aac">AAC</h2>
 <pre><code class="language-yaml">inference:
@@ -1090,6 +1114,18 @@ experiments:
     config: ../experiments/stack_blocks_small/pi05/yam_pi05_mixed300ep_rtc_step30000.yaml
 </code></pre>
 <p><code>id</code> must be unique. <code>config</code> is relative to the list file. Optional <code>label</code> is shown as Method / Config and defaults to the ID. Task and algorithm come from the resolved experiment, so they are not repeated in the list. Give parameter variants distinct labels and output directories.</p>
+<h3 id="latest300ep-launch">Latest six-task Pi05 30k checkpoint</h3>
+<p><code>manimux/configs/experiment_lists/yam_pi05_latest300ep.yaml</code> selects the October 12 checkpoint: coin2, medium blocks, small blocks, bottles, rotating clock and moving cube, with 50 recordings each. It offers RTC, Serial, Async, AutoHorizon, PAINT and backward-only BID for each task. The existing mixed300ep list retains the October 11 checkpoint.</p>
+<p>The shared recipe is <code>manimux/configs/policy/pi05/yam/latest300/joint-step30000.yaml</code>. It binds the checkpoint and its own normalization assets on the Samsung T7. Model source is already present under <code>XPolicyLab/policy/Pi_05/openpi</code>. Config-loader validation is complete; real-weight sampling and robot performance remain to be measured. BID uses 16 candidates and backward coherence; it is not the full bidirectional algorithm.</p>
+<pre><code class="language-bash"># Model service only; does not start the robot.
+cd /home/ubuntu/manimux
+XPolicyLab/policy/Pi_05/openpi/.venv/bin/python -m manimux.servers.pi05 \
+  --experiment manimux/configs/experiments/coin/pi05/yam_pi05_latest300ep_rtc_step30000.yaml
+
+# With the camera and RoboGUI services configured as below:
+envs/yam/.venv/bin/python -m manimux serve \
+  --config-list manimux/configs/experiment_lists/yam_pi05_latest300ep.yaml
+</code></pre>
 <h3 id="mixed300ep-launch">Launch the mixed-task Pi05 30k experiments</h3>
 <p>The complete list contains six tasks × four methods: RTC, Serial, Async and PAINT. All use the shared <code>policy/pi05/yam/mixed/joint-step30000.yaml</code> recipe and direct executor. The checkpoint is <code>pi05_yam_mixed_20261011_300ep_30k/30000</code>; it is separate from the older single-task coin/block checkpoints.</p>
 <p>Stop teleoperation before using the same robot/cameras for inference. Run these commands in four terminals. Camera and model services use the first experiment's shared settings; keep them running when changing the UI selection.</p>
@@ -1332,7 +1368,7 @@ new YAML rules do not replace historical scoring rules. Free runs and partial at
 <tr><td>Which trial and method?</td><td><code>meta.json</code>: task, layout_id, repeat_id, policy_backend, evaluation; <code>session-manifest.json</code>: config. The task report config selects the cohort and expected identities.</td><td>Validate grouping and rule consistency before aggregation.</td></tr>
 <tr><td>Human score / success rate</td><td><code>evaluation/human-label.json</code>: task_result, stage_id / completed_count, score, evaluation; compare against <code>meta.evaluation</code>.</td><td>Implemented. Rubric options are possible outcomes, not the selected result. Skip leaves no label.</td></tr>
 <tr><td>Successful completion time</td><td><code>human-label.json: completion_time.seconds</code>, with origin, endpoint and source.</td><td>Implemented for successful, explicitly annotated trials. Do not use result.wall_time_s.</td></tr>
-<tr><td>NLDLJ / NSPARC</td><td><code>data.zarr/ticks</code>: scheduled/{arm}, monotonic_ns, plan_id; <code>events.jsonl</code>: pause and Home events; configured FK and metric profile.</td><td>Implemented when configured. Measures the scheduled end-effector reference, not measured state. Rejects unsupported gaps or interruptions.</td></tr>
+<tr><td>NLDLJ / NSPARC</td><td><code>data.zarr/ticks</code>: scheduled/{arm}, monotonic_ns, plan_id; <code>events.jsonl</code>: pause and Home events; configured FK and metric profile.</td><td>Implemented when configured. Measures the scheduled end-effector reference, not measured state. Splits pauses and missing identities into segments; verifies held commands before correcting scheduled placeholders.</td></tr>
 <tr><td>Chunk jumps and 10/20/30-step comparisons</td><td><code>data.zarr/plans/*/committed</code>: joint arrays, start_time_ns, dt_ns, plan_id; canonical_raw and its observation_time_ns for diagnostic plots. Events and tick plan identities support execution review.</td><td>Offline candidate diagnostics exist; the report imports existing comparison artifacts and plots. Formal executed-handoff qualification is not integrated.</td></tr>
 <tr><td>PRM-as-a-Judge</td><td><code>videos/*.mp4</code>, <code>videos/index.json</code>, task prompt and fixed judge/goal/sampling profile.</td><td>Separate PRM tooling exists; matched result import into the task report is not integrated.</td></tr>
 <tr><td>Why was a trial slow or interrupted?</td><td><code>events.jsonl</code>: kind and event-specific request, timing, pause/Home and boundary fields; <code>result.json</code>: run_completed, terminal_reason, video_recording.</td><td>Diagnostics and eligibility checks; runtime completion is not task success.</td></tr>
@@ -2028,11 +2064,11 @@ Bind the recorded checkpoint and resolved setting; do not pool trials by folder 
 </tr>
 <tr>
 <td>NLDLJ / NSPARC</td>
-<td>Configured offline smoothness of scheduled EE references; not measured tracking</td>
+<td>Offline EE reference smoothness; verified holds use the recorded constant command. Split interruptions, duration-weight segments, then weight rollouts equally.</td>
 </tr>
 <tr>
 <td>Handoff / 10, 20, 30-step similarity</td>
-<td>Reviewed trajectory metrics and attached diagnostic plots</td>
+<td>Execution-qualified reference jumps, with continuous and end-hold classes separate. Future 10/20/30-step windows require full overlap; sample counts are reported per window.</td>
 </tr>
 <tr>
 <td>PRM</td>
@@ -2041,8 +2077,7 @@ Bind the recorded checkpoint and resolved setting; do not pool trials by folder 
 </tbody>
 </table>
 <p>Invalid and unreviewed counts stay visible; missing metrics remain missing. Keep different rubric
-snapshots separate. The report CLI does not run a robot, PRM inference or a complete formal seam
-evaluator. <a href=".agents/skills/manimux-experiments/references/evaluation-reports.md">Report schema and metric options</a>
+snapshots separate. The report CLI computes reference seams and smoothness offline; it does not run a robot or PRM inference. <a href=".agents/skills/manimux-experiments/references/evaluation-reports.md">Report schema and metric options</a>
 · <a href=".agents/skills/manimux-experiments/references/prm.md">PRM workflow</a>
 · <a href=".agents/skills/manimux-experiments/references/chunk-speed.md">Speed diagnostics</a></p>
 </section>
