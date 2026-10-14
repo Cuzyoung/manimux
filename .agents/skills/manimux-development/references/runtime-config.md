@@ -49,6 +49,15 @@ algorithm readiness (RTC/PAINT execution windows, ACT query interval, selected
 AAC/AutoHorizon prefix), sampling fields, chunk preparation and response feedback.
 Do not reimplement transport busy checks in each algorithm.
 
+Ordinary Async can opt into `request_trigger: progress` with `single_inflight`.
+The shared `chunk_policy_steps` becomes its source-progress threshold rather than
+`max_chunk_policy_steps`; retain the full model horizon. `DefaultChunkStrategy`
+updates its source offset only on accepted plans and adds `timeline.cursor(now)`
+to count latency-trimmed rows like RTC/PAINT. Reset clears accepted progress;
+warmup and rejected responses do not advance it. The scheduler still owns capacity,
+and this mode does not consult `refill_threshold_s`. Validate K < H, no source cap,
+`drop_infer_latency`, and no waypoint or skipped-row handoff.
+
 On each eligible control tick, the scheduler calls the optional
 `observe_snapshot(snapshot)` hook **before** admission checks. DP/UMI history plugins
 use it to retain camera/state samples while inference is busy. `build_submission`

@@ -26,6 +26,14 @@ for RTC/PAINT/AutoHorizon and eager execution for attention capture. AutoHorizon
 needs at least three denoising evaluations and one action token per waypoint.
 Unsupported combinations must fail rather than execute the default sampler.
 
+ABC-DiT's existing `yam_abc_dit_rtc_200k*.yaml` deployments use the generic
+`train_time_rtc` strategy and model hook. Fixed runtime prefix 7 / request progress
+16 retain the official model prefix 4: only the final four fixed rows condition
+the model, while all seven rows are preserved in the returned 30-row trajectory.
+ABC no longer advertises `paint`; its separate `rtc` hook remains inference-time
+guidance. The mount-compensation adapter transforms the generic action condition
+through the same joint/frame mapping as observations and decoded actions.
+
 ## Selecting configurations
 
 Use `scripts/experiments/build_inference_matrix.py` from the repository root.
@@ -39,7 +47,7 @@ OpenWAM's entire generated comparison disables compilation and DiT caching.
 PYTHONPATH=. envs/yam/.venv/bin/python scripts/experiments/build_inference_matrix.py \
   --base manimux/configs/experiments/put_bottles/pi05/yam_pi05_serial_joint_step30000.yaml \
   --output-dir data/configs/pi05-inference \
-  --execution-steps 16 --paint-delay-steps 4 \
+  --execution-steps 16 --paint-delay-steps 4 --async-trigger progress \
   --methods serial async act rtc paint autohorizon
 ```
 
@@ -48,6 +56,15 @@ statistics must describe EE increments for the selected embodiment and data;
 the existence of `yam_60ep_ee_increment.json` is not evidence that it matches a
 new task. AAC requests 20 samples by default in the generated smoke presets;
 review memory and latency before fixing the experiment budget.
+
+`--async-trigger progress` retains the complete prediction and uses
+`chunk_policy_steps` as the source-progress threshold, including latency-trimmed rows.
+`--async-trigger refill` (the compatibility default) caps the source prefix to K and
+sets the refill threshold to K action intervals. Choose explicitly; these are different
+experiments even when K is equal. Progress currently requires built-in Async with
+single-inflight scheduling, not an observation-history strategy plugin.
+The generator covers the listed standalone methods; configure BID and ensemble
+compositions through the [composition guide](../../../../guideline.html#optional-algorithm-composition).
 
 Existing inputs for the remaining families:
 

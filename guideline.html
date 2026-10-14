@@ -268,6 +268,11 @@ client must return a response or error. It also does not cancel a remote model c
 <td>Submit without checking remaining action time. Schedule and rate limits still apply.</td>
 </tr>
 <tr>
+<td><code>progress</code></td>
+<td>Built-in Async with <code>single_inflight</code></td>
+<td>Submit once accepted source progress reaches <code>chunk_policy_steps</code>, including latency-trimmed rows. Retain the full prediction while inference runs; no refill threshold or source-prefix cap.</td>
+</tr>
+<tr>
 <td><code>algorithm</code></td>
 <td>All serial configurations, RTC, PAINT and standalone ACT</td>
 <td>Use the selected algorithm's execution/query timing. Default and required for these cases.</td>
@@ -373,9 +378,14 @@ change these times.</p>
 </thead>
 <tbody>
 <tr>
-<td>Ordinary chunking</td>
+<td>Serial / Async with refill or continuous trigger</td>
 <td>Maximum source prefix; asynchronous latency trimming can shorten it further</td>
 <td>Integer 2 through H; omitted/null leaves <code>max_chunk_policy_steps</code> in control, whose default is null (full horizon)</td>
+</tr>
+<tr>
+<td>Async with progress trigger</td>
+<td>Source progress before requesting again, including trimmed rows; the full prediction remains executable</td>
+<td>Required integer 1 through H−1; do not set <code>max_chunk_policy_steps</code></td>
 </tr>
 <tr>
 <td>RTC</td>
@@ -638,6 +648,26 @@ Optionally add <code>chunk_policy_steps</code> to cap its source prefix. Change 
 <a href="#multi-inflight-and-continuous-requests">multi-inflight example</a> below.
 The defaults are <code>async</code> and <code>deadline</code>. With only <code>inference_schedule: serial</code>,
 the algorithm defaults to <code>serial</code>. The old <code>algorithm: manimux</code> selector is no longer accepted.</p>
+<h3>Replan after source progress</h3>
+<pre><code class="language-yaml">inference:
+  algorithm: async
+  inference_schedule: single_inflight
+  request_trigger: progress
+  chunk_policy_steps: 16
+  action_start_mode: drop_infer_latency
+  blend_policy_steps: 0
+</code></pre>
+<p>With <code>progress</code>, the shared <code>chunk_policy_steps</code> field is a
+replanning threshold, not a source-prefix cap. Retain the full model prediction;
+request a new chunk when source progress reaches 16 policy steps, including rows
+already dropped for observation-to-commit latency. This matches the RTC/PAINT source
+clock and does not promise 16 newly executed rows after each handoff.</p>
+<p>The first request is immediate. Later requests wait for both the progress threshold
+and an available worker. Continue the old trajectory while inference runs, then trim
+the new result's expired prefix and switch on its action clock. Rejected results do
+not reset progress. The threshold must be smaller than the model horizon. Omit
+<code>max_chunk_policy_steps</code> and <code>refill_threshold_s</code>; no waypoint
+handoff or handoff skip is supported. Cross-chunk blending remains separate.</p>
 </section>
 <section aria-labelledby="act-temporal-ensemble" class="guide-page" data-page-id="act-temporal-ensemble" data-title="ACT temporal ensemble" hidden=""><h2 id="act-temporal-ensemble">ACT temporal ensemble</h2>
 <pre><code class="language-yaml">inference:
@@ -711,6 +741,13 @@ and does not impose a joint-step limit or guarantee IK branch continuity.</p>
 <p>Prefix-trained UMI-DP checkpoints use <code>algorithm: train_time_rtc</code> and <code>inference_schedule: single_inflight</code>. They advertise the separate <code>train_time_rtc</code> sampling capability; ordinary RTC guidance checkpoints do not support this mode.</p>
 <p>The pack-plate recipe fixes five leading action rows with <code>delay_estimator: fixed</code> and <code>fixed_prefix_steps: 5</code>. The first request and unavailable committed prefixes are unconditioned. Fixed prefixes do not guarantee latency coverage. Dynamic <code>decode_max</code> and <code>end_to_end_max</code> estimators are also available.</p>
 <p>Use <code>action_start_mode: drop_infer_latency</code>, <code>blend_policy_steps: 0</code> and <code>handoff_skip_steps: 0</code>. Both inline and process decoding are supported. Select <code>manimux/configs/experiments/pack_plate/umi_dp/tianji_taccap_umi_dp_train_time_rtc.yaml</code>.</p>
+<p>ABC-DiT 200k uses this strategy with <code>chunk_policy_steps: 16</code>,
+<code>delay_estimator: fixed</code> and <code>fixed_prefix_steps: 7</code>.
+Its model recipe retains <code>rtc_prefix_length: 4</code>: the backend conditions
+on the final four of the seven fixed rows, then preserves the complete seven-row
+lead in the returned trajectory. Select the existing ABC RTC experiment YAMLs;
+their strategy and wire mode are now <code>train_time_rtc</code>, not PAINT.
+The checkpoint, 30-step horizon, action frames and direct executor are unchanged.</p>
 <p>See the <a href=".agents/skills/manimux-inference/references/inference.md#train-time-rtc">timing contract</a> and <a href=".agents/skills/manimux-inference/references/deployment/umi-dp-tianji-taccap.md#pack-plate-train-time-rtc">deployment reference</a>.</p></section>
 <section aria-labelledby="paint" class="guide-page" data-page-id="paint" data-title="PAINT" hidden=""><h2 id="paint">PAINT</h2>
 <pre><code class="language-yaml">inference:
@@ -1054,7 +1091,7 @@ Pi05 EEF are outside this matrix. <a href=".agents/skills/manimux-inference/refe
 <pre><code class="language-bash">PYTHONPATH=. envs/yam/.venv/bin/python scripts/experiments/build_inference_matrix.py \
   --base manimux/configs/experiments/coin/pi05/yam_pi05_rtc_joint_step50000.yaml \
   --output-dir data/configs/coin-pi05-comparison-v1 \
-  --execution-steps 16 --paint-delay-steps 4 \
+  --execution-steps 16 --paint-delay-steps 4 --async-trigger progress \
   --aac-stats manimux/policies/xpolicylab/norm_stats/yam_60ep_ee_increment.json \
   --methods serial async act rtc paint aac autohorizon
 </code></pre>
@@ -1062,6 +1099,11 @@ Pi05 EEF are outside this matrix. <a href=".agents/skills/manimux-inference/refe
 methods, validates configs, and refuses to overwrite outputs. The AAC stats must exist and
 be suitable for the study; omitting AAC removes that requirement. Generated values are
 starting presets, not a frozen protocol.</p>
+<p><code>--async-trigger progress</code> uses K as a source-progress replanning threshold
+and retains the full prediction. <code>--async-trigger refill</code> retains the generator's
+older behavior: cap the source prefix to K and refill with K action intervals remaining.
+Choose explicitly when comparing execution windows; equal K does not imply equal timing.
+Progress requires the built-in Async strategy with single-inflight scheduling.</p>
 <table>
 <thead>
 <tr>
@@ -1098,7 +1140,10 @@ revisions, not automatically to a new checkpoint.</p>
 </section>
 <section aria-labelledby="experiment-lists" class="guide-page" data-page-id="experiment-lists" data-title="Task &amp; method switching" hidden=""><h2 id="experiment-lists">Task &amp; method switching</h2>
 <p>Use <code>serve --config-list</code> to choose experiments in RoboGUI while keeping the same model and camera services running. A list references complete experiment YAMLs; it does not override their parameters.</p>
+<p>Establish whether the study is single-task or multi-task before choosing a launch command. Recommend a config list for multiple tasks, and retain the requested task coverage when switching models. A checkpoint's training task does not define the evaluation scope. Lists can also compare several methods on one task; incompatible checkpoints or service contracts need separate lists.</p>
+<p>The local bottle-trained 30k evaluation catalogs are <code>manimux/configs/experiment_lists/yam_lingbot_vla2_bottles30k_all_tasks.yaml</code> and <code>manimux/configs/experiment_lists/yam_openwam_bottles30k_all_tasks.yaml</code>. Each covers coin, medium blocks, bottles, rotating clock and moving cube, with Serial, BID, AutoHorizon, RTC, PAINT and Async. All use Direct; fixed windows are 32/50 for LingBot and 20/32 for OpenWAM, while AutoHorizon remains adaptive. These are cross-task evaluation catalogs for bottle-trained checkpoints, not evidence of multi-task training or validated task performance. OpenWAM's catalog requires <code>policy/openwam/yam/finetune-put-bottles-step30000-sampling.yaml</code> with compilation and DiT caching disabled for specialized samplers. Runtime capability checks remain authoritative.</p>
 <h3 id="experiment-config-locations">Where configurations live</h3>
+<p>For ordinary OpenWAM Serial/Async trials, prefer <code>manimux/configs/experiment_lists/yam_openwam_bottles30k_cached_all_tasks.yaml</code> with the original <code>finetune-put-bottles-step30000.yaml</code> model recipe: both compilation and DiT velocity caching remain enabled. This list covers all five tasks and writes separate <code>-cached</code> outputs. The six-method catalog uses a separate eager model recipe because the current adapter does not advertise RTC/PAINT/AutoHorizon with these optimizations enabled. This is an implementation compatibility restriction, not a theoretical requirement. Report optimization flags and measured latency when comparing results across the two service configurations.</p>
 <table><thead><tr><th>File</th><th>Owns</th></tr></thead><tbody>
 <tr><td><code>manimux/configs/experiment_lists/*.yaml</code></td><td>The experiments available in this session. First entry is the initial selection.</td></tr>
 <tr><td><code>manimux/configs/experiments/&lt;task&gt;/&lt;model&gt;/*.yaml</code></td><td>Task prompt, inference method, executor, output directory, layout/repeat rules and rubric reference.</td></tr>

@@ -1,7 +1,7 @@
 control_profile: ../../../embodiment/robot/yam_control_unlimited.yaml
 run:
   task: stack_blocks_medium
-  output_dir: ./data/experiments/pi05-latest300ep-step30000/stack_blocks_medium/rtc
+  output_dir: ./data/experiments/pi05-latest300ep-step30000/stack_blocks_medium/rtc-exec32
   max_control_steps: 12000
   warmup_before_start: true
   experiment_template:
@@ -84,7 +84,7 @@ policy:
 robogui:
   enabled: true
   robot: yam
-  policy_label: Pi05 latest 300ep 30k - RTC
+  policy_label: Pi05 latest 300ep 30k - RTC exec32
 recording:
   enabled: true
   video_fps: 30.0

@@ -90,7 +90,7 @@ recording:
   video_fps: 30.0
 inference:
   algorithm: async
-  config: ../../../inference/aligned/yam_async_chunk16.yaml
+  config: ../../../inference/aligned/yam_async_replan16.yaml
 executor:
   type: direct
 policy_server:

@@ -151,6 +151,7 @@ class DefaultChunkStrategy:
 
     def __init__(self, config: dict) -> None:
         self._config = config
+        self.reset()
 
     @property
     def discard_plans_while_paused(self) -> bool:
@@ -169,7 +170,7 @@ class DefaultChunkStrategy:
         return frozenset({"default"})
 
     def reset(self) -> None:
-        pass
+        self._active_source_offset: int | None = None
 
     def build_submission(
         self,
@@ -184,6 +185,20 @@ class DefaultChunkStrategy:
         runtime_state: RuntimeState,
     ) -> InferenceSubmission | None:
         # RequestScheduler owns transport admission and ordinary refill timing.
+        progress_fields = {}
+        if self._config["inference"].get("request_trigger") == "progress":
+            if runtime_state != RuntimeState.RUNNING:
+                return None
+            # Same source clock as RTC/PAINT: latency-trimmed rows count as progress.
+            # Keep the complete trajectory available while the next request runs.
+            progress = (
+                0 if self._active_source_offset is None
+                else self._active_source_offset + timeline.cursor(now_ns)
+            )
+            threshold = self._config["inference"]["chunk_policy_steps"]
+            if self._active_source_offset is not None and progress < threshold:
+                return None
+            progress_fields = {"source_progress_steps": progress, "chunk_policy_steps": threshold}
         deadline_ns = now_ns + int(self._config["policy"]["timeout_s"] * 1_000_000_000)
         request = InferenceRequest(
             session_id=session_id,
@@ -193,7 +208,7 @@ class DefaultChunkStrategy:
             observation=adapter.build_observation(snapshot),
             instruction=self._config["run"]["task"],
         )
-        return InferenceSubmission(request=request)
+        return InferenceSubmission(request=request, event_fields=progress_fields)
 
     def commit_settings(
         self,
@@ -233,7 +248,8 @@ class DefaultChunkStrategy:
         response: InferenceResponse,
         now_ns: int,
     ) -> dict[str, object]:
-        del chunk, response, now_ns
+        del response, now_ns
+        self._active_source_offset = chunk.source_offset_steps + result.trimmed_steps
         return {"trimmed_steps": result.trimmed_steps}
 
     def on_response_rejected(self, response: InferenceResponse) -> None:
