@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Literal, Protocol, runtime_checkable
 
 from manimux.plugins import load_plugin
+from manimux.policies.base import attach_sampling_stats
 from manimux.policy_adapter.base import PolicyAdapter
 from manimux.runtime.safety import RuntimeState
 from manimux.runtime.timeline import ActionTimeline, CommitResult
@@ -376,5 +377,6 @@ def decode_strategy_action(
 ) -> ActionChunk:
     """Let candidate selectors reuse adapter decoding; ordinary strategies decode once."""
     if isinstance(strategy, StrategyActionDecoder):
+        # Candidate selection owns metadata of the selected candidate.
         return strategy.decode_action(raw, context, adapter=adapter)
-    return adapter.decode_action(raw, context)
+    return attach_sampling_stats(adapter.decode_action(raw, context), raw)

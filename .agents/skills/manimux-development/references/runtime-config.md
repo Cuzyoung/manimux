@@ -437,3 +437,110 @@ horizon to inline and process adapters. SAPolicy's opt-in
 seed from that horizon, falling back to the existing runtime seed outside coverage.
 Later IK rows retain sequential seeding. Measured observations are not modified.
 This reduces seed-time mismatch; it does not enforce branch continuity or cap steps.
+
+
+## Chunk IK and execution-time IK
+
+`execution.ik.mode` is an experiment setting: `chunk` (default) retains adapter
+chunk decoding, while `step` keeps an absolute TCP trajectory until each control
+tick. `execution.ik.budget_ms` is optional and defaults to half the control period.
+It must be positive and less than one control period.
+
+The step path is adapter pose decoding -> pose ActionTimeline -> one sampled
+pose per group -> ExecutionPipeline (optional PoseSpeedLimiter -> StepIKResolver
+-> DirectExecutor) -> existing safety/send path.
+A pose row is `[x, y, z, qw, qx, qy, qz, gripper]`, in each robot group's base frame,
+with the configured TCP and normalized gripper. Decode relative outputs against
+the request observation anchor, never against a later execution seed. Timeline
+interpolation and blending use linear xyz/gripper and shortest-arc quaternion
+SLERP. Record `absolute_tcp_pose` plan chunks; scheduled/command rows remain joints.
+RoboGUI draws pose-plan positions directly, without FK on pose rows.
+
+The execution stages are built once and IK is warmed before the control loop. IK starts from
+the current control tick's measured joint state and solves only the current target.
+The pipeline receives the last sent command separately for failure holds and
+optional target limiting; the IK solver does not choose fallback commands. A shared budget
+covers all arms. If any arm fails, is nonfinite, or returns late, hold all groups
+at the last command and reset executor velocity history. `step_ik_hold` records
+failures; `run.control_timing: true` records the `step_ik` stage. YAM checks a
+cooperative deadline between native solver iterations. Other native solvers are
+checked after return; a long native call cannot be preempted. This is a soft
+budget, not a hard real-time guarantee or proof of physical tracking.
+
+Step mode requires direct execution, inline pose decoding, atomic groups, and
+linear blend handoff. Smooth/MPC future-joint references, joint candidate scoring,
+temporal ensembling, command-cubic blending, waypoint handoff and decoder diffIK
+substeps are rejected explicitly. Use the robot's native IK (`ik_backend: analytic`
+where that adapter exposes the option); do not silently substitute it for diffIK.
+Ordinary joint adapters need no IK mode and reject `step`.
+
+Serial/async support all pose-producing IK adapter families. RTC/PAINT require an
+explicit pose condition codec: OpenWAM YAM and XR1 YAM support both; Pi05 Tianji,
+XR1 Tianji and UMI-DP Tianji support RTC. The other adapters reject conditioned
+step modes. RTC executor forecasts are unsupported. `InferenceRequest` carries
+`action_condition_space` explicitly, since Tianji joint and dual-pose arrays can
+both have width 16. A pose condition goes directly back to model coordinates;
+conditioning does not solve future IK.
+
+Example: `configs/experiments/put_bottles/openwam/yam_openwam_serial_step30000_step_ik.yaml`.
+Existing presets retain chunk IK; the new example is not activated automatically.
+
+
+### Optional pose target speed limit
+
+`execution.ik.pose_speed_limit` defaults to `null` (off), including in step mode.
+An enabled mapping accepts `max_linear_m_s` and `max_angular_rad_s`; provide at
+least one positive finite number, leaving the other absent/null if unrestricted.
+This option requires step mode. It does not modify legacy chunk IK.
+
+The independent `PoseSpeedLimiter` limits the current sampled TCP target before IK. Its reference is
+FK of the last actually sent joint command, while the IK initial configuration
+is the measured state. One interpolation fraction bounds translation and shortest
+rotation by speed times the nominal control period. A stalled tick does not earn
+a larger catch-up step. The gripper remains governed by its existing executor
+limits. The limiter keeps no independent cursor: failed IK and executor limiting
+cannot advance a hidden target. Pose FK and limiting are skipped when disabled.
+
+This is a target-increment limit, not a guarantee on measured velocity or the
+joint path between targets. IK tolerances and downstream joint limiting still
+apply. It does not stretch Timeline timestamps, rewrite RTC/PAINT conditions, or
+wait for limited targets to be reached. Under sustained limiting, execution may
+lag and intermediate source targets may be skipped; evaluate that tracking error
+before using it in a timing-sensitive rollout. This intentionally differs from
+ManiUniCon's waypoint-time stretching. `ExecutionResult.ik_status` includes
+`pose_speed_limited` fractions for the affected groups; hold events include them.
+
+```yaml
+execution:
+  ik:
+    mode: step
+    pose_speed_limit:  # omit this mapping, or set null, to disable
+      max_linear_m_s: 0.25
+      max_angular_rad_s: 0.6
+```
+
+
+### Execution component responsibilities
+
+`runtime/execution.py:ExecutionPipeline.step` is the active-tick execution entry.
+It does not receive model responses, accept chunks, change Timeline timestamps,
+perform safety validation, or send hardware commands. The control loop retains
+those orchestration/lifecycle duties and records returned execution diagnostics.
+
+- `runtime/pose_limits.py:PoseSpeedLimiter` clips one TCP target per group. It owns
+  no IK, executor, trajectory clock, or independent progress cursor. It is absent
+  when limiting is disabled.
+- `runtime/ik.py:StepIKResolver` solves that target from measured joints. It returns
+  a joint reference on complete success, or `None` if any group fails. It does not
+  limit target speed, select a hold command, reset an executor, or send commands.
+- `ExecutionPipeline` composes the optional stages and the existing joint executor.
+  It includes pose limiting and all arm solves in one deadline. On IK failure it
+  resets executor velocity history and returns an atomic last-command hold.
+- The existing `Executor` receives only joint references, including its unchanged
+  full reference horizon in chunk/joint mode. It owns joint command generation.
+
+The pipeline returns `ExecutionResult(reference, command, ik_status)` so scheduled
+joint recording and failure events remain visible without reproducing execution
+logic in the control loop. The same executor instance remains available for
+existing pause, gap hold, reset and forecast behavior. No waypoint scheduling or
+waypoint-time stretching is introduced by this component split.

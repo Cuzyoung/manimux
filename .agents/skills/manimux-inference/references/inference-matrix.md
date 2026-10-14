@@ -19,8 +19,9 @@ policy architecture. Pi05 PyTorch and Pi05 EEF are outside this matrix. Other
 embodiments need their own action conversion validation.
 
 The loaded server's `HELLO.capabilities.sampling_modes` is authoritative.
-OpenWAM specialized flow modes require `compile_enabled: false`,
-`dit_cache_enabled: false`, and CFG scale 1; AutoHorizon additionally requires
+OpenWAM specialized flow modes require `compile_enabled: false` and CFG scale 1;
+RTC can opt into `dit_cache_enabled: true` with `dit_cache_modes: [default, rtc]`.
+PAINT/AutoHorizon requests always disable reuse; unsupported cache modes fail. AutoHorizon additionally requires
 the joint self-attention MoT driver. LingBot requires a complete native horizon
 for RTC/PAINT/AutoHorizon and eager execution for attention capture. AutoHorizon
 needs at least three denoising evaluations and one action token per waypoint.
@@ -160,3 +161,20 @@ identical noise and nonzero weights against a known prefix. For AAC, check actua
 candidate diversity; for AutoHorizon, compare identical-noise actions with default.
 Record latency and peak memory. These real-weight checks and robot trials remain
 outstanding for the newly added combinations.
+
+
+## Shared sampler structure and cache validation
+
+`XPolicyLab/utils/sampling_contracts.py` owns CPU request checks (shapes, finite
+values, weights in [0,1], positive beta). It imports neither Torch nor JAX.
+Pi05 asks for writable copies; each model retains its normalization and schedule.
+`flow_sampling.rtc_correction` shares only the clean-estimate Torch VJP between
+OpenWAM, FastWAM and the generic RTC sampler. Pi05 JAX, Xiaomi and LingBot native
+loops remain separate. Do not force them through a common scheduler.
+
+OpenWAM's `dit_cache_modes` is a startup-validated allowlist, default `[default]`.
+The engine selects cache per request without swapping its global cache object.
+RTC stores corrected action predictions and native video predictions; reuse
+skips forward and VJP together. Preserve native similarity and skip rules.
+For an all-task example and commands see [RTC cache](../../../../guideline.html#openwam-rtc-cache).
+Keep uncached parity tests distinct from approximate cached quality/latency tests.

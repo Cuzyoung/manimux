@@ -1083,7 +1083,7 @@ decides availability. It does not establish task performance.</p>
 </tr>
 </tbody>
 </table>
-<p>OpenWAM specialized modes require compilation and DiT cache disabled, CFG scale 1;
+<p>OpenWAM specialized modes require eager execution and CFG scale 1. RTC can opt into DiT caching; PAINT/AutoHorizon requests remain uncached;
 AutoHorizon also requires the joint-attention driver. LingBot conditioned/attention modes
 require the native horizon; attention capture needs eager execution. Pi05 PyTorch and
 Pi05 EEF are outside this matrix. <a href=".agents/skills/manimux-inference/references/inference-matrix.md">Detailed model contracts</a></p>
@@ -1143,7 +1143,26 @@ revisions, not automatically to a new checkpoint.</p>
 <p>Establish whether the study is single-task or multi-task before choosing a launch command. Recommend a config list for multiple tasks, and retain the requested task coverage when switching models. A checkpoint's training task does not define the evaluation scope. Lists can also compare several methods on one task; incompatible checkpoints or service contracts need separate lists.</p>
 <p>The local bottle-trained 30k evaluation catalogs are <code>manimux/configs/experiment_lists/yam_lingbot_vla2_bottles30k_all_tasks.yaml</code> and <code>manimux/configs/experiment_lists/yam_openwam_bottles30k_all_tasks.yaml</code>. Each covers coin, medium blocks, bottles, rotating clock and moving cube, with Serial, BID, AutoHorizon, RTC, PAINT and Async. All use Direct; fixed windows are 32/50 for LingBot and 20/32 for OpenWAM, while AutoHorizon remains adaptive. These are cross-task evaluation catalogs for bottle-trained checkpoints, not evidence of multi-task training or validated task performance. OpenWAM's catalog requires <code>policy/openwam/yam/finetune-put-bottles-step30000-sampling.yaml</code> with compilation and DiT caching disabled for specialized samplers. Runtime capability checks remain authoritative.</p>
 <h3 id="experiment-config-locations">Where configurations live</h3>
-<p>For ordinary OpenWAM Serial/Async trials, prefer <code>manimux/configs/experiment_lists/yam_openwam_bottles30k_cached_all_tasks.yaml</code> with the original <code>finetune-put-bottles-step30000.yaml</code> model recipe: both compilation and DiT velocity caching remain enabled. This list covers all five tasks and writes separate <code>-cached</code> outputs. The six-method catalog uses a separate eager model recipe because the current adapter does not advertise RTC/PAINT/AutoHorizon with these optimizations enabled. This is an implementation compatibility restriction, not a theoretical requirement. Report optimization flags and measured latency when comparing results across the two service configurations.</p>
+<p>For ordinary OpenWAM Serial/Async trials, prefer <code>manimux/configs/experiment_lists/yam_openwam_bottles30k_cached_all_tasks.yaml</code> with the original <code>finetune-put-bottles-step30000.yaml</code> model recipe: both compilation and DiT velocity caching remain enabled. This list covers all five tasks and writes separate <code>-cached</code> outputs. The six-method catalog uses a separate eager model recipe to keep the six-method comparison uncached; compiled specialized sampling remains unsupported. This is an implementation compatibility restriction, not a theoretical requirement. Report optimization flags and measured latency when comparing results across the two service configurations.</p>
+<h3 id="openwam-rtc-cache">OpenWAM RTC + DiT cache</h3>
+<p>These fields belong to the <strong>model recipe</strong>. The runtime still selects <code>algorithm: rtc</code>.</p>
+<pre><code class="language-yaml">compile_enabled: false
+dit_cache_enabled: true
+dit_cache_modes: [default, rtc]</code></pre>
+<p><code>dit_cache_enabled</code> is the master switch; <code>dit_cache_modes</code> is the allowlist. Omitted means <code>[default]</code>; <code>[rtc]</code> enables RTC-only reuse; <code>[]</code> disables reuse for every mode. Serial/Async use the default sampler. PAINT/AutoHorizon execute uncached and cannot be added to this list. Null entries and unsupported names are errors.</p>
+<p>On a recomputed step, RTC corrects the action prediction before both video and action predictions enter the native cache. On a hit, forward and VJP are skipped while current schedule deltas still update the latents. Native similarity thresholds and skip limits are unchanged; cache state resets per request. This is an approximate RTC variant: report it as <strong>RTC + cache</strong>, with compile settings and measured latency.</p>
+<p>The following catalog covers all five tasks with Serial, RTC and Async on the same eager cached backend, using separate output directories ending in <code>-rtc-cache-eager</code>. Existing uncached and compiled-cache catalogs remain separate.</p>
+<pre><code class="language-bash"># Model server (terminal 1)
+cd /home/ubuntu/manimux
+envs/openwam/.venv/bin/python manimux/servers/openwam.py \
+  --config manimux/configs/policy/openwam/yam/finetune-put-bottles-step30000-rtc-cache.yaml
+
+# Runtime (terminal 2; reuse the existing camera and RoboGUI services)
+cd /home/ubuntu/manimux
+envs/yam/.venv/bin/python -m manimux serve \
+  --config-list manimux/configs/experiment_lists/yam_openwam_bottles30k_rtc_cache_all_tasks.yaml</code></pre>
+<p>Model responses expose <code>sampling_stats</code>; RTC includes <code>model_evaluations</code>, <code>guidance_evaluations</code> and <code>cache_hits</code>. For ordinary inline/process decoding, counters are recorded under <code>data.zarr/plans/&lt;plan&gt;/canonical_raw</code> and <code>infra_output</code>, in the <code>metadata.sampling_stats</code> attribute. Counters add no timing synchronization. Validation covers CPU synthetic samplers and routing; real-weight latency and robot quality remain to be measured.</p>
+
 <table><thead><tr><th>File</th><th>Owns</th></tr></thead><tbody>
 <tr><td><code>manimux/configs/experiment_lists/*.yaml</code></td><td>The experiments available in this session. First entry is the initial selection.</td></tr>
 <tr><td><code>manimux/configs/experiments/&lt;task&gt;/&lt;model&gt;/*.yaml</code></td><td>Task prompt, inference method, executor, output directory, layout/repeat rules and rubric reference.</td></tr>
@@ -1350,6 +1369,7 @@ Each rollout saves a snapshot; later YAML edits do not change historical scores.
 <h3 id="operate-each-trial">Operate each trial</h3>
 <ol>
 <li>Use <strong>Prepare Run</strong> for a free trial. For a scored trial, reset the scene, select <strong>Layout</strong>, then click <strong>Prepare Experiment</strong>; its Top reference is attached automatically.</li>
+<li>Hover over the Top layout reference and click its expand icon to fill the browser window. The image keeps its aspect ratio; press Escape or click the close button to return.</li>
 <li><strong>Prepare → adjust layout → Activate Warmup → Start rollout.</strong>
 Layout stays editable until first Start. The suggested repeat updates with the selected layout.
 Start validates the template and freezes layout, repeat and image hash; Pause/Resume keeps that selection locked.
@@ -2271,6 +2291,26 @@ decisions and result tables; it is not a second public guide.</p>
 </tr>
 </tbody>
 </table>
+<h3 id="step-ik">Choose when IK runs</h3>
+<p>Pose-producing adapters support two modes. <code>chunk</code> is the default and solves the decoded chunk before Timeline commit. <code>step</code> keeps TCP poses in Timeline and solves only the current target inside each control tick. Joint-output adapters need no IK mode.</p>
+<pre><code>execution:
+  ik:
+    mode: step
+    budget_ms: 5.0
+run:
+  control_timing: true</code></pre>
+<p>Merge these fields into an experiment with a direct executor and inline action decoding. The optional budget defaults to half the control period and must be shorter than that period. Reuse the example <code>manimux/configs/experiments/put_bottles/openwam/yam_openwam_serial_step30000_step_ik.yaml</code>. Existing experiments remain in chunk mode.</p>
+<p>Step mode supports serial/async for IK adapters. OpenWAM YAM and XR1 YAM also support pose-space RTC/PAINT; Pi05 Tianji, XR1 Tianji and UMI-DP Tianji support pose-space RTC. Unsupported combinations fail at configuration validation. Smooth/MPC, joint candidate scoring, temporal ensembling, executor-based RTC forecasts, cubic joint blends, waypoint handoff and decoder diffIK substeps require chunk mode.</p>
+<p>The current pose is interpolated with linear position/gripper and quaternion SLERP, then IK is seeded from the current measured joint state. Both arms share the budget; a failed or late solution holds both arms at the previous command. Watch the <code>step_ik</code> timing stage and <code>step_ik_hold</code> events. The budget is cooperative: native calls cannot always be interrupted, so verify control timing on the target machine. Pose-space interpolation can produce a different joint path from interpolating a pre-solved joint chunk.</p>
+<p><strong>Optional TCP target speed limit (off by default):</strong> set <code>execution.ik.pose_speed_limit</code> to a mapping with <code>max_linear_m_s</code> and/or <code>max_angular_rad_s</code>. Values must be positive and finite. Omit it or use <code>null</code> to disable. This setting applies to step IK only.</p>
+<pre><code>execution:
+  ik:
+    mode: step
+    pose_speed_limit:
+      max_linear_m_s: 0.25
+      max_angular_rad_s: 0.6</code></pre>
+<p>The limiter bounds each target increment from the TCP pose of the last sent joint command, using one nominal control period. IK still starts from measured joints. Gripper commands keep their existing limits. Timeline and RTC/PAINT timestamps remain unchanged; sustained limiting can cause tracking lag or skipped intermediate targets. This limits the requested pose increment, not measured physical velocity. It does not implement waypoint-time stretching.</p>
+<p><strong>Execution ownership:</strong> Timeline owns chunk handoff and time-based reference sampling. The execution pipeline applies the optional pose limiter, resolves IK when needed, and calls the joint executor. The IK solver only solves; the pipeline handles failed solves by holding the last command. The main loop orchestrates these calls, records diagnostics, validates safety and sends the command. Neither the limiter nor IK rewrites the trajectory clock.</p>
 <p>The runtime path is <strong>observation → policy → action adapter → inference strategy / Timeline → executor → robot</strong>.
 Model inference and hardware control run in separate processes. Model output, scheduled reference,
 executor command and measured state are distinct recorded stages.</p>

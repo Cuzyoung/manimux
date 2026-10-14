@@ -559,6 +559,11 @@ def prepare_experiment(**options) -> dict:
         values["control_profile"] = Path(values["control_profile"])
     if values.get("local") is not None:
         values["local"] = Path(values["local"])
+    from manimux.runtime.ik import ik_parameters
+    execution = values.setdefault("execution", {})
+    if set(execution) - {"ik"}:
+        raise ValueError("execution supports only the ik section")
+    execution["ik"] = ik_parameters(**(execution.get("ik") or {}))
     values["run"] = run_parameters(**values["run"])
     values["robot"] = robot_parameters(**values["robot"])
     values["policy"] = policy_parameters(**values["policy"])

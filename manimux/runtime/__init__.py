@@ -185,6 +185,8 @@ def inference_parameters(*, executor: dict, **options) -> dict:
 
 def validate_runtime_parameters(config: dict) -> None:
     """Preserve constraints between scheduling, action decoding and execution limits."""
+    from manimux.runtime.ik import validate_ik_config
+    validate_ik_config(config)
     settings = config["inference"]
     ensemble = (settings.get("temporal_ensemble") or {}).get("enabled", False)
     candidate_aac = settings["algorithm"] == "aac" and (

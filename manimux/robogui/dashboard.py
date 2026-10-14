@@ -1655,15 +1655,22 @@ class PolicyRoboGUI:
 
     def _update_plan(self, message: dict[str, Any]) -> None:
         action_space = str(message.get("action_space", "joint_position"))
-        if action_space != "joint_position":
-            raise ValueError("RoboGUI expects decoded joint_position plans")
-        grouped_actions = self.robot.validate_groups(message.get("groups"), sequence=True)
+        pose_plan = action_space == "absolute_tcp_pose"
+        if pose_plan:
+            from manimux.policy_adapter.pose_output import validate_pose_rows
+            grouped_actions = {name: validate_pose_rows(rows) for name, rows in message["groups"].items()}
+            if set(grouped_actions) != {g.name for g in self.robot.groups}:
+                raise ValueError("Pose plan groups do not match the robot")
+        elif action_space == "joint_position":
+            grouped_actions = self.robot.validate_groups(message.get("groups"), sequence=True)
+        else:
+            raise ValueError(f"Unsupported plan space: {action_space}")
         horizon = len(next(iter(grouped_actions.values())))
         metadata = dict(message.get("metadata") or {})
-        gripper_by_group = self.robot.gripper_closed_steps_by_group(
+        gripper_by_group = ({} if pose_plan else self.robot.gripper_closed_steps_by_group(
             grouped_actions,
             previous_positions=getattr(self, "last_joint_positions", {}),
-        )
+        ))
         metadata["gripper_closed_steps_by_group"] = {
             group_name: flags.tolist() for group_name, flags in gripper_by_group.items()
         }
@@ -1682,7 +1689,7 @@ class PolicyRoboGUI:
             for group_name, group_actions in grouped_actions.items()
         }
         self._plan_points = {
-            name: self.robot.positions(name, actions)
+            name: (actions[:, :3].copy() if pose_plan else self.robot.positions(name, actions))
             for name, actions in self.plan_actions.items()
         }
         self._plan_cursor = start_index
@@ -1718,7 +1725,9 @@ class PolicyRoboGUI:
         if self._warmup_preview_chunk_id is not None and chunk_id >= self._warmup_preview_chunk_id:
             return
         trajectories = {
-            group.name: self.robot.positions(group.name, grouped_actions[group.name][start_index:])
+            group.name: (grouped_actions[group.name][start_index:, :3].copy()
+                         if message.get("action_space") == "absolute_tcp_pose" else
+                         self.robot.positions(group.name, grouped_actions[group.name][start_index:]))
             for group in self.robot.groups
             if group.name in grouped_actions and len(grouped_actions[group.name][start_index:]) > 0
         }

@@ -22,12 +22,15 @@ from manimux.policies import ActionDecoderClient, PolicyCapabilities, metadata_m
 from manimux.policies.base import action_interval
 from manimux.policies.worker import PolicyWorkerClient
 from manimux.policy_adapter import build_policy_adapter
+from manimux.policy_adapter.pose_output import POSE_SPACE
 from manimux.recording import EpisodeRecorder
 from manimux.recording.provenance import state_evidence
 from manimux.robogui import RoboGUIBridge
 from manimux.runtime.decode_forecast import DecodeForecast
 from manimux.runtime.diagnostics import build_plan_boundary_payload
+from manimux.runtime.execution import ExecutionPipeline
 from manimux.runtime.executors import DirectExecutor, Executor, MPCExecutor, SmoothExecutor
+from manimux.runtime.ik import step_ik_enabled, validate_ik_config
 from manimux.runtime.inference import (
     DefaultChunkStrategy,
     InferenceStrategy,
@@ -164,6 +167,8 @@ class EdgeRuntime:
         self._run_dir = run_dir
         self._clock = clock or SystemClock()
         self._control_dt_ns = int(1_000_000_000 / config["robot"]["control_hz"])
+        validate_ik_config(config)
+        self._step_ik = step_ik_enabled(config)
         self._robot = self._build_robot()
         self._sensors = [build_sensor(sensor, self._clock) for sensor in config["sensors"]]
         # Runtime reuses robot kinematics; decoding subprocesses load the offline
@@ -236,6 +241,12 @@ class EdgeRuntime:
         )
         self._timeline = self._build_timeline()
         self._executor = self._build_executor()
+        self._execution = ExecutionPipeline(
+            self._executor,
+            kinematics=self._robot.kinematics,
+            ik_options=config.get("execution", {}).get("ik"),
+            control_dt_ns=self._control_dt_ns,
+        )
         if (config["inference"].get("rtc") or {}).get("condition_source") == "executor":
             predictor = getattr(self._executor, "predict_commands", None)
             setter = getattr(self._strategy, "set_condition_predictor", None)
@@ -291,6 +302,7 @@ class EdgeRuntime:
             kinematics=self._robot.kinematics,
             motion_limits=self._config["executor"]["motion_limits"],
         )
+        adapter.decode_pose_only = step_ik_enabled(self._config)
         adapter.validate(self._config["robot"], self._config["policy"])
         return adapter
 
@@ -310,7 +322,9 @@ class EdgeRuntime:
 
     def _build_timeline(self) -> ActionTimeline:
         return ActionTimeline(
-            self._config["robot"]["group_dims"],
+            ({name: 8 for name in self._config["robot"]["group_dims"]}
+             if self._step_ik else self._config["robot"]["group_dims"]),
+            action_space=POSE_SPACE if self._step_ik else "joint_position",
             max_source_steps=self._config["inference"]["max_chunk_policy_steps"],
             blend_mode=self._config["inference"].get("blend_mode", "linear"),
             gripper_indices=((self._config["executor"].get("smooth") or {}).get(
@@ -346,6 +360,8 @@ class EdgeRuntime:
         Complete Tianji chunks use observation time; waypoint suffixes use the
         aligned handoff time. Neither choice changes the request observation.
         """
+        if self._step_ik:
+            return now_ns, state, "measured_state"
         expected_decode_s = self._decode_forecast.seconds
         start_ns = now_ns + int(expected_decode_s * 1e9)
         if self._decode_seed_source == "observation_state":
@@ -452,6 +468,7 @@ class EdgeRuntime:
                 "task": self._config["run"]["task"],
                 "evaluation": dict(self._evaluation),
                 "executor_kind": self._config["executor"]["type"],
+                "execution_ik": self._config.get("execution", {}).get("ik", {"mode": "chunk"}),
                 "smooth": (
                     loads(dumps(deepcopy(self._config["executor"]["smooth"]), default=str))
                     if self._config["executor"]["type"] == "smooth"
@@ -546,6 +563,7 @@ class EdgeRuntime:
                 inference_seed=capabilities.backend_metadata.get("model", {}).get("inference_seed"),
             )
             previous_command = copy_group_vector(initial_state.groups)
+            self._execution.warmup(initial_state.groups)
             last_command = copy_group_vector(initial_state.groups)
             self._state = RuntimeState.RUNNING
             robogui_episode_metadata = {
@@ -941,7 +959,7 @@ class EdgeRuntime:
                             pending_visuals.pop(response.request_seq, None)
                             chunk = None
                         now_ns = self._clock.now_ns()
-                        if chunk is not None and chunk.action_space != "joint_position":
+                        if chunk is not None and chunk.action_space != self._timeline.action_space:
                             self._strategy.on_response_rejected(response)
                             rejected_plans += 1
                             recorder.event(
@@ -949,7 +967,7 @@ class EdgeRuntime:
                                 request_seq=response.request_seq,
                                 reason=(
                                     "invalid_action:canonical action_space must be "
-                                    f"'joint_position', got {chunk.action_space!r}"
+                                    f"{self._timeline.action_space!r}, got {chunk.action_space!r}"
                                 ),
                             )
                             with stage("robogui_publish_event"):
@@ -1059,7 +1077,7 @@ class EdgeRuntime:
                                                 self._config["inference"]["max_plan_age_s"]
                                                 * 1_000_000_000
                                             ),
-                                            current_command=commit.current_command,
+                                            current_command=self._execution.reference_from_joints(commit.current_command),
                                             blend_steps=commit.blend_steps,
                                             command_velocity={
                                                 name: (last_command[name]-previous_command[name])
@@ -1311,15 +1329,17 @@ class EdgeRuntime:
                     reference = self._timeline.reference_horizon(
                         now_ns=now_ns,
                         dt_ns=self._control_dt_ns,
-                        horizon_steps=self._executor.horizon_steps,
+                        horizon_steps=self._execution.horizon_steps,
                     )
                 scheduled = copy_group_vector(state.groups)
                 if self._state == RuntimeState.RUNNING and reference is not None:
-                    scheduled = {
-                        name: values[0].copy() for name, values in reference.groups.items()
-                    }
-                    with stage("executor_step"):
-                        command = self._executor.step(now_ns, state, reference)
+                    execution = self._execution.step(
+                        now_ns, state, reference, last_command=last_command,
+                    )
+                    reference, command = execution.reference, execution.command
+                    scheduled = {name: values[0].copy() for name, values in reference.groups.items()}
+                    if execution.ik_status is not None and not execution.ik_status["success"]:
+                        recorder.event("step_ik_hold", step=steps, **execution.ik_status)
                     if isinstance(self._executor, SmoothExecutor) and (
                         self._config["executor"]["smooth"]["release_guard"] is not None
                         or self._executor.uses_close_latch
