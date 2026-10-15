@@ -6,13 +6,10 @@ choices, not requirements for a basic joint-space deployment.
 
 ## Decode in a separate process
 
-`manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_manimux_direct_async.yaml` preserves SAPolicy's
-full-pose IK and direct joint execution. It enables `policy.action_decoding:
-process`; the default remains `inline` for existing configurations.
-
-Pair it with `manimux/configs/policy/sapolicy/yam/teleop50-raw.yaml`: both now use a
-50-step horizon at 30 Hz (about 1.67 seconds). The server returns all 50 model
-steps and the adapter decodes all 50. Rolling replanning still removes expired
+SAPolicy runtime configurations (`manimux/configs/experiments/put_bottles/sapolicy/`) set
+`policy.action_decoding: process` to keep full-pose IK out of the 100 Hz control thread; the default remains
+`inline` for other configurations. SAPolicy uses a 50-step horizon at 30 Hz (about 1.67 seconds). The server
+returns all 50 model steps and the adapter decodes all 50. Rolling replanning still removes expired
 prefixes and replaces the remaining trajectory when a new plan arrives; it does
 not guarantee open-loop execution of every row. Direct execution still has no
 chunk-boundary blending, so increasing the horizon does not remove command jumps.
@@ -281,10 +278,9 @@ by that replay.
 
 ## Braking-aware tracking
 
-`manimux/configs/experiments/put_bottles/sapolicy/yam_sapolicy_manimux_braking_h25.yaml` enables the optional
-`executor.smooth.tracking_mode: braking` mode. Existing profiles retain the
-legacy mode unless explicitly changed. MPC is unchanged. The bottle profile also
-uses the optional [latched release](execution.md) rule.
+`executor.smooth.tracking_mode: braking` is optional; the SAPolicy runtime configurations use it with arm limits
+0.6 rad/s and 1.5 rad/s². Existing profiles retain the legacy mode unless explicitly changed. MPC is unchanged.
+The [latched release](execution.md) rule is a separate option (`smooth.release_guard`).
 
 The tracker combines the reference velocity from adjacent control samples with
 position-error correction. Correction speed is capped by a stopping-distance

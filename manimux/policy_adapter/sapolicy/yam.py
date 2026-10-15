@@ -513,6 +513,11 @@ class SAPolicyYamAdapter(PolicyAdapter):
                 actions[offset:end, arm_index * 8 : arm_index * 8 + 8],
                 np.asarray(seed_state[:ARM_JOINTS], dtype=np.float64),
                 diagnostics=ik_diagnostics,
+                unbiased=(
+                    raw_model_actions[offset:end, arm_index * 8 : arm_index * 8 + 8]
+                    if self._target_z_bias is not None
+                    else None
+                ),
             )
 
             ik_diagnostics[group]["seed_source"] = seed_source
@@ -609,6 +614,7 @@ class SAPolicyYamAdapter(PolicyAdapter):
         seed: np.ndarray,
         *,
         diagnostics: dict[str, object] | None = None,
+        unbiased: np.ndarray | None = None,
     ) -> np.ndarray:
         horizon = actions.shape[0]
         out = np.empty((horizon, GROUP_DIM), dtype=np.float64)
@@ -618,12 +624,20 @@ class SAPolicyYamAdapter(PolicyAdapter):
 
         durations = []
         converged_steps = []
+        unbiased_steps = 0
         for step, row in enumerate(actions):
             gripper = float(row[7])
             model_target = _wire_endpose_to_pose(row[:7])
             target = self._kinematics_from_model[group] @ model_target
             started = time.perf_counter_ns()
             converged, raw_solved = self._kinematics.ik(target, current, float(gripper))
+            if not converged and unbiased is not None:
+                # A biased target can leave the workspace (e.g. elbow at its limit near
+                # the base); the model's own target is then the nearest executable one.
+                model_target = _wire_endpose_to_pose(unbiased[step, :7])
+                target = self._kinematics_from_model[group] @ model_target
+                converged, raw_solved = self._kinematics.ik(target, current, float(gripper))
+                unbiased_steps += int(bool(converged))
             durations.append((time.perf_counter_ns() - started) / 1e6)
             solved = np.asarray(raw_solved, dtype=np.float64)
             if converged and solved.shape == (ARM_JOINTS,) and np.isfinite(solved).all():
@@ -641,6 +655,7 @@ class SAPolicyYamAdapter(PolicyAdapter):
                 "step_ms": durations,
                 "converged": converged_steps,
                 "failed_steps": failures,
+                "unbiased_steps": unbiased_steps,
                 "seed_joints": np.asarray(seed).tolist(),
             }
         if not np.isfinite(out).all():

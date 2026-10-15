@@ -1,23 +1,19 @@
-# Gripper geometry: ABC ~59% crank_4310 (fingertips offset +4.1 cm along grasp_site x), ours linear_4310 (centred).
-#   Virtual grasp_site = true site - 4.1 cm along site x via kinematics_options.assets_root (policy/sapolicy/yam/tcp_rot20/crank_site_assets).
-# Inference = ManiMux async as in the Sep MV51 runs (prefix 25, blend 4, refill 0.2 s).
-# SAPolicy tcp_rot20 put-bottles evaluation, aligned to Pi05 Joint 30k RTC
-# (put_bottles/pi05/yam_pi05_rtc_joint_step30000.yaml; experiments.md §5).
-# Model-specific: SAPolicy adapter/camera map, run.task prompt, startup_timeout_s, expected_backend.
-# Model-specific start: ABC-130k bottles real 'ready' pose cluster (median of 58/200 sampled
-#   episodes, MCAP first frame); Pi05 starts at zero, which never occurs in ABC data. start_duration 4 s.
-# Model-specific exec: first 25 of 50 source steps per chunk, selected for this comparison.
-# Model-specific smoothing: 8 Hz low-pass tracking with no arm or gripper rate caps.
-#   Gripper remains continuous, with no grasp/release guards; no control_profile.
-#   + blend_policy_steps 4. Table offset: ABC YAM base mesh bottom = table (z 0.750);
-#   z +0.022: 2.2 cm plate verified (J2 axis height and zero-pose fingertip height match FK); gains = i2rt defaults as ABC.
-# IK decoding runs in a separate process (inline IK stalled the 100 Hz loop 30-100 ms per handoff);
-#   pre-Start warmup is off because it requires inline decoding.
-# Not aligned yet: SAPolicy backend has no inference_seed / seeded RESET.
-# Policy server: manimux/configs/policy/sapolicy/yam/tcp_rot20/raw-50k.yaml (port 8510); .agents/skills/manimux-inference/references/deployment/sapolicy-yam.md "tcp_rot20".
+# SAPolicy caps1010 3-task (bottles real/sim + pen caps + unscrew caps, unfrozen DINOv2-L, CLIP task vector set to
+#   real bottles), RAW 160k (last.ckpt), zero-shot put-bottles, no target z bias (RTC variant: yam_sapolicy_caps1010_3task_rtc_z22.yaml).
+# Policy server: manimux/configs/policy/sapolicy/yam/caps1010_3task_tcp/raw-160k.yaml (port 8510); the action head
+#   compiles on the first request (minutes) - warm the server up before a rollout.
+# Deployment (2026-10-15 diagnosis): stock grasp_site + z +2.2 cm plate (model_from_kinematics). Training EE
+#   labels are the official station MJCF {side}_grasp_site for every episode; this chain matches it to <0.1 mm.
+# Start: ABC-130k bottles 'ready' cluster shifted 2.2 cm down (same joints as ABC-DiT mount22), so the model
+#   sees the exact ABC ready pose. move_to_start_on_connect.
+# Inference: ManiMux async, execute 48 of 50 rows (SA plans its descent in rows ~36-49; replanning after 25-40
+#   rows keeps postponing it), blend 4, refill 0.2 s, max plan age 2.5 s (48 rows = 1.6 s + latency).
+# Executor: smooth braking 8 Hz with arm caps 0.6 rad/s, 1.5 rad/s^2 (without caps chunk seams reach the motors).
+# IK decoding in a separate process (inline IK stalled the 100 Hz loop 30-100 ms per handoff).
+# SAPolicy backend has no inference_seed; repeated requests differ 3-10 cm at the chunk end.
 run:
-  task: put bottle in bin
-  output_dir: ./data/experiments/sapolicy-put-bottles-tcp-rot20-step50000/async25-cranksite-z22
+  task: put the plastic bottles in the bin
+  output_dir: ./data/experiments/sapolicy-put-bottles-caps1010-3task-raw160k/async48-stocksite-z22
   max_control_steps: 12000
   warmup_before_start: false
   experiment_template:
@@ -32,9 +28,11 @@ robot:
   control_hz: 100.0
   options:
     move_to_start_on_connect: true
+    # Same as ABC-DiT mount22: ABC ready cluster shifted 2.2 cm down, so with z +2.2 cm the model sees
+    # exactly the ABC ready pose (raw ABC ready joints would read 2.2 cm high).
     start_joints:
-      left_arm: [-0.044, 1.552, 0.383, 0.878, -0.168, -0.006, 1.0]
-      right_arm: [0.015, 1.53, 0.384, 0.831, 0.081, 0.032, 1.0]
+      left_arm: [-0.044, 1.675, 0.354, 1.031, -0.168, -0.006, 1.0]
+      right_arm: [0.015, 1.651, 0.353, 0.984, 0.081, 0.032, 1.0]
     start_duration_s: 4.0
     home_duration_s: 2.0
     home_on_close: true
@@ -81,7 +79,7 @@ policy:
       - [0.0, 0.0, 1.0]
     kinematics: yam
     kinematics_options: {arm_type: yam, gripper_type: linear_4310, num_arm_joints: 6, pos_threshold: 0.004, ori_threshold: 0.002,
-      max_iters: 300, recovery_ori_threshold: 0.0872664626, recovery_max_joint_delta: 0.35, assets_root: manimux/configs/policy/sapolicy/yam/tcp_rot20/crank_site_assets}
+      max_iters: 300, recovery_ori_threshold: 0.0872664626, recovery_max_joint_delta: 0.35}
     action_space: joint_position
     view_profile: top
   action_dt_s: 0.03333333333333333
@@ -93,14 +91,26 @@ policy:
   action_decoding: process
   expected_backend:
     server: xpolicylab_policy_server
-    model: {policy_name: SAPolicy, action_horizon: 50, checkpoint_source: 'sha256:d84e94f23eadb56d28d4d1e73f5e98ae6b0e15bb404799b86ccaa2b032825a3f'}
-robogui: {enabled: true, robot: yam, policy_label: SAPolicy tcp_rot20 RAW 50k - ManiMux async prefix 25 | ABC ready start |
-    smooth 8Hz unlimited+blend4 | crank-site -4.1cm | z+2.2cm | IK process}
+    model: {policy_name: SAPolicy, action_horizon: 50, checkpoint_source: 'sha256:b1571edd64f0b7d6c579197d4e99ca2ef701b6dde86ee909994b8a5fe07e02e4'}
+robogui: {enabled: true, robot: yam, policy_label: SAPolicy caps1010 3task RAW 160k (last) - ManiMux async exec 48 | ABC ready start |
+    braking arm 0.6/1.5+blend4 | stock site (as ABC-DiT) | z+2.2cm | IK process}
 recording: {enabled: true, video_fps: 30.0}
 inference: {algorithm: async, config: ../../../inference/yam_manimux_single.yaml, refill_threshold_s: 0.2,
-  max_plan_age_s: 2.0, blend_policy_steps: 4, max_chunk_policy_steps: 25}
+  max_plan_age_s: 2.5, blend_policy_steps: 4, max_chunk_policy_steps: 50}#  48 rows = 1.6 s + up to ~0.4 s latency
 executor:
   type: smooth
-  config: ../../../executor/yam_smooth_unbounded.yaml
+  smooth:
+    cutoff_hz: 8.0
+    tracking_mode: braking
+    max_velocity: 0.6
+    max_acceleration: 1.5
+    position_limit_abs: 3.14
+    grasp_guard: null
+    release_guard: null
+    gripper:
+      mode: continuous
+      max_velocity: null
+      max_acceleration: null
+      max_closing_velocity: null
 
 camera_server: {config: ../../../embodiment/sensor/cameras/realsense_3_views.yaml}
